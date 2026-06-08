@@ -9,7 +9,7 @@ AgentCrawl turns URLs and bounded sites into clean Markdown, text, links, metada
 
 ## What it solves
 
-Agents need web context, but raw HTML is noisy and one-off scraper scripts break easily. AgentCrawl gives agents a controlled extraction layer:
+Agents need web context, but raw HTML is noisy and one-off scraper scripts break easily. AgentCrawl gives agents a controlled extraction layer that keeps crawl state, cache, retries, and data under your control:
 
 - Known URL in, Markdown out.
 - Fast HTTP extraction first, Playwright only when a page needs a browser.
@@ -51,6 +51,14 @@ export AGENTCRAWL_BROWSER_BACKEND=camofox
 export AGENTCRAWL_CAMOFOX_URL=http://127.0.0.1:9377
 export AGENTCRAWL_CAMOFOX_ACCESS_KEY=replace-if-access-control-is-enabled
 ```
+
+## Documentation
+
+- [Comparison](docs/COMPARISON.md): where AgentCrawl fits against Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
+- [Examples](docs/EXAMPLES.md): common CLI, Python, HTTP, MCP, Docker, and agent workflows.
+- [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): the planned fixture corpus and report standard for public quality claims.
+- [Operations](docs/OPERATIONS.md): deployment, backup, restore, and production checks.
+- [Install for agents](INSTALL_FOR_AGENTS.md): canonical procedure for coding agents that install or connect AgentCrawl.
 
 ## Python
 
