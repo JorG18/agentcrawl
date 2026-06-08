@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+agentcrawl.db
+.git
+.env
+tests
+examples
+.github
+PROJECT_STATE.md
+PROGRESS_LOG.md
+VPS_DEPLOYMENT.md
+README_AGENT_CONNECTION.md

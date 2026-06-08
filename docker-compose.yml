@@ -1,0 +1,19 @@
+services:
+  agentcrawl:
+    build: .
+    image: agentcrawl-community:local
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - agentcrawl-data:/data
+    tmpfs:
+      - /tmp:size=512m
+    shm_size: 512mb
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  agentcrawl-data:
