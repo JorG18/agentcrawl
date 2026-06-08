@@ -1,85 +1,61 @@
 # Comparison
 
-AgentCrawl is built for agents that need self-hosted web extraction with a small operational surface. It is not trying to replace every crawler, browser automation framework, or hosted scraping API.
+AgentCrawl is a self-hosted web extraction product for agents that need clean Markdown, crawl jobs, cache, retries, and MCP tools inside infrastructure they control.
 
-This page explains where AgentCrawl fits today and what still needs to improve.
+Use this comparison to choose the right tool for a workflow. The projects below overlap, but they are optimized for different jobs.
 
-## Positioning
+## Product Fit
 
-| Project | Strongest fit | Tradeoff |
+| Project | Best for | Operational model |
 | --- | --- | --- |
-| AgentCrawl | Self-hosted Markdown extraction, MCP tools, durable crawl jobs, cache, retries, and API control in your own environment. | Early project; fewer public benchmarks, examples, SDKs, and browser workflow features than mature alternatives. |
-| Firecrawl | Hosted web context API with search, scrape, crawl, map, batch jobs, structured output, media parsing, actions, SDKs, and public scale claims. | Hosted-first workflow; self-hosted users still inherit a larger service surface. |
-| Crawl4AI | Deep browser and crawler control for LLM-ready Markdown, sessions, cookies, proxies, hooks, screenshots, and advanced extraction strategies. | More configuration surface; less focused on a small self-hosted agent service with durable API jobs. |
-| ScrapeGraphAI | Prompt-driven structured extraction and graph-style scraping pipelines across web pages and local documents. | LLM-pipeline centered; less focused on persistent crawl job operations. |
-| Jina Reader | Extremely simple URL-to-LLM-text and search-to-context API through `r.jina.ai` and `s.jina.ai`. | Hosted API model; less control over local persistence, jobs, cache, and server policy. |
-| Crawlee | General-purpose crawling framework with queues, storage, routing, sessions, proxies, browser and HTTP crawlers. | Framework for building crawlers; AgentCrawl aims to be a ready agent-facing extraction service. |
-| Stagehand | Browser automation with natural-language actions and structured extraction. | Browser workflow framework; not a dedicated crawler/cache/MCP extraction service. |
+| AgentCrawl | Self-hosted Markdown extraction, bounded crawling, MCP access, durable jobs, cache, retries, usage accounting, and API control. | Local library, CLI, HTTP API, Docker, and MCP server. |
+| Firecrawl | Hosted web context API with search, scrape, crawl, map, batch jobs, structured output, media parsing, SDKs, and browser actions. | Hosted API with open-source components. |
+| Crawl4AI | Deep browser and crawler control for LLM-ready Markdown, sessions, cookies, proxies, hooks, screenshots, and extraction strategies. | Local library, CLI, Docker, and self-hosted API options. |
+| ScrapeGraphAI | Prompt-driven structured extraction and graph-style scraping pipelines across websites and local documents. | Python library, hosted API, SDKs, integrations, and MCP options. |
+| Jina Reader | Simple URL-to-LLM-text and search-to-context access through `r.jina.ai` and `s.jina.ai`. | Hosted reader/search API with an open-source branch. |
+| Crawlee | General-purpose crawling framework with queues, routing, storage, sessions, proxies, HTTP crawlers, and browser crawlers. | Python/TypeScript crawler framework. |
+| Stagehand | Browser automation with natural-language actions, repeatable workflows, and structured browser extraction. | Browser automation SDK. |
 
-## What AgentCrawl Already Prioritizes
+## Why Choose AgentCrawl
 
-- HTTP-first extraction so common pages do not require a browser runtime.
-- Optional Playwright or Camofox-backed browser fallback for pages that need rendering.
+Choose AgentCrawl when the priority is running web extraction from your own environment rather than depending on a hosted scraping API.
+
+AgentCrawl provides:
+
+- HTTP-first extraction for fast static-page scraping.
+- Optional Playwright or Camofox-backed browser fallback for rendered pages.
 - Markdown, text, links, metadata, and optional structured extraction.
 - Bounded site mapping and crawling.
 - Durable crawl jobs with checkpointed queues, retries, cancellation, events, and paginated results.
 - SQLite-backed cache, usage, jobs, events, and failures.
 - Bearer authentication, `robots.txt` support, and SSRF protection for exposed APIs.
-- MCP tools for direct agent use.
+- MCP tools for agents that need scrape, map, crawl, job, usage, and cache operations.
 - Docker, CLI, Python, HTTP API, and backup/restore workflows.
 
-## Current Gaps
+## When Another Tool May Fit Better
 
-These gaps are intentional to state publicly. They should be closed with implementation and reproducible tests before stronger claims appear in the README.
+Use Firecrawl when you want a hosted API with broad web-scale infrastructure, media parsing, browser actions, and SDK coverage already packaged around the service.
 
-### Extraction Quality Evidence
+Use Crawl4AI when your workflow needs fine-grained browser automation controls, custom hooks, proxy/session handling, screenshots, or advanced local crawling strategies.
 
-AgentCrawl needs a public fixture corpus and repeatable quality report covering documentation sites, news, ecommerce pages, blogs, forums, tables, code blocks, JS-heavy pages, redirects, and failure cases.
+Use ScrapeGraphAI when your main workflow is prompt-driven structured extraction through LLM pipeline graphs, especially across mixed web and local document sources.
 
-Until that exists, quality claims should stay specific and conservative.
+Use Jina Reader when you want the simplest possible hosted URL-to-text or search-to-context endpoint.
 
-### Document Ingestion
+Use Crawlee when you are building a custom crawler application and want a framework with routing, request queues, datasets, session pools, and proxy controls.
 
-PDF ingestion is the first missing document capability. Office formats, plain text, XML, JSON, Markdown input normalization, and OCR can follow after PDF support is stable.
+Use Stagehand when the main task is operating a browser through natural-language and code actions rather than running a crawler service.
 
-### Browser Workflows
+## Current Product Boundary
 
-AgentCrawl supports browser fallback, but the public API should grow bounded browser actions before competing with Firecrawl, Crawl4AI, or Stagehand on interactive pages:
+AgentCrawl is strongest today as a self-hosted extraction layer for agents and internal tools. It is not positioned as a hosted scraping network, a full browser automation framework, or a general crawler framework.
 
-- wait;
-- click;
-- scroll;
-- type;
-- screenshot or capture;
-- cookies and session reuse;
-- clear browser cleanup guarantees.
+The public roadmap tracks the next product areas:
 
-### SDKs And Examples
+- reproducible extraction-quality benchmarks;
+- PDF and document ingestion;
+- richer browser actions;
+- more examples and TypeScript usage;
+- package and container distribution improvements.
 
-Python, CLI, HTTP, Docker, and MCP are enough for the first release. Adoption will improve with:
-
-- TypeScript examples or a small Node SDK;
-- complete OpenAPI examples;
-- cookbook examples for agent clients;
-- public demos for docs sites, ecommerce pages, and structured extraction.
-
-### Distribution Signals
-
-The repo should expose the trust signals users expect before adopting a new scraping tool:
-
-- PyPI release;
-- container image;
-- badges for CI, package version, and license;
-- release notes;
-- issue templates;
-- benchmark report;
-- comparison page;
-- public examples.
-
-## Near-Term Differentiator
-
-AgentCrawl should compete first as:
-
-> Firecrawl-style self-hosted extraction for agents, with durable jobs and MCP, without forcing a hosted SaaS path.
-
-That is narrower than the full market, but it is defensible. The strongest first users are developers running local agents, private agent stacks, VPS deployments, and internal tools that need web context without sending crawl state through a third-party hosted API.
+That boundary is intentional: AgentCrawl focuses first on agent-facing extraction that remains under user control.

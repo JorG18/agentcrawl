@@ -1,50 +1,27 @@
 # Quality Benchmarks
 
-AgentCrawl should only make public quality or performance claims when they can be reproduced from this repository.
+AgentCrawl treats extraction quality as a product surface. A crawler for agents is only useful when the output is readable, stable, and easy to cite.
 
-This document defines the benchmark shape before the benchmark runner is implemented.
+This page defines how AgentCrawl is evaluated and how contributors add new quality checks.
 
-## Goals
+## What The Benchmarks Measure
 
-- Measure Markdown usefulness for agents, not raw HTML coverage alone.
-- Catch regressions in main-content extraction, tables, links, code blocks, metadata, and crawl durability.
-- Compare AgentCrawl against realistic alternatives when the user configures their own credentials or local installs.
-- Keep the baseline small enough to run in CI and extensible enough for deeper release checks.
+The benchmark suite focuses on agent-ready output, not only on whether a URL returned HTML.
 
-## Fixture Corpus
+Core checks cover:
 
-The first public corpus should include stable pages or checked-in HTML fixtures for these categories:
-
-| Category | What to verify |
-| --- | --- |
-| Documentation | Headings, code blocks, sidebars removed, internal links preserved. |
-| News or article | Main article extracted, navigation and related links reduced. |
-| Ecommerce | Product title, price text, variants, availability, breadcrumbs. |
-| Tables | Header/body alignment, row completeness, no flattened unreadable table text. |
-| Forums or discussion | Thread title, author/date metadata when visible, comments in order. |
-| Blogs | Title, author, date, body, canonical URL. |
-| JavaScript rendered page | Browser fallback produces content unavailable to HTTP fetch. |
-| Redirects and canonical URLs | Final URL, metadata, and content provenance are preserved. |
-| Failure cases | Timeouts, blocked pages, invalid URLs, private network rejections. |
-
-Prefer checked-in HTML fixtures for CI stability. Use live URLs only in an optional release benchmark job.
-
-## Metrics
-
-Minimum metrics:
-
-- non-empty Markdown rate;
+- non-empty Markdown output;
 - expected text presence;
-- forbidden boilerplate presence;
-- link count and canonical URL correctness;
-- table preservation score;
-- code block preservation score;
+- boilerplate reduction;
+- link and canonical URL correctness;
+- table preservation;
+- code block preservation;
 - metadata presence;
 - scrape duration;
-- cache hit behavior;
-- retry and failure classification behavior.
+- cache behavior;
+- retry and failure classification.
 
-For crawl jobs:
+For crawl jobs, checks cover:
 
 - pages discovered;
 - pages completed;
@@ -52,11 +29,29 @@ For crawl jobs:
 - retry attempts;
 - pagination correctness;
 - cancellation behavior;
-- resume after restart behavior.
+- state recovery after restart.
 
-## Comparison Targets
+## Fixture Categories
 
-Comparison adapters should be optional and skipped unless configured:
+The benchmark corpus is organized around page types agents commonly read:
+
+| Category | What is evaluated |
+| --- | --- |
+| Documentation | Headings, code blocks, sidebars, internal links, and page hierarchy. |
+| News or articles | Main article extraction, title, date, author, and navigation reduction. |
+| Ecommerce | Product title, price text, variants, availability, breadcrumbs, and metadata. |
+| Tables | Header/body alignment, row completeness, and readable Markdown structure. |
+| Forums or discussions | Thread title, visible author/date metadata, and comment order. |
+| Blogs | Title, author, date, body, canonical URL, and links. |
+| JavaScript rendered pages | Browser fallback content that is unavailable through HTTP-only fetches. |
+| Redirects and canonical URLs | Final URL tracking, metadata, and provenance. |
+| Failure cases | Timeouts, invalid URLs, blocked pages, private-network rejections, and SSRF protections. |
+
+Checked-in HTML fixtures are preferred for CI stability. Optional live-url runs can be used for release checks and product comparisons.
+
+## Comparison Runs
+
+AgentCrawl can be compared against other tools when their adapters and credentials are configured by the user:
 
 - Firecrawl API;
 - Crawl4AI local install;
@@ -64,18 +59,18 @@ Comparison adapters should be optional and skipped unless configured:
 - ScrapeGraphAI local install;
 - Crawlee local crawler.
 
-The report should not claim another project is worse unless the benchmark setup and versions are recorded.
+Comparison reports record tool versions, configuration, enabled extras, target URLs, and caveats. Public claims link to reproducible reports instead of relying on anecdotal results.
 
 ## Report Format
 
-Each run should produce:
+Benchmark runs produce machine-readable and human-readable output:
 
 ```text
 benchmarks/reports/YYYY-MM-DD-summary.md
 benchmarks/reports/YYYY-MM-DD-results.json
 ```
 
-The Markdown report should include:
+The Markdown summary includes:
 
 - AgentCrawl version and git SHA;
 - Python version and OS;
@@ -86,20 +81,23 @@ The Markdown report should include:
 - comparison target versions;
 - known caveats.
 
-## Release Gate
+## Release Standard
 
-A public release should not add stronger extraction claims unless:
+Release-quality extraction claims meet these conditions:
 
-- the fixture corpus passes locally;
-- CI runs the fixture corpus without live network dependencies;
-- any public comparison claim links to a report;
-- failures are documented as known limitations or fixed.
+- fixture checks pass locally;
+- CI runs fixture checks without live-network dependencies;
+- live comparison claims include tool versions and configuration;
+- known failures are documented or tracked;
+- stronger public claims link to benchmark evidence.
 
-## First Implementation Tasks
+## Adding New Benchmarks
 
-1. Add `benchmarks/fixtures/` with checked-in HTML pages.
-2. Add expected-output assertions as JSON or YAML.
-3. Add a `python -m benchmarks.run` command.
-4. Generate JSON and Markdown reports.
-5. Add CI for fixture-only benchmark checks.
-6. Add optional live comparison adapters behind environment variables.
+When adding a new benchmark, include:
+
+1. A stable fixture or clearly marked live URL.
+2. Expected text assertions.
+3. Boilerplate excluded from the desired output.
+4. Metadata expectations.
+5. Any special fetcher requirement, such as browser fallback.
+6. A short explanation of the product behavior being protected.

@@ -56,7 +56,7 @@ export AGENTCRAWL_CAMOFOX_ACCESS_KEY=replace-if-access-control-is-enabled
 
 - [Comparison](docs/COMPARISON.md): where AgentCrawl fits against Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
 - [Examples](docs/EXAMPLES.md): common CLI, Python, HTTP, MCP, Docker, and agent workflows.
-- [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): the planned fixture corpus and report standard for public quality claims.
+- [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): fixture categories, metrics, and report standards for public quality claims.
 - [Operations](docs/OPERATIONS.md): deployment, backup, restore, and production checks.
 - [Install for agents](INSTALL_FOR_AGENTS.md): canonical procedure for coding agents that install or connect AgentCrawl.
 

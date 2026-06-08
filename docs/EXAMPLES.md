@@ -1,8 +1,8 @@
 # Examples And Integration Cookbook
 
-This page lists the examples AgentCrawl should make obvious to new users and agent developers.
+AgentCrawl can be used as a local Python library, CLI tool, HTTP API, Docker service, or MCP server. This cookbook shows the common entrypoints.
 
-## Existing Entrypoints
+## Entrypoints
 
 - Python library: `examples/basic.py`
 - LLM-backed graph extraction: `examples/graph_extraction.py`
@@ -12,9 +12,7 @@ This page lists the examples AgentCrawl should make obvious to new users and age
 - Docker Compose: `docker compose up --build -d`
 - Hermes integration: `integrations/hermes/web-agentcrawl/`
 
-## Quick Scenarios
-
-### Scrape One Known URL
+## Scrape One Known URL
 
 Use this when an agent already has a URL and needs clean Markdown.
 
@@ -32,7 +30,7 @@ document = crawler.scrape("https://example.com")
 print(document.markdown)
 ```
 
-### Map A Site Before Crawling
+## Map A Site Before Crawling
 
 Use mapping to discover URLs before spending crawl budget.
 
@@ -40,18 +38,28 @@ Use mapping to discover URLs before spending crawl budget.
 agentcrawl map https://example.com --max-pages 50
 ```
 
-### Run A Durable Crawl Job
+## Run A Durable Crawl Job
 
-Use the remote API for crawls that should survive retries and be inspected later.
+Use the remote API for crawls designed to survive retries and remain inspectable later.
 
 ```bash
 agentcrawl --remote crawl https://example.com --max-pages 25 --max-depth 2
 agentcrawl --remote job JOB_ID --offset 0 --limit 100
 ```
 
-### Connect An Agent Through MCP
+HTTP clients can use an idempotency key to avoid duplicate jobs during retries:
 
-Local mode does not require an API server:
+```bash
+curl http://127.0.0.1:8000/v1/crawl \
+  -H "authorization: Bearer $AGENTCRAWL_API_KEY" \
+  -H "content-type: application/json" \
+  -H "Idempotency-Key: docs-crawl-2026-06-06" \
+  -d '{"url":"https://example.com","max_pages":25,"max_depth":2}'
+```
+
+## Connect An Agent Through MCP
+
+Local MCP mode does not require an API server:
 
 ```bash
 agentcrawl mcp
@@ -87,7 +95,7 @@ Remote API mode:
 }
 ```
 
-### Use Browser Fallback Only When Needed
+## Use Browser Fallback Only When Needed
 
 Start with HTTP extraction. Add browser support only when the target page needs JavaScript rendering.
 
@@ -104,9 +112,30 @@ document = crawler.scrape("https://example.com/app")
 print(document.markdown)
 ```
 
-## Examples To Add Next
+## Run The API With Docker
 
-These examples should be added as files under `examples/` as the public surface grows:
+```bash
+cp .env.example .env
+# Set AGENTCRAWL_API_KEYS and AGENTCRAWL_API_KEY in .env before exposure.
+docker compose up --build -d
+curl http://127.0.0.1:8000/health
+```
+
+## Verify A New Installation
+
+A complete installation check covers:
+
+- `agentcrawl doctor`;
+- `agentcrawl scrape https://example.com`;
+- authenticated `/health` or `/v1/stats` when the API is running;
+- MCP tool discovery;
+- a small crawl job;
+- usage and cache stats;
+- backup and restore commands for persistent deployments.
+
+## Additional Examples On The Roadmap
+
+The public roadmap includes more dedicated examples for:
 
 | Example | Purpose |
 | --- | --- |
@@ -117,18 +146,3 @@ These examples should be added as files under `examples/` as the public surface 
 | `examples/browser_fallback.py` | Show HTTP failure followed by browser-rendered success. |
 | `examples/docker.md` | Run the API with Docker Compose and verify `/health`. |
 | `examples/typescript.md` | Use `fetch` from Node or Bun before a dedicated SDK exists. |
-
-## Adoption Checklist
-
-A new user should be able to verify AgentCrawl without private context:
-
-- install from source or PyPI;
-- run `agentcrawl doctor`;
-- scrape `https://example.com`;
-- run the API with auth;
-- connect MCP;
-- run a small crawl job;
-- inspect usage and cache stats;
-- back up and restore SQLite state.
-
-If any step requires private instructions, improve the public docs before expanding the feature set.

@@ -52,6 +52,6 @@ See [docs/COMPARISON.md](docs/COMPARISON.md) for the public positioning against 
 - Upgrade and rollback guidance for persistent deployments.
 - Release automation for packages and containers.
 
-## Release standard
+## Product standard
 
-A release is ready when a new user can install AgentCrawl, scrape a page, run the API, connect MCP, diagnose problems, back up state, and restore state from the public docs alone.
+AgentCrawl is maintained so a new user can install it, scrape a page, run the API, connect MCP, diagnose problems, back up state, and restore state from the public docs alone.
