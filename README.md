@@ -3,22 +3,22 @@
 [![CI](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Self-hosted web extraction for AI agents.
+🕷️ Self-hosted web extraction for AI agents.
 
-AgentCrawl turns URLs and bounded sites into clean Markdown, text, links, metadata, and optional structured data. Use it from Python, the CLI, an HTTP API, Docker, or MCP. The crawler, cache, retries, jobs, and data stay in your environment.
+AgentCrawl turns messy web pages into clean Markdown, text, links, metadata, and structured data that agents can actually use. Run it from Python, the CLI, an HTTP API, Docker, or MCP. Your crawler, cache, retries, jobs, and extracted data stay in your environment.
 
-## What it solves
+## Why AgentCrawl? ✨
 
-Agents need web context, but raw HTML is noisy and one-off scraper scripts break easily. AgentCrawl gives agents a controlled extraction layer that keeps crawl state, cache, retries, and data under your control:
+Agents need fresh web context, but raw HTML is noisy and one-off scraper scripts age badly. AgentCrawl gives them a reliable extraction layer with the operational pieces already built in:
 
-- Known URL in, Markdown out.
-- Fast HTTP extraction first, Playwright only when a page needs a browser.
-- Durable crawl jobs with checkpoints, retries, pagination, cancellation, events, and failure inspection.
-- SQLite-backed cache, usage, jobs, events, and crawl failures.
-- Bearer auth, `robots.txt` support, and SSRF protection for exposed APIs.
-- MCP tools for scraping, mapping, crawling, jobs, usage, and cache control.
+- 🎯 Known URL in, clean Markdown out.
+- ⚡ Fast HTTP extraction first; browser rendering only when a page really needs it.
+- 🧱 Durable crawl jobs with checkpoints, retries, pagination, cancellation, events, and failure inspection.
+- 🗄️ SQLite-backed cache, usage, jobs, events, and crawl failures.
+- 🔐 Bearer auth, `robots.txt` support, and SSRF protection for exposed APIs.
+- 🤖 MCP tools for scraping, mapping, crawling, jobs, usage, and cache control.
 
-## Quick start
+## Quick start 🚀
 
 Python 3.10 or newer is required.
 
@@ -52,15 +52,16 @@ export AGENTCRAWL_CAMOFOX_URL=http://127.0.0.1:9377
 export AGENTCRAWL_CAMOFOX_ACCESS_KEY=replace-if-access-control-is-enabled
 ```
 
-## Documentation
+## Docs you'll actually use 📚
 
-- [Comparison](docs/COMPARISON.md): where AgentCrawl fits against Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
-- [Examples](docs/EXAMPLES.md): common CLI, Python, HTTP, MCP, Docker, and agent workflows.
-- [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): fixture categories, metrics, and report standards for public quality claims.
+- [Comparison](docs/COMPARISON.md): choose between AgentCrawl, Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
+- [Examples](docs/EXAMPLES.md): copy-paste workflows for CLI, Python, HTTP, MCP, Docker, and agents.
+- [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): how extraction quality is measured and reported.
+- [Visual assets](docs/VISUAL_ASSETS.md): image checklist, style direction, and prompts for launch visuals.
 - [Operations](docs/OPERATIONS.md): deployment, backup, restore, and production checks.
-- [Install for agents](INSTALL_FOR_AGENTS.md): canonical procedure for coding agents that install or connect AgentCrawl.
+- [Install for agents](INSTALL_FOR_AGENTS.md): the canonical setup flow for coding agents.
 
-## Python
+## Python 🐍
 
 ```python
 from agentcrawl import AgentCrawl
@@ -74,7 +75,7 @@ print(document.links)
 
 Structured extraction can use a local callable or a supported model provider through `AgentCrawler`.
 
-## HTTP API
+## HTTP API 🌐
 
 Authentication is enabled by default. Configure at least one API key before exposing the server:
 
@@ -120,7 +121,7 @@ DELETE /v1/cache
 
 OpenAPI docs are available at `/docs` when the server is running.
 
-## Crawl jobs
+## Crawl jobs 🧭
 
 Start an asynchronous crawl:
 
@@ -155,7 +156,7 @@ agentcrawl --remote job-cancel JOB_ID
 
 `/v1/stats` reports queue readiness, delayed retries, running and cancelling jobs, crawl failures by status, open retryable failures, and open failures by error type.
 
-## Cache
+## Cache ⚡
 
 Disable cache for one scrape or choose a TTL of up to 30 days:
 
@@ -175,7 +176,7 @@ agentcrawl --remote cache-clear --domain example.com
 agentcrawl --remote cache-clear --url https://example.com/page
 ```
 
-## MCP
+## MCP 🤖
 
 ```bash
 # Local HTTP scraping, no environment variables needed.
@@ -186,7 +187,7 @@ agentcrawl mcp
 
 MCP tools cover scraping, mapping, crawling, job status, cancellation, failure inspection, selective failure retries, usage, cache statistics, and cache clearing. Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
 
-## Docker
+## Docker 🐳
 
 ```bash
 cp .env.example .env
@@ -197,7 +198,7 @@ curl http://127.0.0.1:8000/health
 
 The test suite validates the Dockerfile, Compose hardening, persistent `/data` volume, healthcheck, and required `.env.example` keys. A Docker daemon is still required for the final image build smoke test.
 
-## Backups
+## Backups 💾
 
 Use SQLite online backup before deployment or migration:
 

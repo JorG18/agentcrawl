@@ -1,8 +1,8 @@
 # Examples And Integration Cookbook
 
-AgentCrawl can be used as a local Python library, CLI tool, HTTP API, Docker service, or MCP server. This cookbook shows the common entrypoints.
+AgentCrawl works as a local Python library, CLI tool, HTTP API, Docker service, or MCP server. Pick the entrypoint that fits your agent workflow and start with the smallest thing that works.
 
-## Entrypoints
+## Entrypoints 🧩
 
 - Python library: `examples/basic.py`
 - LLM-backed graph extraction: `examples/graph_extraction.py`
@@ -12,7 +12,7 @@ AgentCrawl can be used as a local Python library, CLI tool, HTTP API, Docker ser
 - Docker Compose: `docker compose up --build -d`
 - Hermes integration: `integrations/hermes/web-agentcrawl/`
 
-## Scrape One Known URL
+## Scrape One Known URL 🎯
 
 Use this when an agent already has a URL and needs clean Markdown.
 
@@ -38,7 +38,7 @@ Use mapping to discover URLs before spending crawl budget.
 agentcrawl map https://example.com --max-pages 50
 ```
 
-## Run A Durable Crawl Job
+## Run A Durable Crawl Job 🧭
 
 Use the remote API for crawls designed to survive retries and remain inspectable later.
 
@@ -57,7 +57,7 @@ curl http://127.0.0.1:8000/v1/crawl \
   -d '{"url":"https://example.com","max_pages":25,"max_depth":2}'
 ```
 
-## Connect An Agent Through MCP
+## Connect An Agent Through MCP 🤖
 
 Local MCP mode does not require an API server:
 

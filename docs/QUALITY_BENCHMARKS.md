@@ -1,10 +1,10 @@
 # Quality Benchmarks
 
-AgentCrawl treats extraction quality as a product surface. A crawler for agents is only useful when the output is readable, stable, and easy to cite.
+Clean extraction is not a nice-to-have. If an agent reads bad Markdown, it reasons over bad context.
 
-This page defines how AgentCrawl is evaluated and how contributors add new quality checks.
+AgentCrawl treats extraction quality as a product surface: output should be readable, stable, and easy to cite.
 
-## What The Benchmarks Measure
+## What The Benchmarks Measure 📏
 
 The benchmark suite focuses on agent-ready output, not only on whether a URL returned HTML.
 

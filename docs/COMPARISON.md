@@ -1,8 +1,8 @@
 # Comparison
 
-AgentCrawl is a self-hosted web extraction product for agents that need clean Markdown, crawl jobs, cache, retries, and MCP tools inside infrastructure they control.
+AgentCrawl is for teams and builders who want agent-ready web extraction without handing crawler state, cache, retries, and jobs to a hosted scraping API.
 
-Use this comparison to choose the right tool for a workflow. The projects below overlap, but they are optimized for different jobs.
+Use this page to pick the right tool for the job. These projects overlap, but each one shines in a different workflow.
 
 ## Product Fit
 
@@ -16,21 +16,21 @@ Use this comparison to choose the right tool for a workflow. The projects below 
 | Crawlee | General-purpose crawling framework with queues, routing, storage, sessions, proxies, HTTP crawlers, and browser crawlers. | Python/TypeScript crawler framework. |
 | Stagehand | Browser automation with natural-language actions, repeatable workflows, and structured browser extraction. | Browser automation SDK. |
 
-## Why Choose AgentCrawl
+## Where AgentCrawl Shines ✨
 
-Choose AgentCrawl when the priority is running web extraction from your own environment rather than depending on a hosted scraping API.
+Choose AgentCrawl when you want web extraction that runs from your own environment and plugs directly into agents.
 
-AgentCrawl provides:
+AgentCrawl gives you:
 
-- HTTP-first extraction for fast static-page scraping.
-- Optional Playwright or Camofox-backed browser fallback for rendered pages.
-- Markdown, text, links, metadata, and optional structured extraction.
-- Bounded site mapping and crawling.
-- Durable crawl jobs with checkpointed queues, retries, cancellation, events, and paginated results.
-- SQLite-backed cache, usage, jobs, events, and failures.
-- Bearer authentication, `robots.txt` support, and SSRF protection for exposed APIs.
-- MCP tools for agents that need scrape, map, crawl, job, usage, and cache operations.
-- Docker, CLI, Python, HTTP API, and backup/restore workflows.
+- ⚡ HTTP-first extraction for fast static-page scraping.
+- 🎭 Optional Playwright or Camofox-backed browser fallback for rendered pages.
+- 📝 Markdown, text, links, metadata, and optional structured extraction.
+- 🧭 Bounded site mapping and crawling.
+- 🧱 Durable crawl jobs with checkpointed queues, retries, cancellation, events, and paginated results.
+- 🗄️ SQLite-backed cache, usage, jobs, events, and failures.
+- 🔐 Bearer authentication, `robots.txt` support, and SSRF protection for exposed APIs.
+- 🤖 MCP tools for agents that need scrape, map, crawl, job, usage, and cache operations.
+- 🐳 Docker, CLI, Python, HTTP API, and backup/restore workflows.
 
 ## When Another Tool May Fit Better
 
