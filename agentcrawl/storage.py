@@ -601,7 +601,7 @@ class SQLiteStore:
             rows = conn.execute(
                 f"""
                 select * from job_events
-                where {' and '.join(clauses)}
+                where {" and ".join(clauses)}
                 order by created_at, id
                 limit ? offset ?
                 """,
@@ -719,8 +719,7 @@ class SQLiteStore:
                 "version": 2,
                 "root": root,
                 "queue": [
-                    {"url": url, "depth": 0, "attempt": 0, "ready_at": 0.0}
-                    for url in retry_urls
+                    {"url": url, "depth": 0, "attempt": 0, "ready_at": 0.0} for url in retry_urls
                 ],
                 "queued": sorted(set(visited + retry_urls)),
                 "visited": visited,
@@ -958,9 +957,7 @@ class SQLiteStore:
         return {
             "by_status": by_status,
             "open_retryable": int(retryable_open["total"] or 0),
-            "open_by_error_type": {
-                str(row["error_type"]): int(row["total"]) for row in type_rows
-            },
+            "open_by_error_type": {str(row["error_type"]): int(row["total"]) for row in type_rows},
         }
 
     def usage_by_endpoint(self) -> dict[str, int]:

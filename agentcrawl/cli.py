@@ -118,7 +118,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(_doctor(), ensure_ascii=False, indent=2))
         return 0
     if args.command == "backup":
-        print(json.dumps(_backup(args.db, args.output_dir, args.env_file), ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                _backup(args.db, args.output_dir, args.env_file), ensure_ascii=False, indent=2
+            )
+        )
         return 0
     if args.command == "restore":
         print(

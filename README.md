@@ -1,58 +1,58 @@
-# AgentCrawl Community
+# AgentCrawl
 
-AgentCrawl Community is a self-hosted web extraction service for AI agents. It turns web pages into clean Markdown, text, links, metadata, and optional structured data through a Python API, HTTP API, CLI, or MCP server.
+[![CI](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-## Features
+Self-hosted web extraction for AI agents.
 
-- HTTP-first scraping with automatic Playwright fallback.
-- Main-content extraction with tables, lists, links, and code blocks.
-- Site mapping and bounded same-domain crawling.
-- Durable crawl jobs with checkpoints, restart resume, persistent retries, pagination, and cancellation.
-- Server-side SQLite cache with per-request bypass and TTL.
-- Bearer authentication and usage accounting.
-- MCP tools and a remote Python client.
-- `robots.txt` support enabled by default.
-- SSRF protection for public server deployments.
-- Local library mode without a hosted subscription.
+AgentCrawl turns URLs and bounded sites into clean Markdown, text, links, metadata, and optional structured data. Use it from Python, the CLI, an HTTP API, Docker, or MCP. The crawler, cache, retries, jobs, and data stay in your environment.
 
-## Community Scope
+## What it solves
 
-Community includes the local engine, single-node API, SQLite persistence, CLI, MCP bridge, and Docker deployment.
+Agents need web context, but raw HTML is noisy and one-off scraper scripts break easily. AgentCrawl gives agents a controlled extraction layer:
 
-See [ROADMAP.md](ROADMAP.md) for current focus areas and planned improvements. Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
+- Known URL in, Markdown out.
+- Fast HTTP extraction first, Playwright only when a page needs a browser.
+- Durable crawl jobs with checkpoints, retries, pagination, cancellation, events, and failure inspection.
+- SQLite-backed cache, usage, jobs, events, and crawl failures.
+- Bearer auth, `robots.txt` support, and SSRF protection for exposed APIs.
+- MCP tools for scraping, mapping, crawling, jobs, usage, and cache control.
 
-## Quick Install
+## Quick start
 
 Python 3.10 or newer is required.
 
 ```bash
-python -m pip install agentcrawl
+git clone https://github.com/JorG18/agentcrawl.git
+cd agentcrawl
+python -m pip install -e "."
 agentcrawl scrape https://example.com
 ```
 
-For an AI client that supports MCP:
+For MCP:
 
 ```bash
-python -m pip install "agentcrawl[mcp]"
+python -m pip install -e ".[mcp]"
 agentcrawl doctor
+agentcrawl mcp
 ```
 
-The default HTTP fetcher does not require Chromium. Add browser rendering only when needed. AgentCrawl supports Playwright directly and an optional external Camofox REST backend for anti-detection browsing:
+The base package uses HTTP extraction and does not install a browser. Add browser rendering only when a site needs JavaScript:
 
 ```bash
-python -m pip install "agentcrawl[browser]"
+python -m pip install -e ".[browser]"
 playwright install chromium
+```
 
-# Optional: point browser fallback at a separately deployed Camofox server.
+AgentCrawl also supports an optional external Camofox REST backend:
+
+```bash
 export AGENTCRAWL_BROWSER_BACKEND=camofox
 export AGENTCRAWL_CAMOFOX_URL=http://127.0.0.1:9377
 export AGENTCRAWL_CAMOFOX_ACCESS_KEY=replace-if-access-control-is-enabled
 ```
 
-From a repository checkout, replace `agentcrawl` with `-e .`, for example
-`python -m pip install -e ".[mcp]"`.
-
-## Local Python
+## Python
 
 ```python
 from agentcrawl import AgentCrawl
@@ -66,13 +66,13 @@ print(document.links)
 
 Structured extraction can use a local callable or a supported model provider through `AgentCrawler`.
 
-## Run The API
+## HTTP API
 
-Authentication is enabled by default. Configure at least one API key:
+Authentication is enabled by default. Configure at least one API key before exposing the server:
 
 ```bash
 export AGENTCRAWL_API_KEYS="replace-with-a-long-random-key"
-python -m pip install "agentcrawl[server]"
+python -m pip install -e ".[server]"
 agentcrawl serve --host 0.0.0.0 --port 8000
 ```
 
@@ -82,11 +82,11 @@ Health check:
 curl http://127.0.0.1:8000/health
 ```
 
-Scrape:
+Scrape a URL:
 
 ```bash
 curl http://127.0.0.1:8000/v1/scrape \
-  -H "authorization: Bearer $AGENTCRAWL_API_KEYS" \
+  -H "authorization: Bearer replace-with-api-key" \
   -H "content-type: application/json" \
   -d '{"url":"https://example.com","formats":["markdown","links","metadata"]}'
 ```
@@ -110,7 +110,42 @@ GET    /v1/stats
 DELETE /v1/cache
 ```
 
-Interactive OpenAPI documentation is available at `/docs`.
+OpenAPI docs are available at `/docs` when the server is running.
+
+## Crawl jobs
+
+Start an asynchronous crawl:
+
+```bash
+agentcrawl --remote crawl https://example.com --max-pages 25 --max-depth 2
+```
+
+HTTP clients can attach an idempotency key so retries return the original job instead of starting a duplicate:
+
+```bash
+curl http://127.0.0.1:8000/v1/crawl \
+  -H "authorization: Bearer replace-with-api-key" \
+  -H "content-type: application/json" \
+  -H "Idempotency-Key: docs-crawl-2026-06-06" \
+  -d '{"url":"https://example.com","max_pages":25,"max_depth":2}'
+```
+
+Running jobs checkpoint their queue, visited URLs, retry attempts, progress, and extracted documents in SQLite. Transient page failures use persisted exponential backoff without occupying a crawl worker. They are reclaimed after a service restart.
+
+Read completed documents page by page:
+
+```bash
+agentcrawl --remote job JOB_ID --offset 0 --limit 100
+```
+
+Inspect or cancel a job:
+
+```bash
+agentcrawl --remote job JOB_ID
+agentcrawl --remote job-cancel JOB_ID
+```
+
+`/v1/stats` reports queue readiness, delayed retries, running and cancelling jobs, crawl failures by status, open retryable failures, and open failures by error type.
 
 ## Cache
 
@@ -132,78 +167,16 @@ agentcrawl --remote cache-clear --domain example.com
 agentcrawl --remote cache-clear --url https://example.com/page
 ```
 
-## Crawl Jobs
-
-Start an asynchronous crawl:
-
-```bash
-agentcrawl --remote crawl https://example.com --max-pages 25 --max-depth 2
-```
-
-HTTP clients can attach an idempotency key so retries return the original job instead
-of starting a duplicate:
-
-```bash
-curl http://127.0.0.1:8000/v1/crawl \
-  -H "authorization: Bearer $AGENTCRAWL_API_KEY" \
-  -H "content-type: application/json" \
-  -H "Idempotency-Key: docs-crawl-2026-06-06" \
-  -d '{"url":"https://example.com","max_pages":25,"max_depth":2}'
-```
-
-Running jobs checkpoint their pending queue, visited URLs, retry attempts, progress,
-and extracted documents in SQLite. Transient page failures use persisted exponential
-backoff without occupying a crawl worker. They are reclaimed automatically after a
-service restart.
-
-Completed documents are paginated when reading a job:
-
-```bash
-agentcrawl --remote job JOB_ID --offset 0 --limit 100
-```
-
-The response includes `result.pagination` with `total`, `returned`, and `has_more`.
-A `queued` job with a future `available_at` is waiting for a retry and should be
-polled using the same job ID.
-
-Inspect or cancel it:
-
-```bash
-agentcrawl --remote job JOB_ID
-agentcrawl --remote job-cancel JOB_ID
-```
-
-Progress contains visited, pending, failed, discovered, cancelled, and, when
-applicable, retry count and next retry time. `/v1/stats` includes crawl queue
-readiness, delayed retries, running/cancelling jobs, crawl failure counts by
-status, open retryable failure count, and open failure counts by error type.
-
-
-The server schedules asynchronous crawls through a FIFO worker queue. Large jobs
-process a configurable page quantum and then return to the end of the queue so
-smaller jobs are not starved. Concurrent fetches to one domain are limited
-separately from total workers:
-
-```bash
-export AGENTCRAWL_WORKERS=4
-export AGENTCRAWL_CRAWL_JOB_PAGE_QUANTUM=5
-export AGENTCRAWL_DOMAIN_MAX_CONCURRENCY=2
-```
-
-Set `AGENTCRAWL_OWNER_API_KEYS` to a comma-separated subset of
-`AGENTCRAWL_API_KEYS` to exempt trusted owner keys from API rate limits. Domain
-concurrency and crawl politeness still apply because they protect external sites.
-
 ## MCP
 
 ```bash
-# No environment variables are needed for local HTTP scraping.
+# Local HTTP scraping, no environment variables needed.
 agentcrawl mcp
 
-# For a remote AgentCrawl API, set AGENTCRAWL_BASE_URL and AGENTCRAWL_API_KEY.
+# Remote API mode uses AGENTCRAWL_BASE_URL and AGENTCRAWL_API_KEY.
 ```
 
-Tools include scraping, mapping, crawling, job status, cancellation, failure inspection, selective failure retries, usage, cache statistics, and cache clearing.
+MCP tools cover scraping, mapping, crawling, job status, cancellation, failure inspection, selective failure retries, usage, cache statistics, and cache clearing. Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
 
 ## Docker
 
@@ -214,9 +187,7 @@ docker compose up --build -d
 curl http://127.0.0.1:8000/health
 ```
 
-The test suite statically validates the Dockerfile, Compose hardening, persistent
-`/data` volume, healthcheck, and required `.env.example` keys. A real Docker daemon
-is still required for the final image build smoke test.
+The test suite validates the Dockerfile, Compose hardening, persistent `/data` volume, healthcheck, and required `.env.example` keys. A Docker daemon is still required for the final image build smoke test.
 
 ## Backups
 
@@ -226,27 +197,29 @@ Use SQLite online backup before deployment or migration:
 agentcrawl backup --db agentcrawl.db --output-dir ./backups
 ```
 
-Pass `--env-file` to copy a protected environment file into the backup directory
-without printing secret values. Restore refuses to overwrite an existing database
-unless `--force` is provided and verifies the backup before copying:
+Pass `--env-file` to copy a protected environment file into the backup directory without printing secret values. Restore refuses to overwrite an existing database unless `--force` is provided and verifies the backup before copying:
 
 ```bash
 agentcrawl restore --backup-db ./backups/agentcrawl-YYYYMMDD-HHMMSS.db --db agentcrawl.db --force
 ```
 
-## Security Defaults
+## Security defaults
 
 The HTTP server rejects local file paths, localhost, private networks, non-HTTP schemes, embedded URL credentials, and redirects to non-global addresses. Local files remain available through the Python library.
 
-Do not expose the API without authentication, TLS, request limits, and appropriate network controls. See [SECURITY.md](SECURITY.md) and [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Do not expose the API without authentication, TLS, request limits, and network controls. See [SECURITY.md](SECURITY.md) and [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Development
 
 ```bash
-pip install -e ".[server,mcp,llm,dev]"
+python -m pip install -e ".[server,mcp,llm,dev]"
 pytest -q
 ruff check agentcrawl tests examples
 ```
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

@@ -1,44 +1,45 @@
-# AgentCrawl Roadmap
+# Roadmap
 
-AgentCrawl Community focuses on local and single-node web extraction for AI agents. The roadmap below is directional and may change as the project matures.
+AgentCrawl is focused on one job first: help agents read and crawl websites reliably from infrastructure you control.
 
-## Current Focus
+This roadmap is directional. Public performance or quality claims need reproducible tests before they appear in docs or marketing.
 
-- Reliable crawl jobs with durable checkpoints, retries, cancellation, and pagination.
-- HTTP-first extraction with optional browser fallback.
-- Clear Python, CLI, HTTP API, and MCP interfaces.
-- Safe self-hosted operation with authentication, SSRF protection, backups, and restore checks.
-- Installation and diagnostic flows that work for both humans and coding agents.
+## Current focus
 
-## Next Areas
+- Stable web-to-Markdown extraction for known URLs.
+- HTTP-first scraping with browser fallback when a page needs JavaScript.
+- Durable crawl jobs with checkpoints, retries, cancellation, pagination, events, and failure inspection.
+- Self-hosted API and MCP tools that agents can call directly.
+- Safer operations: auth, SSRF protection, cache, usage stats, backup, restore, Docker, and diagnostics.
 
-### Document Support
+## Next
 
-- PDF and common office document ingestion.
-- Better plain text, XML, JSON, and Markdown handling.
+### Better document input
+
+- PDF ingestion.
+- Common office formats.
+- Better handling for text, XML, JSON, and Markdown files.
 - Optional OCR for image-only documents.
 
-### Extraction Quality
+### Extraction quality
 
-- Versioned fixture corpus for repeatable quality checks.
-- Better main-content extraction for documentation, news, commerce, forums, tables, and code.
-- More structured metadata and provenance.
+- A fixture corpus for repeatable quality checks.
+- Stronger main-content extraction for documentation, news, commerce pages, forums, tables, and code blocks.
+- More metadata and provenance so agents can cite where content came from.
 
-### Browser Workflows
+### Browser workflows
 
 - Bounded wait, click, scroll, type, and capture actions.
 - Session and cookie handling for authorized workflows.
-- Strong cleanup for browser processes, tabs, timeouts, and failed jobs.
+- Cleanup guarantees for browser processes, tabs, timeouts, and failed jobs.
 
 ### Operations
 
-- Key lifecycle improvements: names, expiry, rotation, and revocation.
-- More detailed usage and operational metrics.
+- Named API keys with expiry, rotation, and revocation.
+- More detailed metrics for usage, queues, failures, and storage.
 - Upgrade and rollback guidance for persistent deployments.
-- Container and packaging release automation.
+- Release automation for packages and containers.
 
-## Release Standard
+## Release standard
 
-A release is ready when a new user can install, run, diagnose, back up, restore, and connect AgentCrawl to an agent client without private instructions from the maintainers.
-
-Public performance or quality claims should be backed by reproducible tests. Benchmarks are optional unless the project makes those claims.
+A release is ready when a new user can install AgentCrawl, scrape a page, run the API, connect MCP, diagnose problems, back up state, and restore state from the public docs alone.

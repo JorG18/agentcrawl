@@ -5,14 +5,39 @@ build-backend = "hatchling.build"
 [project]
 name = "agentcrawl"
 version = "0.1.0"
-description = "Prompt-driven website extraction for AI agents, self-hostable and schema-aware."
+description = "Self-hosted web scraping and Markdown extraction for AI agents."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [{ name = "AgentCrawl contributors" }]
+keywords = [
+  "ai-agents",
+  "crawler",
+  "markdown",
+  "mcp",
+  "scraping",
+  "self-hosted",
+  "web-extraction",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
   "html2text>=2025.4.15,<2026.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/JorG18/agentcrawl"
+Repository = "https://github.com/JorG18/agentcrawl"
+Issues = "https://github.com/JorG18/agentcrawl/issues"
+Documentation = "https://github.com/JorG18/agentcrawl#readme"
 
 [project.optional-dependencies]
 browser = ["playwright>=1.60.0,<2.0.0"]

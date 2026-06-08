@@ -141,7 +141,9 @@ class AgentCrawl:
             ]
             errors = [str(error) for error in resume_state.get("errors", [])]
             failed_urls = [str(url) for url in resume_state.get("failed_urls", [])]
-            terminal_failures = [dict(failure) for failure in resume_state.get("terminal_failures", [])]
+            terminal_failures = [
+                dict(failure) for failure in resume_state.get("terminal_failures", [])
+            ]
             retry_attempts = {
                 str(url): int(attempt)
                 for url, attempt in resume_state.get("retry_attempts", {}).items()

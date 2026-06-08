@@ -533,7 +533,10 @@ def list_job_failures(
         limit=limit,
     )
     server.store.record_usage(api_key, "/v1/jobs.failures")
-    return {"success": True, "data": {"job_id": job_id, "failures": failures, "returned": len(failures)}}
+    return {
+        "success": True,
+        "data": {"job_id": job_id, "failures": failures, "returned": len(failures)},
+    }
 
 
 @app.post("/v1/jobs/{job_id}/failures/retry")

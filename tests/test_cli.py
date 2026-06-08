@@ -102,7 +102,9 @@ def test_backup_creates_integrity_checked_database_and_manifest(
     assert payload["ok"] is True
     assert payload["integrity_check"] == "ok"
     assert Path(payload["database"]).exists()
-    assert Path(payload["env_file"]).read_text(encoding="utf-8") == "AGENTCRAWL_API_KEY=secret-value\n"
+    assert (
+        Path(payload["env_file"]).read_text(encoding="utf-8") == "AGENTCRAWL_API_KEY=secret-value\n"
+    )
     assert Path(payload["manifest"]).exists()
     with sqlite3.connect(payload["database"]) as conn:
         assert conn.execute("select value from sample").fetchone()[0] == "kept"

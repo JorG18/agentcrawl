@@ -208,14 +208,18 @@ def inspect_failures(
 
 @mcp.tool()
 def retry_failures(
-    job_id: Annotated[str, Field(description="Crawl job ID whose retryable URL failures to requeue.")],
+    job_id: Annotated[
+        str, Field(description="Crawl job ID whose retryable URL failures to requeue.")
+    ],
     failure_ids: Annotated[
         list[str] | None,
         Field(description="Specific failure IDs to retry. Omit when using urls or retry_all."),
     ] = None,
     urls: Annotated[
         list[str] | None,
-        Field(description="Specific failed URLs to retry. Omit when using failure_ids or retry_all."),
+        Field(
+            description="Specific failed URLs to retry. Omit when using failure_ids or retry_all."
+        ),
     ] = None,
     retry_all: Annotated[
         bool,
