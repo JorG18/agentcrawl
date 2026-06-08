@@ -57,7 +57,6 @@ export AGENTCRAWL_CAMOFOX_ACCESS_KEY=replace-if-access-control-is-enabled
 - [Comparison](docs/COMPARISON.md): choose between AgentCrawl, Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
 - [Examples](docs/EXAMPLES.md): copy-paste workflows for CLI, Python, HTTP, MCP, Docker, and agents.
 - [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): how extraction quality is measured and reported.
-- [Visual assets](docs/VISUAL_ASSETS.md): image checklist, style direction, and prompts for launch visuals.
 - [Operations](docs/OPERATIONS.md): deployment, backup, restore, and production checks.
 - [Install for agents](INSTALL_FOR_AGENTS.md): the canonical setup flow for coding agents.
 
