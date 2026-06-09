@@ -3,6 +3,8 @@
 [![CI](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+![AgentCrawl README hero](assets/readme-hero.png)
+
 🕷️ Self-hosted web extraction for AI agents.
 
 AgentCrawl turns messy web pages into clean Markdown, text, links, metadata, and structured data that agents can actually use. Run it from Python, the CLI, an HTTP API, Docker, or MCP. Your crawler, cache, retries, jobs, and extracted data stay in your environment.
