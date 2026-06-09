@@ -84,6 +84,8 @@ def html_to_markdown(
     only_main_content: bool = True,
 ) -> str:
     html = extract_content_html(html, only_main_content=only_main_content)
+    # Extract language tags from <pre><code class="language-python"> before conversion
+    code_lang_map = _extract_code_language_tags(html)
     try:
         import html2text
 
@@ -97,7 +99,7 @@ def html_to_markdown(
         markdown = converter.handle(html)
     except Exception:
         markdown = _fallback_text(html)
-    return _clean_markdown(markdown)[: config.max_input_chars]
+    return _clean_markdown(markdown, code_lang_map)[: config.max_input_chars]
 
 
 def chunk_text(text: str, config: CrawlConfig) -> list[str]:
@@ -221,18 +223,30 @@ def _fallback_text(html: str) -> str:
     return html_module.unescape(" ".join(text.split()))
 
 
-def _clean_markdown(markdown: str) -> str:
+def _clean_markdown(markdown: str, code_lang_map: dict[int, str] | None = None) -> str:
     lines = [line.rstrip() for line in markdown.replace("\r\n", "\n").splitlines()]
     cleaned: list[str] = []
     blank = False
+    code_block_index = 0
 
     for line in lines:
         if line.strip() == "[code]":
-            cleaned.append("```")
+            lang = code_lang_map.get(code_block_index, "") if code_lang_map else ""
+            cleaned.append(f"```{lang}")
+            code_block_index += 1
             blank = False
             continue
         if line.strip() == "[/code]":
             cleaned.append("```")
+            blank = False
+            continue
+        # Handle html2text code blocks: ``` or indented code
+        if line.strip() == "```":
+            lang = code_lang_map.get(code_block_index, "") if code_lang_map else ""
+            if lang and code_block_index < len(code_lang_map) if code_lang_map else False:
+                pass  # already handled above
+            cleaned.append(line)
+            code_block_index += 1
             blank = False
             continue
         if not line.strip():
@@ -244,3 +258,35 @@ def _clean_markdown(markdown: str) -> str:
         blank = False
 
     return "\n".join(cleaned).strip()
+
+
+def _extract_code_language_tags(html: str) -> dict[int, str]:
+    """Extract language tags from <pre><code class=\"language-python\"> elements.
+    
+    Returns a mapping from code block index to language string.
+    """
+    pattern = re.compile(
+        r'<code[^>]*\sclass=["\']([^"\']*)["\'][^>]*>',
+        re.IGNORECASE,
+    )
+    lang_map: dict[int, str] = {}
+    index = 0
+    for match in pattern.finditer(html):
+        classes = match.group(1).split()
+        for cls in classes:
+            if cls.startswith("language-"):
+                lang_map[index] = cls.replace("language-", "")
+                index += 1
+                break
+            elif cls.startswith("lang-"):
+                lang_map[index] = cls.replace("lang-", "")
+                index += 1
+                break
+        else:
+            # Check if class itself is a language (e.g., "python", "javascript")
+            for cls in classes:
+                if cls in {"python", "javascript", "js", "typescript", "ts", "java", "go", "rust", "c", "cpp", "csharp", "ruby", "php", "shell", "bash", "json", "yaml", "xml", "html", "css", "sql", "markdown", "md"}:
+                    lang_map[index] = cls
+                    index += 1
+                    break
+    return lang_map
