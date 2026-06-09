@@ -188,13 +188,11 @@ def _fetch_playwright(url: str, config: CrawlConfig) -> str:
             browser = playwright.chromium.launch(
                 headless=config.headless, proxy={"server": config.proxy} if config.proxy else None
             )
-            context = (
-                browser.new_context(user_agent=config.user_agent)
-                if config.user_agent
-                else browser.new_context()
-            )
+            context = browser.new_context(user_agent=config.user_agent or "AgentCrawl/0.1")
             page = context.new_page()
             page.goto(url, wait_until=config.wait_until, timeout=config.timeout_ms)
+            if config.network_idle:
+                page.wait_for_load_state("networkidle", timeout=config.timeout_ms)
             validate_remote_url(page.url, allow_private_network=config.allow_private_network)
             html = page.content()
             browser.close()
