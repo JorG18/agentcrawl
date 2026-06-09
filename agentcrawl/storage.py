@@ -655,11 +655,14 @@ class SQLiteStore:
         query = f"""
             select * from crawl_failures{where}
             order by failed_at desc, url
-            limit ? offset ?
         """
-        params.extend([limit, offset])
+        query_params = tuple(params)
+        if not domain:
+            query += " limit ? offset ?"
+            params.extend([limit, offset])
+            query_params = tuple(params)
         with self._connect() as conn:
-            rows = conn.execute(query, tuple(params)).fetchall()
+            rows = conn.execute(query, query_params).fetchall()
         failures = [self._failure_row_to_dict(row) for row in rows]
         if domain:
             normalized_domain = domain.lower().strip()
@@ -667,7 +670,7 @@ class SQLiteStore:
                 failure
                 for failure in failures
                 if urllib.parse.urlsplit(failure["url"]).netloc.lower() == normalized_domain
-            ]
+            ][offset : offset + limit]
         return failures
 
     def retry_crawl_failures(
