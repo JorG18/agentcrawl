@@ -4,6 +4,8 @@ import sys
 import types
 
 from agentcrawl import AgentCrawl, ScrapeDocument
+from agentcrawl.config import CrawlConfig
+from agentcrawl.crawler import _markdown_to_text, _read_sitemap
 from agentcrawl.html_tools import normalize_url, same_domain
 
 
@@ -41,6 +43,118 @@ def test_scrape_formats(tmp_path: Path) -> None:
     assert isinstance(payload, dict)
     assert "Hello" in payload["markdown"]
     assert "World" in payload["text"]
+
+
+def test_markdown_to_text_preserves_legitimate_line_prefixes() -> None:
+    markdown = "\n".join(
+        [
+            "# Heading",
+            "1.5 GB RAM",
+            "2024-06-08 release",
+            "#10 ranking",
+            "...y continúa",
+            "- Bullet item",
+            "1. Ordered item",
+            "> Quoted item",
+        ]
+    )
+
+    assert _markdown_to_text(markdown).splitlines() == [
+        "Heading",
+        "1.5 GB RAM",
+        "2024-06-08 release",
+        "#10 ranking",
+        "...y continúa",
+        "Bullet item",
+        "Ordered item",
+        "Quoted item",
+    ]
+
+
+def test_read_sitemap_expands_sitemap_index(tmp_path: Path, monkeypatch) -> None:
+    import agentcrawl.crawler as crawler_module
+
+    sitemap_index = "https://example.com/sitemap.xml"
+    nested_sitemap = "https://example.com/post-sitemap.xml"
+    xml_by_url = {
+        sitemap_index: """
+            <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+              <sitemap><loc>https://example.com/post-sitemap.xml</loc></sitemap>
+            </sitemapindex>
+        """,
+        nested_sitemap: """
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+              <url><loc>https://example.com/a</loc></url>
+              <url><loc>https://example.com/b?utm_source=ignored</loc></url>
+            </urlset>
+        """,
+    }
+
+    class FakeResponse:
+        def __init__(self, url: str):
+            self.url = url
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def geturl(self) -> str:
+            return self.url
+
+        def read(self) -> bytes:
+            return xml_by_url[self.url].encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        return FakeResponse(request.full_url)
+
+    monkeypatch.setattr(crawler_module.urllib.request, "urlopen", fake_urlopen)
+
+    assert _read_sitemap(sitemap_index, CrawlConfig()) == [
+        "https://example.com/a",
+        "https://example.com/b",
+    ]
+
+
+def test_map_discovers_sitemap_declared_in_robots_txt(monkeypatch) -> None:
+    import agentcrawl.crawler as crawler_module
+
+    root = "https://example.com/"
+    robots_url = "https://example.com/robots.txt"
+    sitemap_url = "https://cdn.example.com/custom-sitemap.xml"
+    seen_requests: list[str] = []
+
+    class FakeResponse:
+        def __init__(self, url: str):
+            self.url = url
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def geturl(self) -> str:
+            return self.url
+
+        def read(self) -> bytes:
+            if self.url == robots_url:
+                return f"User-agent: *\nAllow: /\nSitemap: {sitemap_url}\n".encode()
+            raise AssertionError(f"unexpected urlopen for {self.url}")
+
+    def fake_urlopen(request, timeout):
+        seen_requests.append(request.full_url)
+        return FakeResponse(request.full_url)
+
+    monkeypatch.setattr(crawler_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(crawler_module, "_read_sitemap", lambda _url, _config: [f"{root}from-sitemap"])
+    monkeypatch.setattr(AgentCrawl, "scrape", lambda self, source: ScrapeDocument(url=source, markdown="", text=""))
+
+    result = AgentCrawl({"respect_robots_txt": False}).map(root)
+
+    assert robots_url in seen_requests
+    assert result.urls == ["https://example.com/from-sitemap"]
 
 
 def test_scrape_local_markdown_text_json_and_xml_documents(tmp_path: Path) -> None:
@@ -197,6 +311,15 @@ def test_url_canonicalization_removes_tracking_and_normalizes_origin() -> None:
     assert second == first
     assert same_domain(first, "https://EXAMPLE.com:443/")
     assert not same_domain(first, "http://example.com/")
+
+
+def test_unicode_domains_normalize_to_idna_for_same_domain() -> None:
+    unicode_url = normalize_url("https://bücher.example/path", "https://bücher.example/")
+    punycode_url = normalize_url("https://xn--bcher-kva.example/path", "https://xn--bcher-kva.example/")
+
+    assert unicode_url == "https://xn--bcher-kva.example/path"
+    assert same_domain(unicode_url, punycode_url)
+    assert same_domain("https://bücher.example/a", "https://xn--bcher-kva.example/b")
 
 
 def test_crawl_deduplicates_canonical_url_variants(monkeypatch) -> None:

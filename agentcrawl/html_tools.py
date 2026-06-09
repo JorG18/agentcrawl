@@ -67,6 +67,16 @@ def extract_html_facts(html: str, base_url: str) -> tuple[list[str], dict[str, s
     return links, metadata
 
 
+def _normalize_hostname(hostname: str) -> str:
+    normalized = hostname.rstrip(".").lower()
+    if not normalized:
+        return ""
+    try:
+        return normalized.encode("idna").decode("ascii")
+    except UnicodeError:
+        return normalized
+
+
 def normalize_url(url: str, base_url: str) -> str:
     cleaned = url.strip()
     if not cleaned.startswith(("http://", "https://")) and not base_url.startswith(
@@ -87,12 +97,8 @@ def normalize_url(url: str, base_url: str) -> str:
     if scheme not in {"http", "https"}:
         return absolute
 
-    hostname = (parsed.hostname or "").rstrip(".").lower()
-    try:
-        hostname = hostname.encode("idna").decode("ascii")
-    except UnicodeError:
-        pass
-    if "" == hostname:
+    hostname = _normalize_hostname(parsed.hostname or "")
+    if not hostname:
         return absolute
     if ":" in hostname and not hostname.startswith("["):
         hostname = f"[{hostname}]"
@@ -138,7 +144,7 @@ def _stable_query(query: str) -> str:
 def _origin(url: str) -> tuple[str, str, int | None]:
     parsed = urllib.parse.urlsplit(url)
     scheme = parsed.scheme.lower()
-    hostname = (parsed.hostname or "").rstrip(".").lower()
+    hostname = _normalize_hostname(parsed.hostname or "")
     try:
         port = parsed.port
     except ValueError:

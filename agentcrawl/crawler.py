@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import urllib.parse
 import urllib.request
 import urllib.robotparser
@@ -82,7 +83,7 @@ class AgentCrawl:
         discovered: set[str] = set()
         errors: list[str] = []
 
-        for sitemap_url in _candidate_sitemaps(source):
+        for sitemap_url in _candidate_sitemaps(source, self.config):
             try:
                 discovered.update(_read_sitemap(sitemap_url, self.config))
             except Exception as exc:
@@ -423,18 +424,47 @@ def _markdown_to_text(markdown: str) -> str:
     lines = []
     for line in markdown.splitlines():
         cleaned = line.strip()
-        cleaned = cleaned.lstrip("#>-*0123456789. ").strip()
+        cleaned = re.sub(r"^#{1,6}\s+", "", cleaned)
+        cleaned = re.sub(r"^[-*+]\s+", "", cleaned)
+        cleaned = re.sub(r"^>\s*", "", cleaned)
+        cleaned = re.sub(r"^\d+[.)]\s+", "", cleaned)
         if cleaned:
             lines.append(cleaned)
     return "\n".join(lines)
 
 
-def _candidate_sitemaps(source: str) -> list[str]:
+def _candidate_sitemaps(source: str, config: CrawlConfig | None = None) -> list[str]:
     parsed = urllib.parse.urlsplit(source)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return []
     root = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/", "", ""))
-    return [urllib.parse.urljoin(root, "sitemap.xml")]
+    active_config = config or CrawlConfig()
+    return [
+        *_sitemaps_from_robots(root, active_config),
+        urllib.parse.urljoin(root, "sitemap.xml"),
+    ]
+
+
+def _sitemaps_from_robots(root_url: str, config: CrawlConfig) -> list[str]:
+    parsed = urllib.parse.urlsplit(root_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return []
+    robots_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/robots.txt", "", ""))
+    request = urllib.request.Request(
+        robots_url,
+        headers={"user-agent": config.user_agent or "AgentCrawl/0.1"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=config.timeout_ms / 1000) as response:
+            content = response.read().decode("utf-8", errors="replace")
+    except Exception:
+        return []
+    sitemaps: list[str] = []
+    for line in content.splitlines():
+        key, separator, value = line.partition(":")
+        if separator and key.strip().lower() == "sitemap" and value.strip():
+            sitemaps.append(normalize_url(value.strip(), robots_url))
+    return sitemaps
 
 
 def _read_sitemap(sitemap_url: str, config: CrawlConfig) -> list[str]:
@@ -447,9 +477,14 @@ def _read_sitemap(sitemap_url: str, config: CrawlConfig) -> list[str]:
         xml_text = response.read().decode("utf-8", errors="replace")
     root = ET.fromstring(xml_text)
     urls: list[str] = []
+    is_sitemap_index = root.tag.endswith("sitemapindex")
     for element in root.iter():
         if element.tag.endswith("loc") and element.text:
-            urls.append(normalize_url(element.text.strip(), sitemap_url))
+            url = normalize_url(element.text.strip(), sitemap_url)
+            if is_sitemap_index:
+                urls.extend(_read_sitemap(url, config))
+            else:
+                urls.append(url)
     return urls
 
 
