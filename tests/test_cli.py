@@ -44,8 +44,6 @@ def test_cli_version_flag_prints_package_version(capsys) -> None:
     assert output.startswith("agentcrawl ")
 
 
-
-
 def test_doctor_checks_remote_health_without_printing_api_key(capsys, monkeypatch) -> None:
     requests = []
 

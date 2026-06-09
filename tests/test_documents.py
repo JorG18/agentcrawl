@@ -49,7 +49,9 @@ def test_read_pdf_rejects_files_over_size_limit(tmp_path: Path) -> None:
 def test_read_pdf_rejects_encrypted_documents(tmp_path: Path, monkeypatch) -> None:
     pdf = tmp_path / "encrypted.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
-    monkeypatch.setitem(sys.modules, "fitz", types.SimpleNamespace(open=lambda _path: FakeEncryptedDocument()))
+    monkeypatch.setitem(
+        sys.modules, "fitz", types.SimpleNamespace(open=lambda _path: FakeEncryptedDocument())
+    )
 
     with pytest.raises(FetchError, match="Encrypted PDF"):
         _read_pdf(pdf)
@@ -58,7 +60,9 @@ def test_read_pdf_rejects_encrypted_documents(tmp_path: Path, monkeypatch) -> No
 def test_read_pdf_rejects_too_many_pages(tmp_path: Path, monkeypatch) -> None:
     pdf = tmp_path / "too-many-pages.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
-    monkeypatch.setitem(sys.modules, "fitz", types.SimpleNamespace(open=lambda _path: FakeLargeDocument()))
+    monkeypatch.setitem(
+        sys.modules, "fitz", types.SimpleNamespace(open=lambda _path: FakeLargeDocument())
+    )
 
     with pytest.raises(FetchError, match="PDF page count exceeds"):
         _read_pdf(pdf)
@@ -67,7 +71,9 @@ def test_read_pdf_rejects_too_many_pages(tmp_path: Path, monkeypatch) -> None:
 def test_read_pdf_marks_scanned_or_empty_pdf(tmp_path: Path, monkeypatch) -> None:
     pdf = tmp_path / "scanned.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
-    monkeypatch.setitem(sys.modules, "fitz", types.SimpleNamespace(open=lambda _path: FakeDocument()))
+    monkeypatch.setitem(
+        sys.modules, "fitz", types.SimpleNamespace(open=lambda _path: FakeDocument())
+    )
 
     markdown, metadata = _read_pdf(pdf)
 

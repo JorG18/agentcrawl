@@ -170,7 +170,9 @@ def install_fake_playwright(monkeypatch):
 def test_playwright_uses_default_user_agent_when_config_none(monkeypatch) -> None:
     page, browser, _chromium = install_fake_playwright(monkeypatch)
 
-    html = _fetch_playwright("https://example.com/", CrawlConfig(user_agent=None, network_idle=False))
+    html = _fetch_playwright(
+        "https://example.com/", CrawlConfig(user_agent=None, network_idle=False)
+    )
 
     assert "ok" in html
     assert browser.context_kwargs == {"user_agent": "AgentCrawl/0.1"}

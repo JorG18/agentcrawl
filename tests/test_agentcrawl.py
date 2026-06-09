@@ -66,7 +66,9 @@ def test_scrape_does_not_swallow_internal_bugs(monkeypatch) -> None:
     def broken_extract_html_facts(_html, _source):
         raise TypeError("internal parser bug")
 
-    monkeypatch.setattr(crawler_module, "fetch_source", lambda _source, _config: ("<html></html>", {}))
+    monkeypatch.setattr(
+        crawler_module, "fetch_source", lambda _source, _config: ("<html></html>", {})
+    )
     monkeypatch.setattr(crawler_module, "extract_html_facts", broken_extract_html_facts)
 
     with pytest.raises(TypeError, match="internal parser bug"):
@@ -176,8 +178,12 @@ def test_map_discovers_sitemap_declared_in_robots_txt(monkeypatch) -> None:
         return FakeResponse(request.full_url)
 
     monkeypatch.setattr(crawler_module.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(crawler_module, "_read_sitemap", lambda _url, _config: [f"{root}from-sitemap"])
-    monkeypatch.setattr(AgentCrawl, "scrape", lambda self, source: ScrapeDocument(url=source, markdown="", text=""))
+    monkeypatch.setattr(
+        crawler_module, "_read_sitemap", lambda _url, _config: [f"{root}from-sitemap"]
+    )
+    monkeypatch.setattr(
+        AgentCrawl, "scrape", lambda self, source: ScrapeDocument(url=source, markdown="", text="")
+    )
 
     result = AgentCrawl({"respect_robots_txt": False}).map(root)
 
@@ -343,7 +349,9 @@ def test_url_canonicalization_removes_tracking_and_normalizes_origin() -> None:
 
 def test_unicode_domains_normalize_to_idna_for_same_domain() -> None:
     unicode_url = normalize_url("https://bücher.example/path", "https://bücher.example/")
-    punycode_url = normalize_url("https://xn--bcher-kva.example/path", "https://xn--bcher-kva.example/")
+    punycode_url = normalize_url(
+        "https://xn--bcher-kva.example/path", "https://xn--bcher-kva.example/"
+    )
 
     assert unicode_url == "https://xn--bcher-kva.example/path"
     assert same_domain(unicode_url, punycode_url)

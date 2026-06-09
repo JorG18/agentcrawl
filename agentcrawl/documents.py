@@ -58,9 +58,7 @@ def markdown_from_fetched_content(content: str, metadata: dict[str, Any]) -> str
 def _read_pdf(path: Path) -> tuple[str, dict[str, Any]]:
     size = path.stat().st_size
     if size > _MAX_PDF_BYTES:
-        raise FetchError(
-            f"PDF exceeds the {_MAX_PDF_BYTES // (1024 * 1024)} MB size limit: {path}"
-        )
+        raise FetchError(f"PDF exceeds the {_MAX_PDF_BYTES // (1024 * 1024)} MB size limit: {path}")
 
     try:
         import fitz  # PyMuPDF
@@ -86,7 +84,9 @@ def _read_pdf(path: Path) -> tuple[str, dict[str, Any]]:
             raise FetchError("Encrypted PDF documents are not supported.")
         page_count = int(getattr(document, "page_count", 0))
         if page_count > _MAX_PDF_PAGES:
-            raise FetchError(f"PDF page count exceeds the {_MAX_PDF_PAGES} page limit: {page_count}")
+            raise FetchError(
+                f"PDF page count exceeds the {_MAX_PDF_PAGES} page limit: {page_count}"
+            )
         metadata.update({k: v for k, v in (document.metadata or {}).items() if v})
         metadata["page_count"] = page_count
         for index, page in enumerate(document, start=1):
