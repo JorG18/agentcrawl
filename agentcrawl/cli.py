@@ -14,6 +14,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .crawler import AgentCrawl
 from .remote_client import AgentCrawlClient
 from .serializers import to_jsonable
@@ -31,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Call an AgentCrawl server instead of running locally.",
     )
     parser.add_argument("--fetcher", default=os.getenv("AGENTCRAWL_FETCHER", "http"))
+    parser.add_argument("--version", action="version", version=f"agentcrawl {__version__}")
 
     sub = parser.add_subparsers(dest="command", required=True)
 

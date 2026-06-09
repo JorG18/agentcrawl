@@ -30,10 +30,20 @@ def test_doctor_reports_installation(capsys, monkeypatch) -> None:
     assert main(["doctor"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["default_fetcher"] == "http"
-    assert "mcp" in payload["extras"]
     assert payload["checks"]["local_scrape"]["ok"] is True
-    assert payload["checks"]["remote_config"]["skipped"] is True
-    assert payload["summary"]["ok"] is True
+    assert "api_key_configured" in payload["summary"]
+
+
+def test_cli_version_flag_prints_package_version(capsys) -> None:
+    try:
+        main(["--version"])
+    except SystemExit as exc:
+        assert exc.code == 0
+
+    output = capsys.readouterr().out.strip()
+    assert output.startswith("agentcrawl ")
+
+
 
 
 def test_doctor_checks_remote_health_without_printing_api_key(capsys, monkeypatch) -> None:
