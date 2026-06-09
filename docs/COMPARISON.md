@@ -24,7 +24,7 @@ AgentCrawl gives you:
 
 - ⚡ HTTP-first extraction for fast static-page scraping.
 - 🎭 Optional Playwright or Camofox-backed browser fallback for rendered pages.
-- 📝 Markdown, text, links, metadata, and optional structured extraction.
+- 📝 Markdown, text, links, metadata, local document ingestion, and optional structured extraction.
 - 🧭 Bounded site mapping and crawling.
 - 🧱 Durable crawl jobs with checkpointed queues, retries, cancellation, events, and paginated results.
 - 🗄️ SQLite-backed cache, usage, jobs, events, and failures.

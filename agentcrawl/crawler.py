@@ -10,6 +10,7 @@ from dataclasses import asdict
 from typing import Any, Callable
 
 from .config import CrawlConfig
+from .documents import markdown_from_fetched_content
 from .errors import classify_error
 from .fetchers import fetch_source
 from .html_tools import extract_html_facts, normalize_url, same_domain, url_allowed
@@ -39,11 +40,13 @@ class AgentCrawl:
             html, fetch_metadata = fetch_source(source, self.config)
             links, metadata = extract_html_facts(html, source)
             main_content = True if only_main_content is None else only_main_content
-            markdown = html_to_markdown(
-                html,
-                self.config,
-                only_main_content=main_content,
-            )
+            markdown = markdown_from_fetched_content(html, fetch_metadata)
+            if markdown is None:
+                markdown = html_to_markdown(
+                    html,
+                    self.config,
+                    only_main_content=main_content,
+                )
             text = _markdown_to_text(markdown)
             document = ScrapeDocument(
                 url=source,

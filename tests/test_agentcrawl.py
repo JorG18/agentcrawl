@@ -1,5 +1,7 @@
 from dataclasses import asdict
 from pathlib import Path
+import sys
+import types
 
 from agentcrawl import AgentCrawl, ScrapeDocument
 from agentcrawl.html_tools import normalize_url, same_domain
@@ -39,6 +41,70 @@ def test_scrape_formats(tmp_path: Path) -> None:
     assert isinstance(payload, dict)
     assert "Hello" in payload["markdown"]
     assert "World" in payload["text"]
+
+
+def test_scrape_local_markdown_text_json_and_xml_documents(tmp_path: Path) -> None:
+    markdown_file = tmp_path / "notes.md"
+    text_file = tmp_path / "notes.txt"
+    json_file = tmp_path / "data.json"
+    xml_file = tmp_path / "feed.xml"
+    markdown_file.write_text("# Notes\n\nKeep this markdown.", encoding="utf-8")
+    text_file.write_text("Plain document text.", encoding="utf-8")
+    json_file.write_text('{"name":"AgentCrawl","ok":true}', encoding="utf-8")
+    xml_file.write_text("<root><item>Value</item></root>", encoding="utf-8")
+
+    crawler = AgentCrawl({"fetcher": "http"})
+    markdown_doc = crawler.scrape(str(markdown_file))
+    text_doc = crawler.scrape(str(text_file))
+    json_doc = crawler.scrape(str(json_file))
+    xml_doc = crawler.scrape(str(xml_file))
+
+    assert isinstance(markdown_doc, ScrapeDocument)
+    assert markdown_doc.markdown == "# Notes\n\nKeep this markdown."
+    assert markdown_doc.metadata["document_type"] == "markdown"
+    assert isinstance(text_doc, ScrapeDocument)
+    assert text_doc.markdown == "Plain document text."
+    assert isinstance(json_doc, ScrapeDocument)
+    assert "```json" in json_doc.markdown
+    assert '"name": "AgentCrawl"' in json_doc.markdown
+    assert isinstance(xml_doc, ScrapeDocument)
+    assert "```xml" in xml_doc.markdown
+    assert "<item>Value</item>" in xml_doc.markdown
+
+
+def test_scrape_local_pdf_with_optional_pymupdf_backend(tmp_path: Path, monkeypatch) -> None:
+    pdf = tmp_path / "sample.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+
+    class FakePage:
+        def __init__(self, text: str):
+            self.text = text
+
+        def get_text(self, _format: str) -> str:
+            return self.text
+
+    class FakeDocument:
+        metadata = {"title": "Sample PDF"}
+        page_count = 2
+
+        def __iter__(self):
+            return iter([FakePage("First page text"), FakePage("Second page text")])
+
+        def close(self) -> None:
+            pass
+
+    fake_fitz = types.SimpleNamespace(open=lambda _path: FakeDocument())
+    monkeypatch.setitem(sys.modules, "fitz", fake_fitz)
+
+    doc = AgentCrawl({"fetcher": "http"}).scrape(str(pdf))
+
+    assert isinstance(doc, ScrapeDocument)
+    assert doc.ok
+    assert "## Page 1" in doc.markdown
+    assert "First page text" in doc.markdown
+    assert "## Page 2" in doc.markdown
+    assert doc.metadata["document_type"] == "pdf"
+    assert doc.metadata["page_count"] == 2
 
 
 def test_crawl_local_html_same_directory(tmp_path: Path) -> None:

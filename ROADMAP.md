@@ -6,7 +6,7 @@ This roadmap is directional. Public performance or quality claims need reproduci
 
 ## Current focus
 
-- Stable web-to-Markdown extraction for known URLs.
+- Stable web/document-to-Markdown extraction for known URLs and local files.
 - HTTP-first scraping with browser fallback when a page needs JavaScript.
 - Durable crawl jobs with checkpoints, retries, cancellation, pagination, events, and failure inspection.
 - Self-hosted API and MCP tools that agents can call directly.
@@ -20,11 +20,12 @@ This roadmap is directional. Public performance or quality claims need reproduci
 - Boilerplate reduction for page chrome, cookie banners, sidebars, related posts, hidden content, and unsafe tags.
 - Markdown table preservation with headers, separators, and cell values.
 - Fenced code block preservation with language tags from common HTML classes.
+- Local document ingestion for Markdown, text, JSON, XML/RSS/Atom, and PDF-to-Markdown through the optional `docs` extra.
 - Package version export, wheel build verification, Docker build workflow for GHCR, and `agentcrawl doctor` verification.
 
 ### Next community priorities
 
-- Better document input: PDFs first, then common office formats and optional OCR.
+- Common office formats and optional OCR.
 - Browser workflows: bounded wait, click, scroll, type, screenshots, sessions, and cleanup guarantees.
 - Adoption surface: public PyPI release, public container image, and more copy-paste examples.
 
@@ -49,9 +50,9 @@ See [docs/COMPARISON.md](docs/COMPARISON.md) for the public positioning against 
 
 ### 3. Better document input
 
-- PDF ingestion.
-- Common office formats.
+- PDF ingestion for local files through the optional `docs` extra.
 - Better handling for text, XML, JSON, and Markdown files.
+- Common office formats.
 - Optional OCR for image-only documents.
 
 ### 4. Browser workflows

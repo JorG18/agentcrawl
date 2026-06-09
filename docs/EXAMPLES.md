@@ -30,6 +30,30 @@ document = crawler.scrape("https://example.com")
 print(document.markdown)
 ```
 
+## Scrape Local Documents 📄
+
+Use this when an agent needs local files converted into Markdown without a hosted parser.
+
+```bash
+agentcrawl scrape ./notes.md
+agentcrawl scrape ./data.json
+agentcrawl scrape ./feed.xml
+python -m pip install -e ".[docs]"
+agentcrawl scrape ./report.pdf
+```
+
+Python:
+
+```python
+from agentcrawl import AgentCrawl
+
+document = AgentCrawl({"fetcher": "http"}).scrape("./report.pdf")
+print(document.markdown)
+print(document.metadata)
+```
+
+Supported Community inputs: HTML, Markdown, text, JSON, XML/RSS/Atom, and local PDFs with the `docs` extra.
+
 ## Map A Site Before Crawling
 
 Use mapping to discover URLs before spending crawl budget.

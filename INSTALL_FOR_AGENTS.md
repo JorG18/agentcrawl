@@ -32,6 +32,7 @@ The base package uses HTTP and does not install a browser. Install other capabil
 
 ```bash
 python -m pip install "agentcrawl[server]"
+python -m pip install "agentcrawl[docs]"     # local PDF ingestion
 python -m pip install "agentcrawl[browser]"
 playwright install chromium
 ```

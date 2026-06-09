@@ -8,6 +8,7 @@ except ImportError:
     simple_eval = None
 
 from .config import CrawlConfig
+from .documents import markdown_from_fetched_content
 from .extraction import extract_answer
 from .fetchers import fetch_source
 from .models import CrawlResult
@@ -60,7 +61,8 @@ class CrawlGraph:
         return state
 
     def parse(self, state: CrawlState) -> CrawlState:
-        state["markdown"] = html_to_markdown(state.get("html", ""), self.config)
+        markdown = markdown_from_fetched_content(state.get("html", ""), state.get("metadata", {}))
+        state["markdown"] = markdown or html_to_markdown(state.get("html", ""), self.config)
         return state
 
     def chunk(self, state: CrawlState) -> CrawlState:

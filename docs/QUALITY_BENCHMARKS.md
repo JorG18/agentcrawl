@@ -45,7 +45,8 @@ The benchmark corpus is organized around page types agents commonly read:
 | Blogs | Title, author, date, body, canonical URL, and links. |
 | JavaScript rendered pages | Browser fallback content that is unavailable through HTTP-only fetches. |
 | Redirects and canonical URLs | Final URL tracking, metadata, and provenance. |
-| Failure cases | Timeouts, invalid URLs, blocked pages, private-network rejections, and SSRF protections. |
+| Local documents | Markdown/text pass-through, JSON/XML fenced output, and page-by-page PDF Markdown extraction. |
+| Failure cases | Timeouts, invalid URLs, blocked pages, private-network rejections, missing optional extras, and SSRF protections. |
 
 Checked-in HTML fixtures are preferred for CI stability. Optional live-url runs can be used for release checks and product comparisons.
 

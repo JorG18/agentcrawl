@@ -8,8 +8,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from typing import Any
 
 from .config import CrawlConfig
+from .documents import read_local_document
 from .exceptions import FetchError
 from .security import validate_remote_url
 from .utils import is_probably_url
@@ -17,9 +19,9 @@ from .utils import is_probably_url
 _BROWSER_SEMAPHORE = threading.BoundedSemaphore(2)
 
 
-def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, str]]:
+def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     if not is_probably_url(source):
-        return _fetch_local_file(source), {"fetcher": "file"}
+        return _fetch_local_file(source)
     validate_remote_url(source, allow_private_network=config.allow_private_network)
     if config.fetcher == "http":
         try:
@@ -52,11 +54,12 @@ def _should_browser_fallback(message: str, config: CrawlConfig) -> bool:
     )
 
 
-def _fetch_local_file(source: str) -> str:
+def _fetch_local_file(source: str) -> tuple[str, dict[str, Any]]:
     path = pathlib.Path(source).expanduser()
     if not path.exists():
-        raise FetchError(f"Local HTML file not found: {source}")
-    return path.read_text(encoding="utf-8", errors="replace")
+        raise FetchError(f"Local file not found: {source}")
+    content, metadata = read_local_document(path)
+    return content, {"fetcher": "file", "source_path": str(path), **metadata}
 
 
 def _fetch_http(url: str, config: CrawlConfig) -> str:

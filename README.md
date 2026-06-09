@@ -13,7 +13,7 @@ AgentCrawl turns messy web pages into clean Markdown, text, links, metadata, and
 
 Agents need fresh web context, but raw HTML is noisy and one-off scraper scripts age badly. AgentCrawl gives them a reliable extraction layer with the operational pieces already built in:
 
-- 🎯 Known URL in, clean Markdown out with main-content extraction, table preservation, and fenced code blocks.
+- 🎯 Known URL or local document in, clean Markdown out with main-content extraction, table preservation, and fenced code blocks.
 - ⚡ Fast HTTP extraction first; browser rendering only when a page really needs it.
 - 🧱 Durable crawl jobs with checkpoints, retries, pagination, cancellation, events, and failure inspection.
 - 🗄️ SQLite-backed cache, usage, jobs, events, and crawl failures.
@@ -44,6 +44,13 @@ The base package uses HTTP extraction and does not install a browser. Add browse
 ```bash
 python -m pip install -e ".[browser]"
 playwright install chromium
+```
+
+Local Markdown, text, JSON, and XML files work in the base package. Add PDF ingestion only when needed:
+
+```bash
+python -m pip install -e ".[docs]"
+agentcrawl scrape ./document.pdf
 ```
 
 AgentCrawl also supports an optional external Camofox REST backend:
@@ -84,6 +91,29 @@ The Community engine focuses on stable, agent-ready Markdown before benchmark cl
 - removes unsafe and noisy page chrome such as scripts, styles, hidden content, nav, footer, cookie banners, sidebars, and related-post blocks;
 - preserves Markdown tables with headers and cell values;
 - preserves fenced code blocks and language tags from common classes such as `language-python` and `lang-javascript`.
+
+## Local documents 📄
+
+Community supports local document ingestion without sending file contents to a hosted parser:
+
+```bash
+agentcrawl scrape ./notes.md
+agentcrawl scrape ./data.json
+agentcrawl scrape ./feed.xml
+python -m pip install -e ".[docs]"
+agentcrawl scrape ./report.pdf
+```
+
+Current document support:
+
+| Input | Support |
+| --- | --- |
+| HTML | Main-content Markdown extraction. |
+| Markdown | Passed through as Markdown. |
+| Text | Passed through as plain Markdown text. |
+| JSON | Pretty-printed inside a fenced `json` block. |
+| XML/RSS/Atom | Preserved inside a fenced `xml` block. |
+| PDF | Extracted page-by-page to Markdown with the optional `docs` extra. |
 
 ## HTTP API 🌐
 
