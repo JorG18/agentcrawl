@@ -60,6 +60,10 @@ class AgentCrawl:
                     **metadata,
                     **fetch_metadata,
                     "only_main_content": main_content,
+                    "content_format": "markdown",
+                    "markdown_chars": len(markdown),
+                    "text_chars": len(text),
+                    "link_count": len(links),
                 },
             )
             if formats is None:

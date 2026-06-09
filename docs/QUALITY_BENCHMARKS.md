@@ -65,7 +65,7 @@ ecommerce
 forum/discussion
 ```
 
-The assertions live in `tests/test_quality_fixtures.py` and verify expected content, boilerplate removal, metadata presence, and non-corrupted plain text.
+The assertions live in `tests/test_quality_fixtures.py` and verify expected content, boilerplate removal, metadata presence, extraction size metadata, link counts, and non-corrupted plain text.
 
 ## Comparison Runs
 

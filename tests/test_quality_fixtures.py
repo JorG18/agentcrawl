@@ -81,6 +81,10 @@ def test_quality_fixture_outputs_agent_ready_markdown(case: QualityCase) -> None
         assert text not in doc.markdown
     for key in case.metadata:
         assert doc.metadata.get(key)
+    assert doc.metadata["markdown_chars"] == len(doc.markdown)
+    assert doc.metadata["text_chars"] == len(doc.text)
+    assert doc.metadata["link_count"] == len(doc.links)
+    assert doc.metadata["content_format"] == "markdown"
 
 
 @pytest.mark.parametrize("case", QUALITY_CASES, ids=lambda case: case.name)
