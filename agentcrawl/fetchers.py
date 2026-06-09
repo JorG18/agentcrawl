@@ -19,6 +19,23 @@ from .utils import is_probably_url
 _BROWSER_SEMAPHORE = threading.BoundedSemaphore(2)
 
 
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, *, allow_private_network: bool = False):
+        self.allow_private_network = allow_private_network
+        super().__init__()
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_remote_url(newurl, allow_private_network=self.allow_private_network)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _safe_urlopen(request, *, timeout: float, allow_private_network: bool):
+    opener = urllib.request.build_opener(
+        _SafeRedirectHandler(allow_private_network=allow_private_network)
+    )
+    return opener.open(request, timeout=timeout)
+
+
 def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     if not is_probably_url(source):
         return _fetch_local_file(source)
@@ -68,7 +85,11 @@ def _fetch_http(url: str, config: CrawlConfig) -> str:
     last_exc: Exception | None = None
     for attempt in range(max(1, config.http_retries + 1)):
         try:
-            with urllib.request.urlopen(request, timeout=config.timeout_ms / 1000) as response:
+            with _safe_urlopen(
+                request,
+                timeout=config.timeout_ms / 1000,
+                allow_private_network=config.allow_private_network,
+            ) as response:
                 validate_remote_url(
                     response.geturl(),
                     allow_private_network=config.allow_private_network,
