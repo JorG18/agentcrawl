@@ -10,6 +10,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+LABEL org.opencontainers.image.title="AgentCrawl" \
+      org.opencontainers.image.description="Self-hosted web extraction and Markdown crawling for AI agents." \
+      org.opencontainers.image.source="https://github.com/JorG18/agentcrawl" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
 COPY pyproject.toml README.md LICENSE ./
 COPY agentcrawl ./agentcrawl
 

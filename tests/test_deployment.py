@@ -18,6 +18,8 @@ def test_dockerfile_has_safe_runtime_defaults() -> None:
     assert "USER agentcrawl" in dockerfile
     assert 'VOLUME ["/data"]' in dockerfile
     assert "HEALTHCHECK" in dockerfile
+    assert 'org.opencontainers.image.source="https://github.com/JorG18/agentcrawl"' in dockerfile
+    assert 'org.opencontainers.image.licenses="Apache-2.0"' in dockerfile
 
 
 def test_docker_compose_uses_persistent_data_and_hardening() -> None:

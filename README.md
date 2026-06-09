@@ -236,7 +236,13 @@ docker compose up --build -d
 curl http://127.0.0.1:8000/health
 ```
 
-The test suite validates the Dockerfile, Compose hardening, persistent `/data` volume, healthcheck, and required `.env.example` keys. A Docker daemon is still required for the final image build smoke test.
+After the public image is published, the expected image path is:
+
+```bash
+docker pull ghcr.io/jorg18/agentcrawl:latest
+```
+
+The test suite validates the Dockerfile, Compose hardening, persistent `/data` volume, healthcheck, OCI labels, and required `.env.example` keys. A Docker daemon is still required for the final image build smoke test.
 
 ## Backups 💾
 
