@@ -6,9 +6,11 @@ import sqlite3
 import threading
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agentcrawl import AgentCrawl, ScrapeDocument
+import agentcrawl.server as server_module
 from agentcrawl.server import _run_crawl_job, app, server
 from agentcrawl.storage import SQLiteStore
 
@@ -158,6 +160,32 @@ def test_per_key_rate_limit(tmp_path: Path) -> None:
     assert client.get("/v1/usage", headers=headers).status_code == 200
     assert client.get("/v1/usage", headers=headers).status_code == 200
     assert client.get("/v1/usage", headers=headers).status_code == 429
+
+
+def test_rate_limit_uses_sliding_window_not_fixed_reset(monkeypatch) -> None:
+    current_time = 0.0
+
+    def fake_monotonic() -> float:
+        return current_time
+
+    monkeypatch.setattr(server_module.time, "monotonic", fake_monotonic)
+    server.rate_limit_per_minute = 3
+    server._rate_windows = {}
+
+    current_time = 0.0
+    server.check_rate_limit("api-key")
+    current_time = 58.9
+    server.check_rate_limit("api-key")
+    current_time = 59.9
+    server.check_rate_limit("api-key")
+    current_time = 60.1
+    server.check_rate_limit("api-key")
+    current_time = 60.2
+
+    with pytest.raises(server_module.HTTPException) as exc_info:
+        server.check_rate_limit("api-key")
+
+    assert exc_info.value.status_code == 429
 
 
 def test_running_job_is_requeued_with_checkpoint_after_restart(tmp_path: Path, monkeypatch) -> None:

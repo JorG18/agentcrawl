@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from contextlib import asynccontextmanager, contextmanager
+from collections import deque
 import json
 import os
 import queue
@@ -79,7 +80,7 @@ class AgentCrawlServer:
         self._workers_started = False
         self.rate_limit_per_minute = int(os.getenv("AGENTCRAWL_RATE_LIMIT_PER_MINUTE", "60"))
         self._rate_lock = threading.Lock()
-        self._rate_windows: dict[str, tuple[float, int]] = {}
+        self._rate_windows: dict[str, deque[float]] = {}
         self.auth_enabled = os.getenv("AGENTCRAWL_AUTH_ENABLED", "true").lower() in {
             "1",
             "true",
@@ -169,13 +170,14 @@ class AgentCrawlServer:
         if self.rate_limit_per_minute <= 0:
             return
         now = time.monotonic()
+        cutoff = now - 60
         with self._rate_lock:
-            started, count = self._rate_windows.get(key_id, (now, 0))
-            if now - started >= 60:
-                started, count = now, 0
-            if count >= self.rate_limit_per_minute:
+            requests = self._rate_windows.setdefault(key_id, deque())
+            while requests and requests[0] <= cutoff:
+                requests.popleft()
+            if len(requests) >= self.rate_limit_per_minute:
                 raise HTTPException(status_code=429, detail="API key rate limit exceeded.")
-            self._rate_windows[key_id] = (started, count + 1)
+            requests.append(now)
 
     def merged_config(self, override: dict[str, Any]) -> dict[str, Any]:
         allowed = {
