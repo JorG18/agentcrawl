@@ -17,7 +17,7 @@ Agents need fresh web context, but raw HTML is noisy and one-off scraper scripts
 - ⚡ Fast HTTP extraction first; browser rendering only when a page really needs it.
 - 🧱 Durable crawl jobs with checkpoints, retries, pagination, cancellation, events, and failure inspection.
 - 🗄️ SQLite-backed cache, usage, jobs, events, and crawl failures.
-- 🔐 Bearer auth, `robots.txt` support, and SSRF protection for exposed APIs.
+- 🔐 Bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls for exposed APIs.
 - 🤖 MCP tools for scraping, mapping, crawling, jobs, usage, and cache control.
 
 ## Quick start 🚀
@@ -113,7 +113,7 @@ Current document support:
 | Text | Passed through as plain Markdown text. |
 | JSON | Pretty-printed inside a fenced `json` block. |
 | XML/RSS/Atom | Preserved inside a fenced `xml` block. |
-| PDF | Extracted page-by-page to Markdown with the optional `docs` extra. |
+| PDF | Extracted page-by-page to Markdown with the optional `docs` extra. Enforces size/page safety limits and rejects encrypted PDFs. |
 
 ## HTTP API 🌐
 

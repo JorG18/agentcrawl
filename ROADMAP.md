@@ -6,6 +6,7 @@ This roadmap is directional. Public performance or quality claims need reproduci
 
 ## Current focus
 
+- Phase 1 distribution readiness: PyPI package release, public GHCR image, clean install smoke tests, and a sharper quickstart.
 - Stable web/document-to-Markdown extraction for known URLs and local files.
 - HTTP-first scraping with browser fallback when a page needs JavaScript.
 - Durable crawl jobs with checkpoints, retries, cancellation, pagination, events, and failure inspection.
@@ -16,6 +17,7 @@ This roadmap is directional. Public performance or quality claims need reproduci
 
 ### Completed
 
+- Critical safety and behavior cleanup for the Community alpha baseline: text normalization, sitemap index expansion, sitemap discovery from `robots.txt`, IDNA domain normalization, sliding-window API rate limiting, safer URL validation, unsafe redirect blocking, PDF safety limits, and clearer scrape error behavior.
 - Main-content extraction for semantic containers (`main`, `article`) and text-rich fallback blocks.
 - Boilerplate reduction for page chrome, cookie banners, sidebars, related posts, hidden content, and unsafe tags.
 - Markdown table preservation with headers, separators, and cell values.
@@ -25,9 +27,10 @@ This roadmap is directional. Public performance or quality claims need reproduci
 
 ### Next community priorities
 
+- Public distribution readiness: PyPI release checks, public GHCR image, clean install smoke tests, and release notes.
+- More copy-paste examples for CLI, Python, HTTP, Docker, MCP, and common agent workflows.
 - Common office formats and optional OCR.
 - Browser workflows: bounded wait, click, scroll, type, screenshots, sessions, and cleanup guarantees.
-- Adoption surface: public PyPI release, public container image, and more copy-paste examples.
 
 ## Competitive priorities
 
