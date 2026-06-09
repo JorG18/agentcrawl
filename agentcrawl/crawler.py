@@ -13,6 +13,7 @@ from typing import Any, Callable
 from .config import CrawlConfig
 from .documents import markdown_from_fetched_content
 from .errors import classify_error
+from .exceptions import FetchError
 from .fetchers import fetch_source
 from .html_tools import extract_html_facts, normalize_url, same_domain, url_allowed
 from .models import CrawlRun, MapResult, ScrapeDocument
@@ -64,8 +65,15 @@ class AgentCrawl:
             if formats is None:
                 return document
             return _format_document(document, requested)
-        except Exception as exc:
-            document = ScrapeDocument(url=source, markdown="", text="", errors=[str(exc)])
+        except FetchError as exc:
+            message = str(exc)
+            document = ScrapeDocument(
+                url=source,
+                markdown="",
+                text="",
+                metadata={"error_type": classify_error(message) or "fetch_error"},
+                errors=[message],
+            )
             if formats is None:
                 return document
             return _format_document(document, requested)

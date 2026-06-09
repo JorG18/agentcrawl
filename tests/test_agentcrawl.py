@@ -3,9 +3,13 @@ from pathlib import Path
 import sys
 import types
 
+import pytest
+
 from agentcrawl import AgentCrawl, ScrapeDocument
 from agentcrawl.config import CrawlConfig
+import agentcrawl.crawler as crawler_module
 from agentcrawl.crawler import _markdown_to_text, _read_sitemap
+from agentcrawl.exceptions import FetchError
 from agentcrawl.html_tools import normalize_url, same_domain
 
 
@@ -43,6 +47,30 @@ def test_scrape_formats(tmp_path: Path) -> None:
     assert isinstance(payload, dict)
     assert "Hello" in payload["markdown"]
     assert "World" in payload["text"]
+
+
+def test_scrape_returns_document_error_for_expected_fetch_failures(monkeypatch) -> None:
+    def fake_fetch_source(_source, _config):
+        raise FetchError("network unavailable")
+
+    monkeypatch.setattr(crawler_module, "fetch_source", fake_fetch_source)
+
+    doc = AgentCrawl().scrape("https://example.com")
+
+    assert isinstance(doc, ScrapeDocument)
+    assert doc.errors == ["network unavailable"]
+    assert doc.metadata["error_type"] == "fetch_error"
+
+
+def test_scrape_does_not_swallow_internal_bugs(monkeypatch) -> None:
+    def broken_extract_html_facts(_html, _source):
+        raise TypeError("internal parser bug")
+
+    monkeypatch.setattr(crawler_module, "fetch_source", lambda _source, _config: ("<html></html>", {}))
+    monkeypatch.setattr(crawler_module, "extract_html_facts", broken_extract_html_facts)
+
+    with pytest.raises(TypeError, match="internal parser bug"):
+        AgentCrawl().scrape("https://example.com")
 
 
 def test_markdown_to_text_preserves_legitimate_line_prefixes() -> None:
