@@ -50,6 +50,23 @@ The benchmark corpus is organized around page types agents commonly read:
 
 Checked-in HTML fixtures are preferred for CI stability. Optional live-url runs can be used for release checks and product comparisons.
 
+The initial checked-in quality corpus lives under:
+
+```text
+tests/fixtures/quality/
+```
+
+Current fixture categories covered in CI:
+
+```text
+documentation
+article
+ecommerce
+forum/discussion
+```
+
+The assertions live in `tests/test_quality_fixtures.py` and verify expected content, boilerplate removal, metadata presence, and non-corrupted plain text.
+
 ## Comparison Runs
 
 AgentCrawl can be compared against other tools when their adapters and credentials are configured by the user:

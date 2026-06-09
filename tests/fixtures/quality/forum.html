@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head><title>Database Migration Discussion</title></head>
+<body>
+  <header>Forum Home Latest Popular</header>
+  <main class="thread-content">
+    <article>
+      <h1>Database Migration Discussion</h1>
+      <p>Original post by alex · 2026-06-08</p>
+      <p>We need to migrate the analytics database without losing job checkpoints or crawl failure history.</p>
+    </article>
+    <section class="comments">
+      <h2>Replies</h2>
+      <p>sam: Take a SQLite online backup before stopping workers.</p>
+      <p>lee: Verify restore on a temporary database before deploying.</p>
+      <p>nora: Keep the old database until smoke tests pass.</p>
+    </section>
+  </main>
+  <aside class="social-share">Share buttons</aside>
+</body>
+</html>
