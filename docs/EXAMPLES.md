@@ -95,6 +95,25 @@ Remote API mode:
 }
 ```
 
+## Extraction Quality Notes 🧹
+
+AgentCrawl's Community extractor currently protects the output shape agents care about most:
+
+- main content is selected from semantic containers or text-rich fallback blocks;
+- noisy chrome is removed, including nav/footer/header/sidebar/cookie/share/related blocks and hidden or unsafe tags;
+- tables stay as readable Markdown tables;
+- code blocks stay fenced and preserve common language classes (`language-python`, `lang-js`, etc.).
+
+Small local HTML fixtures are the safest way to verify output without network flakiness:
+
+```python
+from agentcrawl import AgentCrawl
+
+html_path = "./fixtures/page.html"
+document = AgentCrawl({"fetcher": "http"}).scrape(html_path)
+print(document.markdown)
+```
+
 ## Use Browser Fallback Only When Needed
 
 Start with HTTP extraction. Add browser support only when the target page needs JavaScript rendering.

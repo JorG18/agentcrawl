@@ -14,8 +14,8 @@ Core checks cover:
 - expected text presence;
 - boilerplate reduction;
 - link and canonical URL correctness;
-- table preservation;
-- code block preservation;
+- table preservation, including headers, separators, row values, and empty cells;
+- code block preservation, including fenced blocks and language tags from common HTML classes;
 - metadata presence;
 - scrape duration;
 - cache behavior;

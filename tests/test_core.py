@@ -86,3 +86,70 @@ def test_full_content_keeps_header_but_removes_unsafe_content() -> None:
     assert "Site introduction" in markdown
     assert "Article" in markdown
     assert "bad()" not in markdown
+
+
+def test_code_blocks_preserve_language_from_class_names() -> None:
+    html = """
+    <main>
+      <h1>Code examples</h1>
+      <pre><code>plain block</code></pre>
+      <pre><code class="language-python">print("hello")</code></pre>
+      <pre><code class="lang-javascript">console.log("hello")</code></pre>
+    </main>
+    """
+
+    markdown = html_to_markdown(html, AgentCrawler().config, only_main_content=True)
+
+    assert "plain block" in markdown
+    assert "```python" in markdown
+    assert 'print("hello")' in markdown
+    assert "```javascript" in markdown
+    assert 'console.log("hello")' in markdown
+
+
+def test_main_content_prefers_text_rich_article_candidate_without_semantic_tags() -> None:
+    html = """
+    <html><body>
+      <div class="topbar"><a href="/a">A</a><a href="/b">B</a><a href="/c">C</a></div>
+      <div class="layout">
+        <div class="sidebar related-posts">Related link farm</div>
+        <div class="post-body">
+          <h1>Deep Dive</h1>
+          <p>This paragraph contains the useful information agents need.</p>
+          <p>Another substantial paragraph keeps the content score high.</p>
+        </div>
+      </div>
+      <div class="footer">Footer links</div>
+    </body></html>
+    """
+
+    markdown = html_to_markdown(html, AgentCrawler().config, only_main_content=True)
+
+    assert "# Deep Dive" in markdown
+    assert "useful information agents need" in markdown
+    assert "Another substantial paragraph" in markdown
+    assert "Related link farm" not in markdown
+    assert "Footer links" not in markdown
+
+
+def test_tables_keep_header_separator_and_cell_values() -> None:
+    html = """
+    <main>
+      <h1>Pricing</h1>
+      <table>
+        <thead><tr><th>Plan</th><th>Price</th><th>Includes</th></tr></thead>
+        <tbody>
+          <tr><td>Community</td><td>Free</td><td>Markdown extraction</td></tr>
+          <tr><td>Enhanced</td><td>Paid</td><td>Browser workflows</td></tr>
+        </tbody>
+      </table>
+    </main>
+    """
+
+    markdown = html_to_markdown(html, AgentCrawler().config, only_main_content=True)
+
+    assert "| Plan" in markdown
+    assert "| Community" in markdown
+    assert "| Enhanced" in markdown
+    assert "Markdown extraction" in markdown
+    assert "Browser workflows" in markdown

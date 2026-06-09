@@ -12,6 +12,22 @@ This roadmap is directional. Public performance or quality claims need reproduci
 - Self-hosted API and MCP tools that agents can call directly.
 - Safer operations: auth, SSRF protection, cache, usage stats, backup, restore, Docker, and diagnostics.
 
+## Community phase status
+
+### Completed
+
+- Main-content extraction for semantic containers (`main`, `article`) and text-rich fallback blocks.
+- Boilerplate reduction for page chrome, cookie banners, sidebars, related posts, hidden content, and unsafe tags.
+- Markdown table preservation with headers, separators, and cell values.
+- Fenced code block preservation with language tags from common HTML classes.
+- Package version export, wheel build verification, Docker build workflow for GHCR, and `agentcrawl doctor` verification.
+
+### Next community priorities
+
+- Better document input: PDFs first, then common office formats and optional OCR.
+- Browser workflows: bounded wait, click, scroll, type, screenshots, sessions, and cleanup guarantees.
+- Adoption surface: public PyPI release, public container image, and more copy-paste examples.
+
 ## Competitive priorities
 
 See [docs/COMPARISON.md](docs/COMPARISON.md) for the public positioning against Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.

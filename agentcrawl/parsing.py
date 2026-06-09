@@ -33,9 +33,12 @@ _BOILERPLATE_HINTS = re.compile(
     re.IGNORECASE,
 )
 _CONTENT_HINTS = re.compile(
-    r"\b(article|content|entry|main|post|story|documentation|docs)\b",
+    r"\b(article|body|content|entry|main|post|story|documentation|docs|readme|"
+    r"doc-content|page-content)\b",
     re.IGNORECASE,
 )
+_CONTENT_CONTAINER_TAGS = {"article", "main", "section", "div", "td"}
+_MIN_CONTENT_CANDIDATE_CHARS = 120
 
 
 @dataclass
@@ -140,12 +143,28 @@ def strip_boilerplate(html: str) -> str:
 def _content_candidates(root: _HTMLNode) -> list[_HTMLNode]:
     semantic: list[_HTMLNode] = []
     hinted: list[_HTMLNode] = []
+    scored: list[_HTMLNode] = []
     for node in _walk_nodes(root):
         if node.tag in {"main", "article"}:
             semantic.append(node)
         elif node.tag in {"div", "section"} and _CONTENT_HINTS.search(_node_identity(node)):
             hinted.append(node)
-    return semantic or hinted
+        elif node.tag in _CONTENT_CONTAINER_TAGS and _looks_like_content_candidate(node):
+            scored.append(node)
+    return semantic or hinted or scored
+
+
+def _looks_like_content_candidate(node: _HTMLNode) -> bool:
+    text = _node_text(node)
+    if len(text) < _MIN_CONTENT_CANDIDATE_CHARS:
+        return False
+    descendants = list(_walk_nodes(node))
+    paragraphs = sum(1 for child in descendants if child.tag in {"p", "li", "pre", "table"})
+    if paragraphs < 2:
+        return False
+    links = sum(1 for child in descendants if child.tag == "a")
+    link_density = links / max(1, paragraphs)
+    return link_density <= 2.0
 
 
 def _content_score(node: _HTMLNode) -> float:
@@ -228,25 +247,30 @@ def _clean_markdown(markdown: str, code_lang_map: dict[int, str] | None = None) 
     cleaned: list[str] = []
     blank = False
     code_block_index = 0
+    in_fenced_code = False
 
     for line in lines:
         if line.strip() == "[code]":
             lang = code_lang_map.get(code_block_index, "") if code_lang_map else ""
             cleaned.append(f"```{lang}")
             code_block_index += 1
+            in_fenced_code = True
             blank = False
             continue
         if line.strip() == "[/code]":
             cleaned.append("```")
+            in_fenced_code = False
             blank = False
             continue
-        # Handle html2text code blocks: ``` or indented code
         if line.strip() == "```":
-            lang = code_lang_map.get(code_block_index, "") if code_lang_map else ""
-            if lang and code_block_index < len(code_lang_map) if code_lang_map else False:
-                pass  # already handled above
-            cleaned.append(line)
-            code_block_index += 1
+            if in_fenced_code:
+                cleaned.append("```")
+                in_fenced_code = False
+            else:
+                lang = code_lang_map.get(code_block_index, "") if code_lang_map else ""
+                cleaned.append(f"```{lang}")
+                code_block_index += 1
+                in_fenced_code = True
             blank = False
             continue
         if not line.strip():
@@ -261,32 +285,57 @@ def _clean_markdown(markdown: str, code_lang_map: dict[int, str] | None = None) 
 
 
 def _extract_code_language_tags(html: str) -> dict[int, str]:
-    """Extract language tags from <pre><code class=\"language-python\"> elements.
-    
-    Returns a mapping from code block index to language string.
+    """Extract language tags from code elements in document order.
+
+    Returns a mapping from code block index to language string. Blocks without a
+    language still advance the index so later tagged blocks stay aligned with
+    html2text's generated fences.
     """
-    pattern = re.compile(
-        r'<code[^>]*\sclass=["\']([^"\']*)["\'][^>]*>',
-        re.IGNORECASE,
-    )
+    pattern = re.compile(r"<code\b([^>]*)>", re.IGNORECASE)
     lang_map: dict[int, str] = {}
-    index = 0
-    for match in pattern.finditer(html):
-        classes = match.group(1).split()
-        for cls in classes:
-            if cls.startswith("language-"):
-                lang_map[index] = cls.replace("language-", "")
-                index += 1
-                break
-            elif cls.startswith("lang-"):
-                lang_map[index] = cls.replace("lang-", "")
-                index += 1
-                break
-        else:
-            # Check if class itself is a language (e.g., "python", "javascript")
-            for cls in classes:
-                if cls in {"python", "javascript", "js", "typescript", "ts", "java", "go", "rust", "c", "cpp", "csharp", "ruby", "php", "shell", "bash", "json", "yaml", "xml", "html", "css", "sql", "markdown", "md"}:
-                    lang_map[index] = cls
-                    index += 1
-                    break
+    for index, match in enumerate(pattern.finditer(html)):
+        attrs = match.group(1)
+        class_match = re.search(r"\sclass=[\"']([^\"']*)[\"']", attrs, re.IGNORECASE)
+        if not class_match:
+            continue
+        language = _language_from_classes(class_match.group(1).split())
+        if language:
+            lang_map[index] = language
     return lang_map
+
+
+def _language_from_classes(classes: list[str]) -> str:
+    known_languages = {
+        "bash",
+        "c",
+        "cpp",
+        "csharp",
+        "css",
+        "go",
+        "html",
+        "java",
+        "javascript",
+        "js",
+        "json",
+        "markdown",
+        "md",
+        "php",
+        "python",
+        "ruby",
+        "rust",
+        "shell",
+        "sql",
+        "ts",
+        "typescript",
+        "xml",
+        "yaml",
+    }
+    for cls in classes:
+        if cls.startswith("language-"):
+            return cls.removeprefix("language-")
+        if cls.startswith("lang-"):
+            return cls.removeprefix("lang-")
+    for cls in classes:
+        if cls in known_languages:
+            return cls
+    return ""
