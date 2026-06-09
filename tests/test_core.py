@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from agentcrawl import AgentCrawler
-from agentcrawl.parsing import chunk_text, html_to_markdown
+from agentcrawl.parsing import _clean_markdown, chunk_text, html_to_markdown
 
 
 class Product(BaseModel):
@@ -105,6 +105,60 @@ def test_code_blocks_preserve_language_from_class_names() -> None:
     assert 'print("hello")' in markdown
     assert "```javascript" in markdown
     assert 'console.log("hello")' in markdown
+
+
+def test_clean_markdown_keeps_code_language_indexes_for_mixed_code_markers() -> None:
+    markdown = "\n".join(
+        [
+            "[code]",
+            "plain block",
+            "[/code]",
+            "```",
+            'print("hello")',
+            "```",
+            "[code]",
+            'console.log("hello")',
+            "[/code]",
+        ]
+    )
+
+    cleaned = _clean_markdown(markdown, {1: "python", 2: "javascript"})
+
+    assert cleaned.splitlines() == [
+        "```",
+        "plain block",
+        "```",
+        "```python",
+        'print("hello")',
+        "```",
+        "```javascript",
+        'console.log("hello")',
+        "```",
+    ]
+
+
+def test_clean_markdown_preserves_native_fence_languages_without_desync() -> None:
+    markdown = "\n".join(
+        [
+            "```python",
+            'print("native")',
+            "```",
+            "[code]",
+            'console.log("mapped")',
+            "[/code]",
+        ]
+    )
+
+    cleaned = _clean_markdown(markdown, {1: "javascript"})
+
+    assert cleaned.splitlines() == [
+        "```python",
+        'print("native")',
+        "```",
+        "```javascript",
+        'console.log("mapped")',
+        "```",
+    ]
 
 
 def test_main_content_prefers_text_rich_article_candidate_without_semantic_tags() -> None:
