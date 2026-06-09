@@ -10,5 +10,6 @@
 - Mapping, crawling, persistent jobs, progress, and cancellation.
 - Cache controls and statistics.
 - Python client, CLI, and MCP integration.
-- Authentication, SSRF protections, and safe server defaults.
-- Package version export, wheel build verification, and GHCR Docker workflow.
+- Authentication, SSRF protections, unsafe redirect blocking, and safe server defaults.
+- Safety baseline fixes for text normalization, sitemap discovery, PDF limits, scrape error behavior, URL validation, and crawl failure filtering.
+- Package version export, wheel/sdist build verification, clean install smoke tests, and GHCR Docker workflow.

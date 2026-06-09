@@ -67,6 +67,7 @@ export AGENTCRAWL_CAMOFOX_ACCESS_KEY=replace-if-access-control-is-enabled
 - [Examples](docs/EXAMPLES.md): copy-paste workflows for CLI, Python, HTTP, MCP, Docker, and agents.
 - [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): how extraction quality is measured and reported.
 - [Operations](docs/OPERATIONS.md): deployment, backup, restore, and production checks.
+- [Release checklist](docs/RELEASE.md): PyPI/GHCR release validation and smoke tests.
 - [Install for agents](INSTALL_FOR_AGENTS.md): the canonical setup flow for coding agents.
 
 ## Python 🐍
