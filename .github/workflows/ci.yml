@@ -27,13 +27,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[server,mcp,dev]"
       - name: Ruff
-        run: python -m ruff check agentcrawl tests examples
+        run: python -m ruff check agentcrawl tests examples benchmarks
       - name: Format
-        run: python -m ruff format --check agentcrawl tests examples
+        run: python -m ruff format --check agentcrawl tests examples benchmarks
       - name: Tests
         run: python -m pytest -q
       - name: Compile
-        run: python -m compileall -q agentcrawl
+        run: python -m compileall -q agentcrawl benchmarks
 
   docker:
     runs-on: ubuntu-latest

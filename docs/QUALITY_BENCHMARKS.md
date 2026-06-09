@@ -67,6 +67,14 @@ forum/discussion
 
 The assertions live in `tests/test_quality_fixtures.py` and verify expected content, boilerplate removal, metadata presence, extraction size metadata, link counts, and non-corrupted plain text.
 
+A machine-readable local report can be generated with:
+
+```bash
+python benchmarks/quality_report.py
+```
+
+The report summarizes fixture count, pass/fail totals, markdown/text sizes, link counts, missing expected content, and scrape errors.
+
 ## Comparison Runs
 
 AgentCrawl can be compared against other tools when their adapters and credentials are configured by the user:

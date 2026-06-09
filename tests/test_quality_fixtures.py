@@ -64,6 +64,39 @@ QUALITY_CASES = [
         excluded=("Forum Home", "Share buttons"),
         metadata=("title",),
     ),
+    QualityCase(
+        name="table",
+        expected=(
+            "Regional Sales Table",
+            "| Region",
+            "$120,000",
+            "West",
+        ),
+        excluded=("Analytics Portal Navigation", "Download app footer"),
+        metadata=("title",),
+    ),
+    QualityCase(
+        name="blog",
+        expected=(
+            "How Agents Read The Web",
+            "By Irene Shaw",
+            "stable context",
+            "fixed fixtures",
+        ),
+        excluded=("Home Archive", "weekly AI newsletter"),
+        metadata=("title", "description"),
+    ),
+    QualityCase(
+        name="canonical",
+        expected=(
+            "Canonical Deployment Guide",
+            "backup, health checks, and rollback",
+            "authenticated stats endpoint",
+            "roll back to the previous deployment",
+        ),
+        excluded=("Billing", "Legacy footer"),
+        metadata=("title", "description", "canonical"),
+    ),
 ]
 
 
@@ -93,5 +126,6 @@ def test_quality_fixture_text_is_not_corrupted(case: QualityCase) -> None:
 
     assert isinstance(doc, ScrapeDocument)
     assert doc.ok
-    assert "  " not in doc.text
+    non_table_text = "\n".join(line for line in doc.text.splitlines() if not line.startswith("|"))
+    assert "  " not in non_table_text
     assert len(doc.text) >= 80
