@@ -81,7 +81,7 @@ A machine-readable local report can be generated with:
 python benchmarks/quality_report.py
 ```
 
-The report summarizes fixture count, pass/fail totals, minimum score threshold, average score, per-fixture quality score, markdown/text sizes, link counts, missing expected content, boilerplate leaks, missing metadata, provenance checks, Markdown structure metrics, and scrape errors.
+The report summarizes fixture count, pass/fail totals, minimum score threshold, average score, per-fixture quality score, markdown/text sizes, link counts, missing expected content, boilerplate leaks, missing metadata, provenance checks, JSON-LD/schema extraction checks for structured fixtures, Markdown structure metrics, and scrape errors.
 
 ## Comparison Runs
 

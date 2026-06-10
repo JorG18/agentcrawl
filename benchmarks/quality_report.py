@@ -41,6 +41,16 @@ EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
     "media_article": ("Advertise", "celebrity weather myths", "Newsletter signup"),
 }
 
+REQUIRED_METADATA_BY_FIXTURE: dict[str, tuple[str, ...]] = {
+    "complex_product": (
+        "jsonld_count",
+        "schema_types",
+        "product_name",
+        "product_price",
+        "product_currency",
+    ),
+}
+
 REQUIRED_METADATA = (
     "source_url",
     "final_url",
@@ -123,7 +133,7 @@ def _score_fixture(name: str, doc: ScrapeDocument) -> FixtureResult:
     boilerplate_found = [text for text in excluded if text in doc.markdown]
     missing_metadata = [
         key
-        for key in REQUIRED_METADATA
+        for key in (*REQUIRED_METADATA, *REQUIRED_METADATA_BY_FIXTURE.get(name, ()))
         if key not in doc.metadata or doc.metadata[key] in {None, ""}
     ]
     provenance_ok = bool(doc.metadata.get("source_url")) and bool(
