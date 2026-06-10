@@ -5,72 +5,33 @@
 
 ![AgentCrawl README hero](assets/readme-hero.png)
 
-🕷️ Self-hosted web extraction for AI agents.
+🕷️ **Self-hosted web extraction for AI agents.**
 
-AgentCrawl turns messy web pages into clean Markdown, text, links, metadata, and structured data that agents can actually use. Run it from Python, the CLI, an HTTP API, Docker, or MCP. Your crawler, cache, retries, jobs, and extracted data stay in your environment.
-
-## Why AgentCrawl? ✨
-
-Agents need fresh web context, but raw HTML is noisy and one-off scraper scripts age badly. AgentCrawl gives them a reliable extraction layer with the operational pieces already built in:
-
-- 🎯 Known URL or local document in, clean Markdown out with main-content extraction, table preservation, fenced code blocks, quality scoring, and provenance metadata.
-- ⚡ Fast HTTP extraction first; browser rendering only when a page really needs it.
-- 🧱 Durable crawl jobs with checkpoints, retries, pagination, cancellation, events, and failure inspection.
-- 🗄️ SQLite-backed cache, usage, jobs, events, and crawl failures.
-- 🔐 Bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls for exposed APIs.
-- 🤖 MCP tools for scraping, mapping, crawling, jobs, usage, and cache control.
-
-## Quick start 🚀
-
-Python 3.10 or newer is required.
+AgentCrawl turns web pages and local documents into clean Markdown, text, links, metadata, JSON-LD, and crawl results that agents can actually use. Run it as a CLI, Python library, HTTP API, Docker service, or MCP server. Your cache, jobs, retries, failures, and extracted data stay in your environment.
 
 ```bash
-git clone https://github.com/JorG18/agentcrawl.git
-cd agentcrawl
-python -m pip install -e "."
+pip install agentcrawl
 agentcrawl scrape https://example.com
 ```
 
-For MCP:
+## Pick your path 🚀
+
+### For agents: MCP
 
 ```bash
-python -m pip install -e ".[mcp]"
+pip install "agentcrawl[mcp]"
 agentcrawl doctor
 agentcrawl mcp
 ```
 
-The base package uses HTTP extraction and does not install a browser. Add browser rendering only when a site needs JavaScript:
+MCP tools cover `scrape_url`, `map_site`, `crawl_site`, job status, cancellation, event history, failure inspection, selective retries, usage, and cache control. Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
+
+### For developers: Python + CLI
 
 ```bash
-python -m pip install -e ".[browser]"
-playwright install chromium
+pip install agentcrawl
+agentcrawl scrape https://example.com
 ```
-
-Local Markdown, text, JSON, and XML files work in the base package. Add PDF ingestion only when needed:
-
-```bash
-python -m pip install -e ".[docs]"
-agentcrawl scrape ./document.pdf
-```
-
-AgentCrawl also supports an optional external Camofox REST backend:
-
-```bash
-export AGENTCRAWL_BROWSER_BACKEND=camofox
-export AGENTCRAWL_CAMOFOX_URL=http://127.0.0.1:9377
-export AGENTCRAWL_CAMOFOX_ACCESS_KEY=replace-if-access-control-is-enabled
-```
-
-## Docs you'll actually use 📚
-
-- [Comparison](docs/COMPARISON.md): choose between AgentCrawl, Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
-- [Examples](docs/EXAMPLES.md): copy-paste workflows for CLI, Python, HTTP, MCP, Docker, and agents.
-- [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): how extraction quality is measured and reported.
-- [Operations](docs/OPERATIONS.md): deployment, backup, restore, and production checks.
-- [Release checklist](docs/RELEASE.md): PyPI/GHCR release validation and smoke tests.
-- [Install for agents](INSTALL_FOR_AGENTS.md): the canonical setup flow for coding agents.
-
-## Python 🐍
 
 ```python
 from agentcrawl import AgentCrawl
@@ -79,10 +40,56 @@ crawler = AgentCrawl({"fetcher": "http"})
 document = crawler.scrape("https://example.com")
 
 print(document.markdown)
-print(document.links)
+print(document.metadata)
 ```
 
-Structured extraction can use a local callable or a supported model provider through `AgentCrawler`.
+### For servers: Docker + API
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e AGENTCRAWL_API_KEYS="replace-with-a-long-random-key" \
+  ghcr.io/jorg18/agentcrawl:latest
+
+curl http://127.0.0.1:8000/health
+```
+
+Or with Compose:
+
+```bash
+cp .env.example .env
+# Replace AGENTCRAWL_API_KEYS and AGENTCRAWL_API_KEY in .env
+docker compose up -d
+curl http://127.0.0.1:8000/health
+```
+
+## Why AgentCrawl? ✨
+
+Agents need fresh web context, but raw HTML is noisy and one-off scraper scripts age badly. AgentCrawl gives them a reliable extraction layer with the operational pieces already built in:
+
+- 🎯 **Known URL in, clean Markdown out** — main-content extraction, table preservation, fenced code blocks, links, metadata, and provenance.
+- ⚡ **HTTP first** — fast default extraction without a browser runtime.
+- 🧱 **Durable crawls** — SQLite-backed jobs with checkpoints, pagination, cancellation, events, retries, and failure inspection.
+- 🗄️ **Local state** — cache, usage, jobs, events, crawl failures, and extracted documents stay in your environment.
+- 🔐 **Safer API defaults** — bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
+- 🤖 **Agent-native interfaces** — CLI, Python, HTTP API, Docker, and MCP.
+
+## What Community includes
+
+AgentCrawl Community is the self-hosted trust layer:
+
+| Included | Notes |
+| --- | --- |
+| CLI | Scrape, crawl, inspect jobs, manage cache, backup, restore. |
+| Python library | Local use from scripts and agent runtimes. |
+| HTTP API | FastAPI server for self-hosted deployments. |
+| MCP | Standards-based stdio MCP server for agent clients. |
+| Docker / GHCR | Public image built and smoke-tested by GitHub Actions. |
+| Durable crawls | SQLite jobs, events, checkpoints, retries, and failure records. |
+| Quality extraction | Markdown, links, metadata, JSON-LD/provenance, tables, code blocks. |
+| Basic browser fallback | Optional local browser/Camofox path, not required for the default image. |
+| Lightweight docs | Install, examples, operations, release, quality notes. |
+
+Community is self-hosted. A managed hosted AgentCrawl service is planned later for users who want managed browsers, proxies, schedules, webhooks, datasets, teams, billing, and enterprise controls.
 
 ## Extraction quality 🧹
 
@@ -95,28 +102,11 @@ The Community engine focuses on stable, agent-ready Markdown before benchmark cl
 - attaches extraction provenance such as source/final URL, selected content hint, selection score, candidate count, content hash, extraction strategy, JSON-LD/schema fields, and output size/structure metadata;
 - validates extraction quality against checked-in fixtures with a minimum score threshold.
 
-## Local documents 📄
-
-Community supports local document ingestion without sending file contents to a hosted parser:
+Run the report locally:
 
 ```bash
-agentcrawl scrape ./notes.md
-agentcrawl scrape ./data.json
-agentcrawl scrape ./feed.xml
-python -m pip install -e ".[docs]"
-agentcrawl scrape ./report.pdf
+python benchmarks/quality_report.py
 ```
-
-Current document support:
-
-| Input | Support |
-| --- | --- |
-| HTML | Main-content Markdown extraction. |
-| Markdown | Passed through as Markdown. |
-| Text | Passed through as plain Markdown text. |
-| JSON | Pretty-printed inside a fenced `json` block. |
-| XML/RSS/Atom | Preserved inside a fenced `xml` block. |
-| PDF | Extracted page-by-page to Markdown with the optional `docs` extra. Enforces size/page safety limits and rejects encrypted PDFs. |
 
 ## HTTP API 🌐
 
@@ -124,7 +114,7 @@ Authentication is enabled by default. Configure at least one API key before expo
 
 ```bash
 export AGENTCRAWL_API_KEYS="replace-with-a-long-random-key"
-python -m pip install -e ".[server]"
+pip install "agentcrawl[server]"
 agentcrawl serve --host 0.0.0.0 --port 8000
 ```
 
@@ -138,7 +128,7 @@ Scrape a URL:
 
 ```bash
 curl http://127.0.0.1:8000/v1/scrape \
-  -H "authorization: Bearer replace-with-api-key" \
+  -H "authorization: Bearer replace-with-a-long-random-key" \
   -H "content-type: application/json" \
   -d '{"url":"https://example.com","formats":["markdown","links","metadata"]}'
 ```
@@ -176,7 +166,7 @@ HTTP clients can attach an idempotency key so retries return the original job in
 
 ```bash
 curl http://127.0.0.1:8000/v1/crawl \
-  -H "authorization: Bearer replace-with-api-key" \
+  -H "authorization: Bearer replace-with-a-long-random-key" \
   -H "content-type: application/json" \
   -H "Idempotency-Key: docs-crawl-2026-06-06" \
   -d '{"url":"https://example.com","max_pages":25,"max_depth":2}'
@@ -199,6 +189,46 @@ agentcrawl --remote job-cancel JOB_ID
 
 `/v1/stats` reports queue readiness, delayed retries, running and cancelling jobs, crawl failures by status, open retryable failures, and open failures by error type.
 
+## Local documents 📄
+
+Community supports local document ingestion without sending file contents to a hosted parser:
+
+```bash
+agentcrawl scrape ./notes.md
+agentcrawl scrape ./data.json
+agentcrawl scrape ./feed.xml
+pip install "agentcrawl[docs]"
+agentcrawl scrape ./report.pdf
+```
+
+Current document support:
+
+| Input | Support |
+| --- | --- |
+| HTML | Main-content Markdown extraction. |
+| Markdown | Passed through as Markdown. |
+| Text | Passed through as plain Markdown text. |
+| JSON | Pretty-printed inside a fenced `json` block. |
+| XML/RSS/Atom | Preserved inside a fenced `xml` block. |
+| PDF | Extracted page-by-page to Markdown with the optional `docs` extra. Enforces size/page safety limits and rejects encrypted PDFs. |
+
+## Browser rendering
+
+The default package and default Docker image use HTTP extraction. Add browser rendering only when a site needs JavaScript:
+
+```bash
+pip install "agentcrawl[browser]"
+playwright install chromium
+```
+
+AgentCrawl also supports an optional external Camofox REST backend:
+
+```bash
+export AGENTCRAWL_BROWSER_BACKEND=camofox
+export AGENTCRAWL_CAMOFOX_URL=http://127.0.0.1:9377
+export AGENTCRAWL_CAMOFOX_ACCESS_KEY=replace-if-access-control-is-enabled
+```
+
 ## Cache ⚡
 
 Disable cache for one scrape or choose a TTL of up to 30 days:
@@ -218,34 +248,6 @@ agentcrawl --remote cache-clear
 agentcrawl --remote cache-clear --domain example.com
 agentcrawl --remote cache-clear --url https://example.com/page
 ```
-
-## MCP 🤖
-
-```bash
-# Local HTTP scraping, no environment variables needed.
-agentcrawl mcp
-
-# Remote API mode uses AGENTCRAWL_BASE_URL and AGENTCRAWL_API_KEY.
-```
-
-MCP tools cover scraping, mapping, crawling, job status, cancellation, failure inspection, selective failure retries, usage, cache statistics, and cache clearing. Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
-
-## Docker 🐳
-
-```bash
-cp .env.example .env
-# Replace AGENTCRAWL_API_KEYS and AGENTCRAWL_API_KEY in .env
-docker compose up --build -d
-curl http://127.0.0.1:8000/health
-```
-
-After the public image is published, the expected image path is:
-
-```bash
-docker pull ghcr.io/jorg18/agentcrawl:latest
-```
-
-The test suite validates the Dockerfile, Compose hardening, persistent `/data` volume, healthcheck, OCI labels, and required `.env.example` keys. A Docker daemon is still required for the final image build smoke test.
 
 ## Backups 💾
 
@@ -267,12 +269,21 @@ The HTTP server rejects local file paths, localhost, private networks, non-HTTP 
 
 Do not expose the API without authentication, TLS, request limits, and network controls. See [SECURITY.md](SECURITY.md) and [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
+## Docs you'll actually use 📚
+
+- [Install for agents](INSTALL_FOR_AGENTS.md): canonical setup flow for coding agents.
+- [Examples](docs/EXAMPLES.md): copy-paste workflows for CLI, Python, HTTP, MCP, Docker, and agents.
+- [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): how extraction quality is measured and reported.
+- [Operations](docs/OPERATIONS.md): deployment, backup, restore, and production checks.
+- [Release checklist](docs/RELEASE.md): PyPI/GHCR release validation and smoke tests.
+- [Comparison](docs/COMPARISON.md): choose between AgentCrawl, Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
+
 ## Development
 
 ```bash
-python -m pip install -e ".[server,mcp,llm,dev]"
+pip install -e ".[server,mcp,llm,dev]"
 pytest -q
-ruff check agentcrawl tests examples
+ruff check agentcrawl tests examples benchmarks
 ```
 
 ## Roadmap
