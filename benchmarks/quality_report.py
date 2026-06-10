@@ -22,6 +22,8 @@ EXPECTED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
     "messy_docs": ("Install Agent Runner", "isolated agent workflows", "agent-runner doctor"),
     "noisy_article": ("Transit Agency Opens Realtime Feed", "By Lena Ortiz", "stable JSON endpoints"),
     "complex_product": ("Field Recorder Kit", "$249.00", "128GB"),
+    "api_reference": ("Extraction API Reference", "```python", "| Parameter", "```json"),
+    "media_article": ("Researchers Publish Open Climate Archive", "Coastal sensors", "Stable provenance"),
 }
 
 EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
@@ -35,6 +37,8 @@ EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
     "messy_docs": ("Pricing", "weekly newsletter popup", "related promotional article"),
     "noisy_article": ("Sponsored cloud analytics", "Subscribe to our daily briefing", "Advertise with us"),
     "complex_product": ("Customers also bought", "Download app footer", "Clearance"),
+    "api_reference": ("Pricing", "Legacy SDK", "Hidden accessibility duplicate", "Footer legal"),
+    "media_article": ("Advertise", "celebrity weather myths", "Newsletter signup"),
 }
 
 REQUIRED_METADATA = (
@@ -46,6 +50,13 @@ REQUIRED_METADATA = (
     "link_count",
     "extraction_strategy",
     "selected_content_hint",
+    "selected_content_tag",
+    "candidate_count",
+    "selected_content_score",
+    "content_sha256",
+    "heading_count",
+    "fenced_code_block_count",
+    "table_row_count",
 )
 
 

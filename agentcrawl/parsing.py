@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import html as html_module
 import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from typing import Iterator
+from typing import Any, Iterator
 
 from .config import CrawlConfig
 
@@ -136,7 +137,7 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
     return _serialize_node(selected, only_main_content=only_main_content)
 
 
-def extraction_provenance(html: str, *, only_main_content: bool = True) -> dict[str, str]:
+def extraction_provenance(html: str, *, only_main_content: bool = True) -> dict[str, Any]:
     parser = _HTMLTreeParser()
     try:
         parser.feed(html)
@@ -149,18 +150,38 @@ def extraction_provenance(html: str, *, only_main_content: bool = True) -> dict[
     candidates = _content_candidates(parser.root)
     if only_main_content and candidates:
         selected = _select_content_node(candidates)
+        selected_text = _node_text(selected)
         return {
             "extraction_strategy": "main_content",
             "selected_content_hint": _content_hint(selected),
+            "selected_content_tag": selected.tag,
+            "selected_content_id": selected.attr("id"),
+            "selected_content_classes": selected.attr("class"),
+            "candidate_count": len(candidates),
+            "selected_content_score": round(_content_score(selected), 2),
+            "selected_text_chars": len(selected_text),
+            "content_sha256": hashlib.sha256(selected_text.encode("utf-8")).hexdigest(),
         }
     return {
         "extraction_strategy": "full_document",
         "selected_content_hint": "document",
+        "selected_content_tag": "document",
+        "candidate_count": len(candidates),
     }
 
 
 def strip_boilerplate(html: str) -> str:
     return extract_content_html(html, only_main_content=False)
+
+
+def markdown_structure_metrics(markdown: str) -> dict[str, int]:
+    lines = markdown.splitlines()
+    return {
+        "heading_count": sum(1 for line in lines if re.match(r"^#{1,6}\s+", line)),
+        "fenced_code_block_count": sum(1 for line in lines if line.startswith("```")),
+        "table_row_count": sum(1 for line in lines if line.strip().startswith("|")),
+        "link_markdown_count": len(re.findall(r"\[[^\]]+\]\([^)]+\)", markdown)),
+    }
 
 
 def _content_candidates(root: _HTMLNode) -> list[_HTMLNode]:
@@ -261,6 +282,10 @@ def _node_identity(node: _HTMLNode) -> str:
 
 def _is_hidden(node: _HTMLNode) -> bool:
     if node.attr("hidden") or node.attr("aria-hidden").lower() == "true":
+        return True
+    identity = _node_identity(node).lower()
+    hidden_tokens = {"hidden", "sr-only", "visually-hidden", "screen-reader-only"}
+    if any(token in identity.replace("_", "-").split() for token in hidden_tokens):
         return True
     style = node.attr("style").replace(" ", "").lower()
     return "display:none" in style or "visibility:hidden" in style

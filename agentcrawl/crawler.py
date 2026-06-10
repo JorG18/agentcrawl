@@ -17,7 +17,7 @@ from .exceptions import FetchError
 from .fetchers import fetch_source
 from .html_tools import extract_html_facts, normalize_url, same_domain, url_allowed
 from .models import CrawlRun, MapResult, ScrapeDocument
-from .parsing import html_to_markdown, extraction_provenance
+from .parsing import html_to_markdown, extraction_provenance, markdown_structure_metrics
 from .security import validate_remote_url
 
 
@@ -56,6 +56,7 @@ class AgentCrawl:
                     "selected_content_hint": str(fetch_metadata.get("document_type") or "document"),
                 }
             text = _markdown_to_text(markdown)
+            structure_metrics = markdown_structure_metrics(markdown)
             source_url = str(metadata.get("source_url") or source)
             document = ScrapeDocument(
                 url=source,
@@ -67,6 +68,7 @@ class AgentCrawl:
                     **metadata,
                     **fetch_metadata,
                     **provenance,
+                    **structure_metrics,
                     "source_url": source_url,
                     "final_url": str(fetch_metadata.get("final_url") or source_url),
                     "only_main_content": main_content,

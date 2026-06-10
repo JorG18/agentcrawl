@@ -69,6 +69,8 @@ canonical/provenance
 messy documentation pages
 noisy articles with inline ads/newsletter blocks
 complex product pages with variants and tables
+API reference pages with multiple fenced code blocks and parameter tables
+media-rich articles with figures, captions, blockquotes, and read-more cards
 ```
 
 The assertions live in `tests/test_quality_fixtures.py` and verify expected content, boilerplate removal, metadata presence, extraction size metadata, provenance fields, link counts, and non-corrupted plain text.
@@ -79,7 +81,7 @@ A machine-readable local report can be generated with:
 python benchmarks/quality_report.py
 ```
 
-The report summarizes fixture count, pass/fail totals, minimum score threshold, average score, per-fixture quality score, markdown/text sizes, link counts, missing expected content, boilerplate leaks, missing metadata, provenance checks, and scrape errors.
+The report summarizes fixture count, pass/fail totals, minimum score threshold, average score, per-fixture quality score, markdown/text sizes, link counts, missing expected content, boilerplate leaks, missing metadata, provenance checks, Markdown structure metrics, and scrape errors.
 
 ## Comparison Runs
 

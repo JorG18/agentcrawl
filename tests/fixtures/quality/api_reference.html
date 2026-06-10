@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head><title>API Reference Hostile Layout</title><meta name="description" content="API reference with internal TOC, nested tables, and multiple code blocks."></head>
+<body>
+<header>Product navigation Pricing Login</header>
+<main class="docs-shell">
+  <aside class="toc sticky">On this page Authentication Errors Legacy SDK</aside>
+  <section class="reference-content" id="api-reference">
+    <h1>Extraction API Reference</h1>
+    <p>Use the extraction endpoint to request clean Markdown, metadata, links, and provenance for agent workflows.</p>
+    <pre><code class="language-python">from agentcrawl import AgentCrawl
+crawler = AgentCrawl({"fetcher": "http"})
+doc = crawler.scrape("https://example.com")</code></pre>
+    <table>
+      <thead><tr><th>Parameter</th><th>Type</th><th>Required</th></tr></thead>
+      <tbody><tr><td>url</td><td>string</td><td>yes</td></tr><tr><td>formats</td><td>array</td><td>no</td></tr></tbody>
+    </table>
+    <pre><code class="language-json">{"formats":["markdown","metadata"]}</code></pre>
+    <p class="sr-only">Hidden accessibility duplicate should not become benchmark text.</p>
+  </section>
+</main>
+<footer>Footer legal archive</footer>
+</body>
+</html>

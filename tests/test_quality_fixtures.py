@@ -132,6 +132,30 @@ QUALITY_CASES = [
         excluded=("Customers also bought", "Download app footer", "Clearance"),
         metadata=("title", "description", "canonical", "extraction_strategy", "selected_content_hint"),
     ),
+    QualityCase(
+        name="api_reference",
+        expected=(
+            "Extraction API Reference",
+            "```python",
+            "crawler.scrape",
+            "| Parameter",
+            "```json",
+        ),
+        excluded=("Pricing", "Legacy SDK", "Hidden accessibility duplicate", "Footer legal"),
+        metadata=("title", "description", "extraction_strategy", "selected_content_hint"),
+    ),
+    QualityCase(
+        name="media_article",
+        expected=(
+            "Researchers Publish Open Climate Archive",
+            "By Noor Patel",
+            "Coastal sensors reported hourly salinity changes",
+            "citation-friendly source URL",
+            "Stable provenance is essential",
+        ),
+        excluded=("Advertise", "celebrity weather myths", "Newsletter signup"),
+        metadata=("title", "description", "og:type", "extraction_strategy", "selected_content_hint"),
+    ),
 ]
 
 
@@ -160,6 +184,13 @@ def test_quality_fixture_outputs_agent_ready_markdown(case: QualityCase) -> None
     }
     assert isinstance(doc.metadata["selected_content_hint"], str)
     assert doc.metadata["selected_content_hint"]
+    if doc.metadata["extraction_strategy"] == "main_content":
+        assert doc.metadata["candidate_count"] >= 1
+        assert doc.metadata["selected_content_score"] > 0
+        assert doc.metadata["selected_content_tag"]
+        assert doc.metadata["content_sha256"]
+    assert doc.metadata["heading_count"] >= 1
+    assert doc.metadata["fenced_code_block_count"] % 2 == 0
 
 
 @pytest.mark.parametrize("case", QUALITY_CASES, ids=lambda case: case.name)
