@@ -1,79 +1,52 @@
 # Roadmap
 
-AgentCrawl is focused on one job first: help agents read and crawl websites reliably from infrastructure you control.
+AgentCrawl focuses on one job first: help AI agents read and crawl web content reliably from infrastructure you control.
 
 This roadmap is directional. Public performance or quality claims need reproducible tests before they appear in docs or marketing.
 
-## Current focus
+## Current community status
 
-- Phase 2 extraction quality: fixture scoring thresholds, richer provenance metadata, harder checked-in fixtures, and cleaner main-content output before comparative claims.
-- Stable web/document-to-Markdown extraction for known URLs and local files.
-- HTTP-first scraping with browser fallback when a page needs JavaScript.
+AgentCrawl Community is a serious self-hosted alpha/release-candidate surface. The core paths are in place:
+
+- CLI, Python library, HTTP API, Docker/GHCR image, and MCP server.
+- HTTP-first scraping with optional browser/Camofox fallback when needed.
 - Durable crawl jobs with checkpoints, retries, cancellation, pagination, events, and failure inspection.
-- Self-hosted API and MCP tools that agents can call directly.
-- Safer operations: auth, SSRF protection, cache, usage stats, backup, restore, Docker, and diagnostics.
+- SQLite-backed cache, usage, jobs, events, crawl failures, and extracted documents.
+- Safer server defaults: bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
+- Quality extraction baseline: checked-in fixtures, quality report, provenance metadata, JSON-LD/Product extraction, Markdown table/code preservation, and noisy-layout handling.
+- Distribution readiness: wheel/sdist checks, clean install smoke tests, CI, lightweight Docker image, and GHCR publication.
 
-## Community phase status
+## Completed
 
-### Completed
-
-- Critical safety and behavior cleanup for the Community alpha baseline: text normalization, sitemap index expansion, sitemap discovery from `robots.txt`, IDNA domain normalization, sliding-window API rate limiting, safer URL validation, unsafe redirect blocking, PDF safety limits, and clearer scrape error behavior.
-- Main-content extraction for semantic containers (`main`, `article`) and text-rich fallback blocks.
+- Critical safety and behavior cleanup: text normalization, sitemap index expansion, sitemap discovery from `robots.txt`, IDNA domain normalization, sliding-window API rate limiting, safer URL validation, unsafe redirect blocking, PDF safety limits, and clearer scrape error behavior.
+- Main-content extraction for semantic containers and text-rich fallback blocks.
 - Boilerplate reduction for page chrome, cookie banners, sidebars, related posts, hidden content, and unsafe tags.
-- Markdown table preservation with headers, separators, and cell values.
-- Fenced code block preservation with language tags from common HTML classes.
+- Markdown table preservation and fenced code block preservation with language tags.
 - Local document ingestion for Markdown, text, JSON, XML/RSS/Atom, and PDF-to-Markdown through the optional `docs` extra.
-- Package version export, wheel build verification, Docker build workflow for GHCR, and `agentcrawl doctor` verification.
-- Initial Phase 2 extraction quality baseline: 14 checked-in report fixtures plus a browser-rendered SPA shell/snapshot pair, fixture scoring threshold, JSON quality report, provenance metadata, JSON-LD/Product schema extraction, Markdown structure metrics, and harder noisy docs/article/product/API-reference/nested-sidebar/rendered cases.
+- `agentcrawl doctor`, `agentcrawl --version`, package build verification, and clean install smoke tests.
+- Lightweight Docker image published through GHCR: `ghcr.io/jorg18/agentcrawl:latest`.
+- Extraction quality hardening: 14 checked-in quality fixtures plus browser-rendered SPA shell/snapshot coverage, score threshold, JSON report, richer provenance, JSON-LD/Product schema extraction, hidden-class filtering, and Markdown structure metrics.
 
-### Next community priorities
+## Next community priorities
 
-- Push extraction quality further with live release smoke targets and more hostile page layouts.
-- Public distribution readiness: PyPI release checks, public GHCR image, clean install smoke tests, and release notes.
-- More copy-paste examples for CLI, Python, HTTP, Docker, MCP, and common agent workflows.
-- Common office formats and optional OCR.
-- Browser workflows: bounded waits, resource blocking, init scripts, click, scroll, type, screenshots, sessions, and cleanup guarantees.
+1. Publish the first PyPI release after final token/config verification.
+2. Finish the minimal examples/cookbook set for CLI, Python, HTTP API, Docker, MCP, and browser-rendered pages.
+3. Add release notes and final public release tag.
+4. Add live smoke targets for release checks without turning them into unsupported benchmark claims.
+5. Improve document ingestion beyond PDF only when it remains lightweight for Community.
 
 ## Competitive priorities
 
-See [docs/COMPARISON.md](docs/COMPARISON.md) for the public positioning against Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
+See [docs/COMPARISON.md](docs/COMPARISON.md) for public positioning against Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
 
-### 1. Prove extraction quality
+Competitive benchmarks remain deferred until the public install paths, examples, release docs, and smoke tests are stable. AgentCrawl should not claim superiority without reproducible evidence.
 
-- Add a fixture corpus for repeatable quality checks.
-- Publish benchmark reports using [docs/QUALITY_BENCHMARKS.md](docs/QUALITY_BENCHMARKS.md).
-- Strengthen main-content extraction for documentation, news, commerce pages, forums, tables, and code blocks.
-- Add more metadata and provenance so agents can cite where content came from.
+## Product boundary
 
-### 2. Improve adoption surface
+Community is self-hosted. It should stay useful for single-node/local users who want control over extraction, jobs, cache, and MCP integration.
 
-- Add cookbook examples from [docs/EXAMPLES.md](docs/EXAMPLES.md).
-- Publish a PyPI package release.
-- Publish a container image.
-- Add release notes and issue templates.
-- Add TypeScript examples before deciding whether a dedicated Node SDK is needed.
-
-### 3. Better document input
-
-- PDF ingestion for local files through the optional `docs` extra.
-- Better handling for text, XML, JSON, and Markdown files.
-- Common office formats.
-- Optional OCR for image-only documents.
-
-### 4. Browser workflows
-
-- Bounded wait, click, scroll, type, and capture actions.
-- Screenshot or capture output.
-- Session and cookie handling for authorized workflows.
-- Cleanup guarantees for browser processes, tabs, timeouts, and failed jobs.
-
-### 5. Operations
-
-- Named API keys with expiry, rotation, and revocation.
-- More detailed metrics for usage, queues, failures, and storage.
-- Upgrade and rollback guidance for persistent deployments.
-- Release automation for packages and containers.
+Managed hosted AgentCrawl is planned separately for managed browsers, proxies, schedules, webhooks, retained datasets, teams, usage/billing, and enterprise controls.
 
 ## Product standard
 
-AgentCrawl is maintained so a new user can install it, scrape a page, run the API, connect MCP, diagnose problems, back up state, and restore state from the public docs alone.
+A new user should be able to install AgentCrawl, scrape a page, run the API, connect MCP, diagnose problems, back up state, and restore state from the public docs alone.

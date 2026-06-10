@@ -1,91 +1,72 @@
 # Examples And Integration Cookbook
 
-AgentCrawl works as a local Python library, CLI tool, HTTP API, Docker service, or MCP server. Pick the entrypoint that fits your agent workflow and start with the smallest thing that works.
+AgentCrawl works as a local Python library, CLI tool, HTTP API, Docker service, or MCP server. Start with the smallest entrypoint that fits your agent workflow.
 
-## Entrypoints 🧩
+## Copy-paste examples
 
-- Python library: `examples/basic.py`
-- LLM-backed graph extraction: `examples/graph_extraction.py`
-- CLI: `agentcrawl scrape`, `agentcrawl map`, `agentcrawl crawl`
-- HTTP API: `/v1/scrape`, `/v1/map`, `/v1/crawl`, `/v1/extract`
-- MCP server: `agentcrawl mcp`
-- Docker Compose: `docker compose up --build -d`
-- Hermes integration: `integrations/hermes/web-agentcrawl/`
+| Example | Use when |
+| --- | --- |
+| [CLI scrape](../examples/cli_scrape.md) | You have one URL and want Markdown from the terminal. |
+| [Python scrape](../examples/python_scrape.py) | You want to call AgentCrawl from Python code. |
+| [HTTP API scrape](../examples/api_scrape.md) | You run AgentCrawl as a self-hosted API. |
+| [Docker](../examples/docker.md) | You want the API through the published GHCR image. |
+| [MCP](../examples/mcp.md) | You want an agent client to use AgentCrawl tools. |
+| [Browser-rendered pages](../examples/browser_rendered.md) | A page needs JavaScript rendering. |
 
-## Scrape One Known URL 🎯
+## Quick start by interface
 
-Use this when an agent already has a URL and needs clean Markdown.
+### CLI
 
 ```bash
+pip install agentcrawl
 agentcrawl scrape https://example.com
 ```
 
-Python:
+For deterministic local testing from a repository checkout:
+
+```bash
+AGENTCRAWL_ALLOW_LOCAL_FILES=true agentcrawl scrape tests/fixtures/quality/documentation.html
+```
+
+### Python
 
 ```python
-from agentcrawl import AgentCrawl
+from agentcrawl import AgentCrawl, ScrapeDocument
 
 crawler = AgentCrawl({"fetcher": "http"})
 document = crawler.scrape("https://example.com")
+assert isinstance(document, ScrapeDocument)
 print(document.markdown)
 ```
 
-## Scrape Local Documents 📄
-
-Use this when an agent needs local files converted into Markdown without a hosted parser.
+### HTTP API
 
 ```bash
-agentcrawl scrape ./notes.md
-agentcrawl scrape ./data.json
-agentcrawl scrape ./feed.xml
-python -m pip install -e ".[docs]"
-agentcrawl scrape ./report.pdf
+export AGENTCRAWL_API_KEYS="exampl...-key"
+pip install "agentcrawl[server]"
+agentcrawl serve --host 127.0.0.1 --port 8000
 ```
-
-Python:
-
-```python
-from agentcrawl import AgentCrawl
-
-document = AgentCrawl({"fetcher": "http"}).scrape("./report.pdf")
-print(document.markdown)
-print(document.metadata)
-```
-
-Supported Community inputs: HTML, Markdown, text, JSON, XML/RSS/Atom, and local PDFs with the `docs` extra.
-
-## Map A Site Before Crawling
-
-Use mapping to discover URLs before spending crawl budget.
 
 ```bash
-agentcrawl map https://example.com --max-pages 50
-```
-
-## Run A Durable Crawl Job 🧭
-
-Use the remote API for crawls designed to survive retries and remain inspectable later.
-
-```bash
-agentcrawl --remote crawl https://example.com --max-pages 25 --max-depth 2
-agentcrawl --remote job JOB_ID --offset 0 --limit 100
-```
-
-HTTP clients can use an idempotency key to avoid duplicate jobs during retries:
-
-```bash
-curl http://127.0.0.1:8000/v1/crawl \
-  -H "authorization: Bearer $AGENTCRAWL_API_KEY" \
+curl http://127.0.0.1:8000/v1/scrape \
+  -H "authorization: Bearer exampl...key" \
   -H "content-type: application/json" \
-  -H "Idempotency-Key: docs-crawl-2026-06-06" \
-  -d '{"url":"https://example.com","max_pages":25,"max_depth":2}'
+  -d '{"url":"https://example.com","formats":["markdown","links","metadata"]}'
 ```
 
-## Connect An Agent Through MCP 🤖
-
-Local MCP mode does not require an API server:
+### Docker
 
 ```bash
+docker run --rm -p 8000:8000 \
+  -e AGENTCRAWL_API_KEYS="exampl...-key" \
+  ghcr.io/jorg18/agentcrawl:latest
+```
+
+### MCP
+
+```bash
+pip install "agentcrawl[mcp]"
+agentcrawl doctor
 agentcrawl mcp
 ```
 
@@ -102,90 +83,49 @@ Generic MCP configuration:
 }
 ```
 
-Remote API mode:
+## Durable crawl job
 
-```json
-{
-  "mcpServers": {
-    "agentcrawl": {
-      "command": "agentcrawl",
-      "args": ["mcp"],
-      "env": {
-        "AGENTCRAWL_BASE_URL": "https://agentcrawl.example.com",
-        "AGENTCRAWL_API_KEY": "<secret>"
-      }
-    }
-  }
-}
+Use the remote API for crawls designed to survive retries and remain inspectable later.
+
+```bash
+agentcrawl --remote crawl https://example.com --max-pages 25 --max-depth 2
+agentcrawl --remote job JOB_ID --offset 0 --limit 100
 ```
 
-## Extraction Quality Notes 🧹
+HTTP clients can use an idempotency key to avoid duplicate jobs during retries:
 
-AgentCrawl's Community extractor currently protects the output shape agents care about most:
+```bash
+curl http://127.0.0.1:8000/v1/crawl \
+  -H "authorization: Bearer exampl...key" \
+  -H "content-type: application/json" \
+  -H "Idempotency-Key: docs-crawl-2026-06-06" \
+  -d '{"url":"https://example.com","max_pages":25,"max_depth":2}'
+```
+
+## Local documents
+
+```bash
+agentcrawl scrape ./notes.md
+agentcrawl scrape ./data.json
+agentcrawl scrape ./feed.xml
+pip install "agentcrawl[docs]"
+agentcrawl scrape ./report.pdf
+```
+
+Supported Community inputs: HTML, Markdown, text, JSON, XML/RSS/Atom, and local PDFs with the `docs` extra.
+
+## Extraction quality notes
+
+AgentCrawl's Community extractor protects the output shape agents care about most:
 
 - main content is selected from semantic containers or text-rich fallback blocks;
 - noisy chrome is removed, including nav/footer/header/sidebar/cookie/share/related blocks and hidden or unsafe tags;
 - tables stay as readable Markdown tables;
-- code blocks stay fenced and preserve common language classes (`language-python`, `lang-js`, etc.).
+- code blocks stay fenced and preserve common language classes;
+- provenance metadata records source/final URLs, selected content hints, score, content hash, and structure metrics.
 
-Small local HTML fixtures are the safest way to verify output without network flakiness:
-
-```python
-from agentcrawl import AgentCrawl
-
-html_path = "./fixtures/page.html"
-document = AgentCrawl({"fetcher": "http"}).scrape(html_path)
-print(document.markdown)
-```
-
-## Use Browser Fallback Only When Needed
-
-Start with HTTP extraction. Add browser support only when the target page needs JavaScript rendering.
+Run the fixture report:
 
 ```bash
-python -m pip install -e ".[browser]"
-playwright install chromium
+python benchmarks/quality_report.py
 ```
-
-```python
-from agentcrawl import AgentCrawl
-
-crawler = AgentCrawl({"fetcher": "playwright"})
-document = crawler.scrape("https://example.com/app")
-print(document.markdown)
-```
-
-## Run The API With Docker
-
-```bash
-cp .env.example .env
-# Set AGENTCRAWL_API_KEYS and AGENTCRAWL_API_KEY in .env before exposure.
-docker compose up --build -d
-curl http://127.0.0.1:8000/health
-```
-
-## Verify A New Installation
-
-A complete installation check covers:
-
-- `agentcrawl doctor`;
-- `agentcrawl scrape https://example.com`;
-- authenticated `/health` or `/v1/stats` when the API is running;
-- MCP tool discovery;
-- a small crawl job;
-- usage and cache stats;
-- backup and restore commands for persistent deployments.
-
-## Additional Examples On The Roadmap
-
-The public roadmap includes more dedicated examples for:
-
-| Example | Purpose |
-| --- | --- |
-| `examples/http_api.py` | Minimal authenticated scrape through the HTTP API. |
-| `examples/mcp_client.md` | Configure and verify MCP in common agent clients. |
-| `examples/crawl_job.py` | Start a crawl, poll status, page through results, inspect failures. |
-| `examples/structured_extraction.py` | Extract Pydantic-shaped data from one URL. |
-| `examples/browser_fallback.py` | Show HTTP failure followed by browser-rendered success. |
-| `examples/docker.md` | Run the API with Docker Compose and verify `/health`. |
-| `examples/typescript.md` | Use `fetch` from Node or Bun before a dedicated SDK exists. |

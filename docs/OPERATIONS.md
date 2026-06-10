@@ -1,25 +1,41 @@
 # AgentCrawl Operations
 
-This is the canonical deployment, connection, and production-operations guide.
-Never commit or print API keys.
+This is the public deployment, connection, and production-operations guide. Never commit or print API keys.
 
 ## Deployment Options
 
-### Docker Compose
+### Published Docker image
+
+Use the GHCR image when you want the fastest self-hosted API deployment:
 
 ```bash
-cp .env.example .env
-# Replace all change-me values before exposure.
-docker compose up --build -d
+docker run --rm -p 8000:8000 -e AGENTCRAWL_API_KEYS=<server-key> ghcr.io/jorg18/agentcrawl:latest
 curl http://127.0.0.1:8000/health
 ```
 
-The repository tests validate Dockerfile and Compose structure without requiring a
-Docker daemon. Before release, run the real build and health smoke test on a host
-with Docker installed.
+For persistent state, mount `/data`:
 
-Use long random values for `AGENTCRAWL_API_KEYS` and client credentials. Keep the
-SQLite volume persistent.
+```bash
+docker volume create agentcrawl-data
+docker run -d --name agentcrawl -p 8000:8000 -e AGENTCRAWL_API_KEYS=<server-key> -v agentcrawl-data:/data ghcr.io/jorg18/agentcrawl:latest
+```
+
+The default image is HTTP-first and does not include a browser runtime.
+
+### Docker Compose from a checkout
+
+Use Compose when developing from the repository or when you want to customize the local build:
+
+```bash
+cp .env.example .env
+# Replace all example values before exposure.
+docker compose up -d
+curl http://127.0.0.1:8000/health
+```
+
+Use `docker compose up --build -d` only when you intentionally want to rebuild the local image from the checkout.
+
+Use long random values for server keys and client credentials. Keep the SQLite volume persistent.
 
 ### Systemd
 
@@ -27,7 +43,7 @@ Run AgentCrawl from a dedicated virtual environment with an environment file:
 
 ```text
 AGENTCRAWL_AUTH_ENABLED=true
-AGENTCRAWL_API_KEYS=<random-key>
+AGENTCRAWL_API_KEYS=<server-key>
 AGENTCRAWL_OWNER_API_KEYS=<owner-key>
 AGENTCRAWL_DB=/var/lib/agentcrawl/agentcrawl.db
 AGENTCRAWL_ALLOW_LOCAL_FILES=false
@@ -38,8 +54,7 @@ Run Uvicorn behind Tailscale or a TLS reverse proxy with network request limits.
 
 ## Production Systemd Pattern
 
-Use placeholders in shared docs and keep hostnames, private IPs, SSH aliases, and
-real credential paths in private runbooks only.
+Use placeholders in shared docs and keep hostnames, private IPs, SSH aliases, and real credential paths in private runbooks only.
 
 ```text
 SSH alias:       <your-host-alias>
@@ -61,26 +76,17 @@ ssh <your-host-alias> "journalctl -u agentcrawl -f"
 ssh <your-host-alias> "curl -fsS http://127.0.0.1:8000/health"
 ```
 
-Before production changes, back up code, the environment file, and SQLite with
-its online backup mechanism. Store backups outside the application directory.
+Before production changes, back up code, the environment file, and SQLite with its online backup mechanism. Store backups outside the application directory.
 
 ```bash
-agentcrawl backup \
-  --db /var/lib/agentcrawl/agentcrawl.db \
-  --env-file /etc/agentcrawl.env \
-  --output-dir /secure/backups/agentcrawl
+agentcrawl backup --db /var/lib/agentcrawl/agentcrawl.db --env-file /etc/agentcrawl.env --output-dir /secure/backups/agentcrawl
 ```
 
-The command uses SQLite online backup, runs `pragma integrity_check` on the copy,
-writes a manifest, and never prints environment file contents. Restore a verified
-backup only while the service is stopped:
+The command uses SQLite online backup, runs `pragma integrity_check` on the copy, writes a manifest, and never prints environment file contents. Restore a verified backup only while the service is stopped:
 
 ```bash
 systemctl stop agentcrawl
-agentcrawl restore \
-  --backup-db /secure/backups/agentcrawl/agentcrawl-YYYYMMDD-HHMMSS.db \
-  --db /var/lib/agentcrawl/agentcrawl.db \
-  --force
+agentcrawl restore --backup-db /secure/backups/agentcrawl/agentcrawl-YYYYMMDD-HHMMSS.db --db /var/lib/agentcrawl/agentcrawl.db --force
 systemctl start agentcrawl
 ```
 
@@ -90,13 +96,14 @@ Remote clients set:
 
 ```bash
 export AGENTCRAWL_BASE_URL=https://agentcrawl.internal.example
-export AGENTCRAWL_API_KEY=<protected-key>
+export AGENTCRAWL_API_KEY=<client-key>
 agentcrawl mcp
 ```
 
 Main endpoints:
 
 ```text
+GET    /health
 POST   /v1/scrape
 POST   /v1/map
 POST   /v1/crawl
@@ -111,30 +118,20 @@ GET    /v1/stats
 DELETE /v1/cache
 ```
 
-Large crawls should use a stable `Idempotency-Key`, retain the returned job ID,
-and poll the same job. Read completed documents with `offset` and `limit`.
-`/v1/stats` reports ready and delayed crawl queue counts, running/cancelling
-jobs, failure counts by status, open retryable failures, and open failures by
-error type.
+Large crawls should use a stable `Idempotency-Key`, retain the returned job ID, and poll the same job. Read completed documents with `offset` and `limit`.
 
-## Hermes
+## MCP
 
-Local agent runtimes can connect to a remote MCP launcher over SSH:
+Local MCP mode does not require an API server:
 
 ```bash
-hermes mcp add agentcrawl --command ssh --args <your-host-alias> /opt/agentcrawl/run-mcp.sh
-hermes mcp test agentcrawl
+agentcrawl mcp
 ```
 
-On the server host, Hermes can use `/opt/agentcrawl/run-mcp.sh` directly. Native
-`web.extract_backend` can be set to `agentcrawl`; MCP remains available for crawl,
-jobs, usage, and cache controls.
-
-If you run multiple local gateway services, restart only the intended service and
-avoid global process kills:
+Remote API-backed MCP mode uses:
 
 ```bash
-systemctl --user restart hermes-gateway.service
+AGENTCRAWL_BASE_URL=https://agentcrawl.internal.example AGENTCRAWL_API_KEY=<client-key> agentcrawl mcp
 ```
 
 ## Verification
@@ -142,48 +139,34 @@ systemctl --user restart hermes-gateway.service
 A deployment is accepted only after:
 
 ```text
-service active
+service/container active
 /health successful
 authenticated /v1/stats successful
 scrape https://example.com contains Example Domain
-hermes mcp test agentcrawl discovers 11 tools
+MCP tool discovery works in the intended agent client
 ```
 
 ## Production Checklist
 
 Minimum production checks:
+
 - Authentication and owner keys configured.
-- TLS or private Tailscale access enforced.
-- Local-file and private-network access disabled.
+- TLS or private-network access enforced.
+- Local-file and private-network access disabled unless explicitly needed.
 - Persistent database storage and tested backups available.
 - Worker, browser, and per-domain concurrency sized for memory and target sites.
 - Logs, health checks, database integrity, and disk usage monitored.
 - Restore and rollback procedure tested before public launch.
 
-
 ## Version Control And Recovery
 
-Use feature branches for risky work, keep `main` releasable, and create checkpoint
-tags before large migrations or deployment changes:
+Use feature branches for risky work, keep `main` releasable, and create checkpoint tags before large migrations or deployment changes:
 
 ```bash
 git status --short
 git switch -c feature/short-description
 git tag -s checkpoint-YYYY-MM-DD-description -m "Known-good checkpoint"
 git push origin --tags
-```
-
-Restore safely by creating a new branch from a checkpoint instead of rewriting
-shared history:
-
-```bash
-git switch -c restore/YYYY-MM-DD checkpoint-YYYY-MM-DD-description
-```
-
-To restore one file:
-
-```bash
-git restore --source checkpoint-YYYY-MM-DD-description -- path/to/file
 ```
 
 Do not use `git reset --hard` or force-push shared branches as routine recovery.

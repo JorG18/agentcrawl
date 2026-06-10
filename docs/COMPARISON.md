@@ -4,7 +4,7 @@ AgentCrawl is for teams and builders who want agent-ready web extraction without
 
 Use this page to pick the right tool for the job. These projects overlap, but each one shines in a different workflow.
 
-## Product Fit
+## Product fit
 
 | Project | Best for | Operational model |
 | --- | --- | --- |
@@ -16,23 +16,23 @@ Use this page to pick the right tool for the job. These projects overlap, but ea
 | Crawlee | General-purpose crawling framework with queues, routing, storage, sessions, proxies, HTTP crawlers, and browser crawlers. | Python/TypeScript crawler framework. |
 | Stagehand | Browser automation with natural-language actions, repeatable workflows, and structured browser extraction. | Browser automation SDK. |
 
-## Where AgentCrawl Shines ✨
+## Where AgentCrawl fits ✨
 
 Choose AgentCrawl when you want web extraction that runs from your own environment and plugs directly into agents.
 
 AgentCrawl gives you:
 
-- ⚡ HTTP-first extraction for fast static-page scraping.
-- 🎭 Optional Playwright or Camofox-backed browser fallback for rendered pages.
-- 📝 Markdown, text, links, metadata, local document ingestion, and optional structured extraction.
-- 🧭 Bounded site mapping and crawling.
-- 🧱 Durable crawl jobs with checkpointed queues, retries, cancellation, events, and paginated results.
-- 🗄️ SQLite-backed cache, usage, jobs, events, and failures.
-- 🔐 Bearer authentication, `robots.txt` support, and SSRF protection for exposed APIs.
-- 🤖 MCP tools for agents that need scrape, map, crawl, job, usage, and cache operations.
-- 🐳 Docker, CLI, Python, HTTP API, and backup/restore workflows.
+- HTTP-first extraction for fast static-page scraping.
+- Optional Playwright or Camofox-backed browser fallback for rendered pages.
+- Markdown, text, links, metadata, local document ingestion, and optional structured extraction.
+- Bounded site mapping and crawling.
+- Durable crawl jobs with checkpointed queues, retries, cancellation, events, and paginated results.
+- SQLite-backed cache, usage, jobs, events, and failures.
+- Bearer authentication, `robots.txt` support, and SSRF protection for exposed APIs.
+- MCP tools for agents that need scrape, map, crawl, job, usage, and cache operations.
+- Docker, CLI, Python, HTTP API, and backup/restore workflows.
 
-## When Another Tool May Fit Better
+## When another tool may fit better
 
 Use Firecrawl when you want a hosted API with broad web-scale infrastructure, media parsing, browser actions, and SDK coverage already packaged around the service.
 
@@ -46,16 +46,17 @@ Use Crawlee when you are building a custom crawler application and want a framew
 
 Use Stagehand when the main task is operating a browser through natural-language and code actions rather than running a crawler service.
 
-## Current Product Boundary
+## Current product boundary
 
 AgentCrawl is strongest today as a self-hosted extraction layer for agents and internal tools. It is not positioned as a hosted scraping network, a full browser automation framework, or a general crawler framework.
 
 The public roadmap tracks the next product areas:
 
+- PyPI release and final release tag;
+- examples/cookbook expansion;
 - reproducible extraction-quality benchmarks;
-- PDF and document ingestion;
-- richer browser actions;
-- more examples and TypeScript usage;
-- package and container distribution improvements.
+- document ingestion improvements;
+- richer browser workflows;
+- TypeScript usage examples before deciding whether a dedicated SDK is needed.
 
 That boundary is intentional: AgentCrawl focuses first on agent-facing extraction that remains under user control.
