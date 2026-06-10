@@ -24,7 +24,7 @@ This roadmap is directional. Public performance or quality claims need reproduci
 - Fenced code block preservation with language tags from common HTML classes.
 - Local document ingestion for Markdown, text, JSON, XML/RSS/Atom, and PDF-to-Markdown through the optional `docs` extra.
 - Package version export, wheel build verification, Docker build workflow for GHCR, and `agentcrawl doctor` verification.
-- Initial Phase 2 extraction quality baseline: 12 checked-in fixtures, fixture scoring threshold, JSON quality report, provenance metadata, JSON-LD/Product schema extraction, Markdown structure metrics, and harder noisy docs/article/product/API-reference cases.
+- Initial Phase 2 extraction quality baseline: 13 checked-in fixtures, fixture scoring threshold, JSON quality report, provenance metadata, JSON-LD/Product schema extraction, Markdown structure metrics, and harder noisy docs/article/product/API-reference/nested-sidebar cases.
 
 ### Next community priorities
 

@@ -33,6 +33,7 @@ def test_quality_report_summarizes_all_fixtures() -> None:
         "complex_product",
         "api_reference",
         "media_article",
+        "nested_sidebar_docs",
     } <= names
     for result in results:
         assert result["score"] >= minimum_score

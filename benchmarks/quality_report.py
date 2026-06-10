@@ -24,6 +24,7 @@ EXPECTED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
     "complex_product": ("Field Recorder Kit", "$249.00", "128GB"),
     "api_reference": ("Extraction API Reference", "```python", "| Parameter", "```json"),
     "media_article": ("Researchers Publish Open Climate Archive", "Coastal sensors", "Stable provenance"),
+    "nested_sidebar_docs": ("Agent Session Recovery", "crawler.crawl", "| Field"),
 }
 
 EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
@@ -39,6 +40,13 @@ EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
     "complex_product": ("Customers also bought", "Download app footer", "Clearance"),
     "api_reference": ("Pricing", "Legacy SDK", "Hidden accessibility duplicate", "Footer legal"),
     "media_article": ("Advertise", "celebrity weather myths", "Newsletter signup"),
+    "nested_sidebar_docs": (
+        "Login Pricing",
+        "Sidebar upgrade promo",
+        "Legacy crawler migration checklist",
+        "Enterprise upgrade banner",
+        "Footer documentation archive",
+    ),
 }
 
 REQUIRED_METADATA_BY_FIXTURE: dict[str, tuple[str, ...]] = {

@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <title>Nested Sidebar Documentation</title>
+  <link rel="canonical" href="https://docs.example.com/agents/nested-sidebar">
+  <meta name="description" content="Documentation fixture where main contains internal navigation, ads, and the real content section.">
+</head>
+<body>
+  <header>Global header Login Pricing</header>
+  <main class="documentation-layout">
+    <div class="left-rail toc sticky">
+      <h2>On this page</h2>
+      <a href="#overview">Overview</a>
+      <a href="#auth">Authentication</a>
+      <a href="#legacy">Legacy crawler</a>
+      <p>Sidebar upgrade promo</p>
+    </div>
+    <section class="doc-article content-body" id="overview">
+      <h1>Agent Session Recovery</h1>
+      <p>Session recovery lets an agent resume a crawl after a process restart without duplicating completed pages.</p>
+      <p>The recovery token stores the queue cursor, visited URLs, retry attempts, and the latest durable checkpoint.</p>
+      <pre><code class="language-python">from agentcrawl import AgentCrawl
+crawler = AgentCrawl({"fetcher": "http"})
+run = crawler.crawl("https://example.com/docs", max_pages=10)</code></pre>
+      <h2>Operational guarantees</h2>
+      <p>Operators can inspect checkpoint age, pending URLs, and terminal failures before allowing a resumed run.</p>
+      <table>
+        <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+        <tbody><tr><td>visited</td><td>Completed URLs</td></tr><tr><td>pending</td><td>Queued URLs</td></tr></tbody>
+      </table>
+    </section>
+    <aside class="right-rail related-posts">
+      <h2>Related</h2>
+      <p>Legacy crawler migration checklist</p>
+      <p>Enterprise upgrade banner</p>
+    </aside>
+  </main>
+  <footer>Footer documentation archive</footer>
+</body>
+</html>

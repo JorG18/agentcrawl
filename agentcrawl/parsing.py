@@ -30,7 +30,7 @@ _ALWAYS_REMOVE_TAGS = {"script", "style", "noscript", "template", "svg", "canvas
 _BOILERPLATE_TAGS = {"nav", "header", "footer", "aside", "form"}
 _BOILERPLATE_HINTS = re.compile(
     r"\b(cookie|consent|banner|modal|newsletter|popup|advert|ads|promo|breadcrumb|"
-    r"pagination|sidebar|social-share|share-buttons|related-posts)\b",
+    r"pagination|sidebar|toc|sticky|rail|social-share|share-buttons|related-posts)\b",
     re.IGNORECASE,
 )
 _CONTENT_HINTS = re.compile(
@@ -185,17 +185,11 @@ def markdown_structure_metrics(markdown: str) -> dict[str, int]:
 
 
 def _content_candidates(root: _HTMLNode) -> list[_HTMLNode]:
-    semantic: list[_HTMLNode] = []
-    hinted: list[_HTMLNode] = []
     scored: list[_HTMLNode] = []
     for node in _walk_nodes(root):
-        if node.tag in {"main", "article"}:
-            semantic.append(node)
-        elif node.tag in {"div", "section"} and _CONTENT_HINTS.search(_node_identity(node)):
-            hinted.append(node)
-        elif node.tag in _CONTENT_CONTAINER_TAGS and _looks_like_content_candidate(node):
+        if node.tag in _CONTENT_CONTAINER_TAGS and _looks_like_content_candidate(node):
             scored.append(node)
-    return semantic or hinted or scored
+    return scored
 
 
 def _looks_like_content_candidate(node: _HTMLNode) -> bool:
@@ -227,7 +221,22 @@ def _content_score(node: _HTMLNode) -> float:
     links = sum(1 for child in descendants if child.tag == "a")
     blocks = sum(1 for child in descendants if child.tag in {"p", "pre", "table", "li"})
     heading_bonus = 500 if any(child.tag == "h1" for child in descendants) else 0
-    return len(_node_text(node)) + blocks * 80 + heading_bonus - links * 15
+    semantic_bonus = 350 if node.tag in {"main", "article"} else 0
+    hint_bonus = 250 if _CONTENT_HINTS.search(_node_identity(node)) else 0
+    boilerplate_penalty = 700 if _BOILERPLATE_HINTS.search(_node_identity(node)) else 0
+    child_boilerplate_penalty = sum(
+        120 for child in descendants if _BOILERPLATE_HINTS.search(_node_identity(child))
+    )
+    return (
+        len(_node_text(node))
+        + blocks * 80
+        + heading_bonus
+        + semantic_bonus
+        + hint_bonus
+        - links * 15
+        - boilerplate_penalty
+        - child_boilerplate_penalty
+    )
 
 
 def _serialize_node(node: _HTMLNode, *, only_main_content: bool) -> str:

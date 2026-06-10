@@ -167,6 +167,25 @@ QUALITY_CASES = [
         excluded=("Advertise", "celebrity weather myths", "Newsletter signup"),
         metadata=("title", "description", "og:type", "extraction_strategy", "selected_content_hint"),
     ),
+    QualityCase(
+        name="nested_sidebar_docs",
+        expected=(
+            "Agent Session Recovery",
+            "resume a crawl after a process restart",
+            "```python",
+            "crawler.crawl",
+            "| Field",
+            "Completed URLs",
+        ),
+        excluded=(
+            "Login Pricing",
+            "Sidebar upgrade promo",
+            "Legacy crawler migration checklist",
+            "Enterprise upgrade banner",
+            "Footer documentation archive",
+        ),
+        metadata=("title", "description", "canonical", "extraction_strategy", "selected_content_hint"),
+    ),
 ]
 
 
