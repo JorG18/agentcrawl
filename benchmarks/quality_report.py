@@ -25,6 +25,7 @@ EXPECTED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
     "api_reference": ("Extraction API Reference", "```python", "| Parameter", "```json"),
     "media_article": ("Researchers Publish Open Climate Archive", "Coastal sensors", "Stable provenance"),
     "nested_sidebar_docs": ("Agent Session Recovery", "crawler.crawl", "| Field"),
+    "spa_rendered": ("Rendered Agent Dashboard", "active crawl workers", "| Metric", "```json"),
 }
 
 EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
@@ -47,6 +48,7 @@ EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
         "Enterprise upgrade banner",
         "Footer documentation archive",
     ),
+    "spa_rendered": ("Upgrade to the hosted dashboard", "Enable JavaScript"),
 }
 
 REQUIRED_METADATA_BY_FIXTURE: dict[str, tuple[str, ...]] = {
@@ -97,6 +99,8 @@ def run_quality_report() -> dict[str, object]:
     crawler = AgentCrawl({"fetcher": "http"})
     results: list[FixtureResult] = []
     for fixture in sorted(FIXTURE_DIR.glob("*.html")):
+        if fixture.stem not in EXPECTED_BY_FIXTURE:
+            continue
         doc = crawler.scrape(str(fixture))
         if not isinstance(doc, ScrapeDocument):
             results.append(

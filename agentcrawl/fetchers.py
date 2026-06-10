@@ -227,7 +227,24 @@ def _fetch_playwright(url: str, config: CrawlConfig) -> str:
             )
             context = browser.new_context(user_agent=config.user_agent or "AgentCrawl/0.1")
             page = context.new_page()
+            if config.browser_init_script:
+                page.add_init_script(config.browser_init_script)
+            if config.browser_block_resources:
+                blocked = set(config.browser_block_resources)
+
+                def block_selected_resources(route):
+                    request = route.request
+                    if request.resource_type in blocked:
+                        route.abort()
+                    else:
+                        route.continue_()
+
+                page.route("**/*", block_selected_resources)
             page.goto(url, wait_until=config.wait_until, timeout=config.timeout_ms)
+            if config.browser_wait_for_selector:
+                page.wait_for_selector(config.browser_wait_for_selector, timeout=config.timeout_ms)
+            if config.browser_wait_ms > 0:
+                page.wait_for_timeout(config.browser_wait_ms)
             if config.network_idle:
                 page.wait_for_load_state("networkidle", timeout=config.timeout_ms)
             validate_remote_url(page.url, allow_private_network=config.allow_private_network)

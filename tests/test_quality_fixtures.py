@@ -186,6 +186,18 @@ QUALITY_CASES = [
         ),
         metadata=("title", "description", "canonical", "extraction_strategy", "selected_content_hint"),
     ),
+    QualityCase(
+        name="spa_rendered",
+        expected=(
+            "Rendered Agent Dashboard",
+            "active crawl workers",
+            "| Metric",
+            "Queue latency",
+            "```json",
+        ),
+        excluded=("Upgrade to the hosted dashboard", "Enable JavaScript"),
+        metadata=("title", "description", "extraction_strategy", "selected_content_hint"),
+    ),
 ]
 
 

@@ -32,6 +32,10 @@ class CrawlConfig:
     geoip: bool = False
     humanize: bool = False
     network_idle: bool = True
+    browser_wait_for_selector: str | None = None
+    browser_wait_ms: int = 0
+    browser_block_resources: tuple[str, ...] = field(default_factory=tuple)
+    browser_init_script: str | None = None
     allow_private_network: bool = False
     output_format: str = "json"
     chunk_size: int = 8_000

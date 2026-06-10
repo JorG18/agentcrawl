@@ -72,6 +72,7 @@ complex product pages with variants and tables
 API reference pages with multiple fenced code blocks and parameter tables
 media-rich articles with figures, captions, blockquotes, and read-more cards
 nested documentation layouts where `<main>` contains internal TOCs, sidebars, and related cards
+SPA/browser-rendered snapshots with tables, code blocks, and rendered-only content
 ```
 
 The assertions live in `tests/test_quality_fixtures.py` and verify expected content, boilerplate removal, metadata presence, extraction size metadata, provenance fields, link counts, and non-corrupted plain text.

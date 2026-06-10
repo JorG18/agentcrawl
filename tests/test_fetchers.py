@@ -108,12 +108,28 @@ class FakePage:
         self.url = "https://example.com/"
         self.goto_calls = []
         self.load_states = []
+        self.add_init_script_calls = []
+        self.route_calls = []
+        self.wait_for_selectors = []
+        self.wait_for_timeouts = []
 
     def goto(self, url, wait_until, timeout):
         self.goto_calls.append({"url": url, "wait_until": wait_until, "timeout": timeout})
 
     def wait_for_load_state(self, state, timeout):
         self.load_states.append({"state": state, "timeout": timeout})
+
+    def add_init_script(self, script):
+        self.add_init_script_calls.append(script)
+
+    def route(self, pattern, handler):
+        self.route_calls.append({"pattern": pattern, "handler": handler})
+
+    def wait_for_selector(self, selector, timeout):
+        self.wait_for_selectors.append({"selector": selector, "timeout": timeout})
+
+    def wait_for_timeout(self, timeout):
+        self.wait_for_timeouts.append(timeout)
 
     def content(self):
         return "<html><body>ok</body></html>"
@@ -192,3 +208,21 @@ def test_playwright_honors_network_idle_option(monkeypatch) -> None:
         {"url": "https://example.com/", "wait_until": "domcontentloaded", "timeout": 1234}
     ]
     assert page.load_states == [{"state": "networkidle", "timeout": 1234}]
+
+
+def test_playwright_applies_browser_workflow_options(monkeypatch) -> None:
+    page, _browser, _chromium = install_fake_playwright(monkeypatch)
+    config = CrawlConfig(
+        browser_wait_for_selector="main.app-content",
+        browser_wait_ms=250,
+        browser_block_resources=("image", "font"),
+        browser_init_script="window.__agentcrawl = true;",
+        network_idle=False,
+    )
+
+    _fetch_playwright("https://example.com/", config)
+
+    assert page.add_init_script_calls == ["window.__agentcrawl = true;"]
+    assert page.route_calls == [{"pattern": "**/*", "handler": page.route_calls[0]["handler"]}]
+    assert page.wait_for_selectors == [{"selector": "main.app-content", "timeout": 30000}]
+    assert page.wait_for_timeouts == [250]
