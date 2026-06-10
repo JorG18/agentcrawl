@@ -13,7 +13,7 @@ AgentCrawl turns messy web pages into clean Markdown, text, links, metadata, and
 
 Agents need fresh web context, but raw HTML is noisy and one-off scraper scripts age badly. AgentCrawl gives them a reliable extraction layer with the operational pieces already built in:
 
-- 🎯 Known URL or local document in, clean Markdown out with main-content extraction, table preservation, and fenced code blocks.
+- 🎯 Known URL or local document in, clean Markdown out with main-content extraction, table preservation, fenced code blocks, quality scoring, and provenance metadata.
 - ⚡ Fast HTTP extraction first; browser rendering only when a page really needs it.
 - 🧱 Durable crawl jobs with checkpoints, retries, pagination, cancellation, events, and failure inspection.
 - 🗄️ SQLite-backed cache, usage, jobs, events, and crawl failures.
@@ -91,7 +91,9 @@ The Community engine focuses on stable, agent-ready Markdown before benchmark cl
 - selects semantic content from `<main>`, `<article>`, documentation/content containers, or text-rich fallback blocks;
 - removes unsafe and noisy page chrome such as scripts, styles, hidden content, nav, footer, cookie banners, sidebars, and related-post blocks;
 - preserves Markdown tables with headers and cell values;
-- preserves fenced code blocks and language tags from common classes such as `language-python` and `lang-javascript`.
+- preserves fenced code blocks and language tags from common classes such as `language-python` and `lang-javascript`;
+- attaches extraction provenance such as source/final URL, selected content hint, extraction strategy, and output size metadata;
+- validates extraction quality against checked-in fixtures with a minimum score threshold.
 
 ## Local documents 📄
 

@@ -29,7 +29,7 @@ QUALITY_CASES = [
             "client = Client",
         ),
         excluded=("Pricing", "related promotional article", "Copyright Footer"),
-        metadata=("title", "description"),
+        metadata=("title", "description", "extraction_strategy", "selected_content_hint"),
     ),
     QualityCase(
         name="article",
@@ -40,7 +40,7 @@ QUALITY_CASES = [
             "historical archives",
         ),
         excluded=("Accept all cookies", "newsletter popup", "Advertise"),
-        metadata=("title", "description", "og:type"),
+        metadata=("title", "description", "og:type", "extraction_strategy", "selected_content_hint"),
     ),
     QualityCase(
         name="ecommerce",
@@ -51,7 +51,7 @@ QUALITY_CASES = [
             "Capacity: 32L",
         ),
         excluded=("Limited time promo", "unrelated upsell", "Account"),
-        metadata=("title", "description"),
+        metadata=("title", "description", "extraction_strategy", "selected_content_hint"),
     ),
     QualityCase(
         name="forum",
@@ -62,7 +62,7 @@ QUALITY_CASES = [
             "nora: Keep the old database",
         ),
         excluded=("Forum Home", "Share buttons"),
-        metadata=("title",),
+        metadata=("title", "extraction_strategy", "selected_content_hint"),
     ),
     QualityCase(
         name="table",
@@ -73,7 +73,7 @@ QUALITY_CASES = [
             "West",
         ),
         excluded=("Analytics Portal Navigation", "Download app footer"),
-        metadata=("title",),
+        metadata=("title", "extraction_strategy", "selected_content_hint"),
     ),
     QualityCase(
         name="blog",
@@ -84,7 +84,7 @@ QUALITY_CASES = [
             "fixed fixtures",
         ),
         excluded=("Home Archive", "weekly AI newsletter"),
-        metadata=("title", "description"),
+        metadata=("title", "description", "extraction_strategy", "selected_content_hint"),
     ),
     QualityCase(
         name="canonical",
@@ -95,7 +95,42 @@ QUALITY_CASES = [
             "roll back to the previous deployment",
         ),
         excluded=("Billing", "Legacy footer"),
-        metadata=("title", "description", "canonical"),
+        metadata=("title", "description", "canonical", "source_url", "final_url", "extraction_strategy", "selected_content_hint"),
+    ),
+    QualityCase(
+        name="messy_docs",
+        expected=(
+            "Install Agent Runner",
+            "isolated agent workflows",
+            "```bash",
+            "agent-runner doctor",
+            "Configuration guide",
+        ),
+        excluded=("Pricing", "weekly newsletter popup", "related promotional article", "Copyright Footer"),
+        metadata=("title", "description", "canonical", "source_url", "final_url", "extraction_strategy", "selected_content_hint"),
+    ),
+    QualityCase(
+        name="noisy_article",
+        expected=(
+            "Transit Agency Opens Realtime Feed",
+            "By Lena Ortiz",
+            "route identifiers",
+            "stable JSON endpoints",
+        ),
+        excluded=("Sponsored cloud analytics", "Subscribe to our daily briefing", "Advertise with us"),
+        metadata=("title", "description", "og:type", "canonical", "extraction_strategy", "selected_content_hint"),
+    ),
+    QualityCase(
+        name="complex_product",
+        expected=(
+            "Field Recorder Kit",
+            "$249.00",
+            "Ships in 2 business days",
+            "| Variant",
+            "128GB",
+        ),
+        excluded=("Customers also bought", "Download app footer", "Clearance"),
+        metadata=("title", "description", "canonical", "extraction_strategy", "selected_content_hint"),
     ),
 ]
 
@@ -118,6 +153,13 @@ def test_quality_fixture_outputs_agent_ready_markdown(case: QualityCase) -> None
     assert doc.metadata["text_chars"] == len(doc.text)
     assert doc.metadata["link_count"] == len(doc.links)
     assert doc.metadata["content_format"] == "markdown"
+    assert doc.metadata["final_url"] == doc.metadata["source_url"]
+    assert doc.metadata["extraction_strategy"] in {
+        "main_content",
+        "document_passthrough",
+    }
+    assert isinstance(doc.metadata["selected_content_hint"], str)
+    assert doc.metadata["selected_content_hint"]
 
 
 @pytest.mark.parametrize("case", QUALITY_CASES, ids=lambda case: case.name)

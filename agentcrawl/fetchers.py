@@ -42,15 +42,21 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     validate_remote_url(source, allow_private_network=config.allow_private_network)
     if config.fetcher == "http":
         try:
-            return _fetch_http(source, config), {"fetcher": "http"}
+            return _fetch_http(source, config)
         except FetchError as exc:
             if config.browser_fallback and _should_browser_fallback(str(exc), config):
                 backend = config.browser_backend
-                return _fetch_browser(source, config), {"fetcher": backend, "fallback_from": "http"}
+                html = _fetch_browser(source, config)
+                return html, {
+                    "fetcher": backend,
+                    "fallback_from": "http",
+                    "final_url": source,
+                }
             raise
     if config.fetcher in {"playwright", "camofox"}:
         backend = config.fetcher
-        return _fetch_browser(source, config, backend=backend), {"fetcher": backend}
+        html = _fetch_browser(source, config, backend=backend)
+        return html, {"fetcher": backend, "final_url": source}
     raise FetchError(f"Unknown fetcher: {config.fetcher}")
 
 
@@ -75,11 +81,17 @@ def _fetch_local_file(source: str) -> tuple[str, dict[str, Any]]:
     path = pathlib.Path(source).expanduser()
     if not path.exists():
         raise FetchError(f"Local file not found: {source}")
+    resolved = str(path.resolve())
     content, metadata = read_local_document(path)
-    return content, {"fetcher": "file", "source_path": str(path), **metadata}
+    return content, {
+        "fetcher": "file",
+        "source_path": str(path),
+        "final_url": resolved,
+        **metadata,
+    }
 
 
-def _fetch_http(url: str, config: CrawlConfig) -> str:
+def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     headers = {"user-agent": config.user_agent or "AgentCrawl/0.1"}
     request = urllib.request.Request(url, headers=headers)
     last_exc: Exception | None = None
@@ -90,11 +102,15 @@ def _fetch_http(url: str, config: CrawlConfig) -> str:
                 timeout=config.timeout_ms / 1000,
                 allow_private_network=config.allow_private_network,
             ) as response:
+                final_url = response.geturl()
                 validate_remote_url(
-                    response.geturl(),
+                    final_url,
                     allow_private_network=config.allow_private_network,
                 )
-                return response.read().decode("utf-8", errors="replace")
+                return response.read().decode("utf-8", errors="replace"), {
+                    "fetcher": "http",
+                    "final_url": final_url,
+                }
         except urllib.error.HTTPError as exc:
             last_exc = exc
             if exc.code not in {429, 500, 502, 503, 504} or attempt >= config.http_retries:

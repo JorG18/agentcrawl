@@ -131,9 +131,32 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
 
     candidates = _content_candidates(parser.root)
     selected = (
-        max(candidates, key=_content_score) if only_main_content and candidates else parser.root
+        _select_content_node(candidates) if only_main_content and candidates else parser.root
     )
     return _serialize_node(selected, only_main_content=only_main_content)
+
+
+def extraction_provenance(html: str, *, only_main_content: bool = True) -> dict[str, str]:
+    parser = _HTMLTreeParser()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception:
+        return {
+            "extraction_strategy": "legacy_strip_boilerplate",
+            "selected_content_hint": "legacy_regex",
+        }
+    candidates = _content_candidates(parser.root)
+    if only_main_content and candidates:
+        selected = _select_content_node(candidates)
+        return {
+            "extraction_strategy": "main_content",
+            "selected_content_hint": _content_hint(selected),
+        }
+    return {
+        "extraction_strategy": "full_document",
+        "selected_content_hint": "document",
+    }
 
 
 def strip_boilerplate(html: str) -> str:
@@ -165,6 +188,17 @@ def _looks_like_content_candidate(node: _HTMLNode) -> bool:
     links = sum(1 for child in descendants if child.tag == "a")
     link_density = links / max(1, paragraphs)
     return link_density <= 2.0
+
+
+def _select_content_node(candidates: list[_HTMLNode]) -> _HTMLNode:
+    return max(candidates, key=_content_score)
+
+
+def _content_hint(node: _HTMLNode) -> str:
+    identity = " ".join(_node_identity(node).split())
+    if identity:
+        return f"{node.tag}:{identity}"
+    return node.tag
 
 
 def _content_score(node: _HTMLNode) -> float:

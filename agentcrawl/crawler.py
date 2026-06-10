@@ -17,7 +17,7 @@ from .exceptions import FetchError
 from .fetchers import fetch_source
 from .html_tools import extract_html_facts, normalize_url, same_domain, url_allowed
 from .models import CrawlRun, MapResult, ScrapeDocument
-from .parsing import html_to_markdown
+from .parsing import html_to_markdown, extraction_provenance
 from .security import validate_remote_url
 
 
@@ -49,7 +49,14 @@ class AgentCrawl:
                     self.config,
                     only_main_content=main_content,
                 )
+                provenance = extraction_provenance(html, only_main_content=main_content)
+            else:
+                provenance = {
+                    "extraction_strategy": "document_passthrough",
+                    "selected_content_hint": str(fetch_metadata.get("document_type") or "document"),
+                }
             text = _markdown_to_text(markdown)
+            source_url = str(metadata.get("source_url") or source)
             document = ScrapeDocument(
                 url=source,
                 markdown=markdown,
@@ -59,6 +66,9 @@ class AgentCrawl:
                 metadata={
                     **metadata,
                     **fetch_metadata,
+                    **provenance,
+                    "source_url": source_url,
+                    "final_url": str(fetch_metadata.get("final_url") or source_url),
                     "only_main_content": main_content,
                     "content_format": "markdown",
                     "markdown_chars": len(markdown),

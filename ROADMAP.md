@@ -6,7 +6,7 @@ This roadmap is directional. Public performance or quality claims need reproduci
 
 ## Current focus
 
-- Phase 1 distribution readiness: PyPI package release, public GHCR image, clean install smoke tests, and a sharper quickstart.
+- Phase 2 extraction quality: fixture scoring thresholds, richer provenance metadata, harder checked-in fixtures, and cleaner main-content output before comparative claims.
 - Stable web/document-to-Markdown extraction for known URLs and local files.
 - HTTP-first scraping with browser fallback when a page needs JavaScript.
 - Durable crawl jobs with checkpoints, retries, cancellation, pagination, events, and failure inspection.
@@ -24,9 +24,11 @@ This roadmap is directional. Public performance or quality claims need reproduci
 - Fenced code block preservation with language tags from common HTML classes.
 - Local document ingestion for Markdown, text, JSON, XML/RSS/Atom, and PDF-to-Markdown through the optional `docs` extra.
 - Package version export, wheel build verification, Docker build workflow for GHCR, and `agentcrawl doctor` verification.
+- Initial Phase 2 extraction quality baseline: 10 checked-in fixtures, fixture scoring threshold, JSON quality report, provenance metadata, and harder noisy docs/article/product cases.
 
 ### Next community priorities
 
+- Push extraction quality further with live release smoke targets and more hostile page layouts.
 - Public distribution readiness: PyPI release checks, public GHCR image, clean install smoke tests, and release notes.
 - More copy-paste examples for CLI, Python, HTTP, Docker, MCP, and common agent workflows.
 - Common office formats and optional OCR.

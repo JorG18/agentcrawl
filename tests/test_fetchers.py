@@ -51,7 +51,7 @@ def test_camofox_fetch_creates_evaluates_and_closes_tab(monkeypatch) -> None:
     html, metadata = fetch_source("https://example.com", config)
 
     assert "Stealth page" in html
-    assert metadata == {"fetcher": "camofox"}
+    assert metadata == {"fetcher": "camofox", "final_url": "https://example.com"}
     assert [request.method for request in requests] == ["POST", "POST", "DELETE"]
     assert requests[0].headers["Authorization"] == "Bearer secret"
     assert requests[1].full_url.endswith("/tabs/tab-1/evaluate")
@@ -96,7 +96,11 @@ def test_http_block_falls_back_to_camofox(monkeypatch) -> None:
     html, metadata = fetch_source("https://example.com", config)
 
     assert "Rendered" in html
-    assert metadata == {"fetcher": "camofox", "fallback_from": "http"}
+    assert metadata == {
+        "fetcher": "camofox",
+        "fallback_from": "http",
+        "final_url": "https://example.com",
+    }
 
 
 class FakePage:

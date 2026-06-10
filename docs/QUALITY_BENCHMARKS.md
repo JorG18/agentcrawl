@@ -63,9 +63,15 @@ documentation
 article
 ecommerce
 forum/discussion
+tables
+blogs
+canonical/provenance
+messy documentation pages
+noisy articles with inline ads/newsletter blocks
+complex product pages with variants and tables
 ```
 
-The assertions live in `tests/test_quality_fixtures.py` and verify expected content, boilerplate removal, metadata presence, extraction size metadata, link counts, and non-corrupted plain text.
+The assertions live in `tests/test_quality_fixtures.py` and verify expected content, boilerplate removal, metadata presence, extraction size metadata, provenance fields, link counts, and non-corrupted plain text.
 
 A machine-readable local report can be generated with:
 
@@ -73,7 +79,7 @@ A machine-readable local report can be generated with:
 python benchmarks/quality_report.py
 ```
 
-The report summarizes fixture count, pass/fail totals, markdown/text sizes, link counts, missing expected content, and scrape errors.
+The report summarizes fixture count, pass/fail totals, minimum score threshold, average score, per-fixture quality score, markdown/text sizes, link counts, missing expected content, boilerplate leaks, missing metadata, provenance checks, and scrape errors.
 
 ## Comparison Runs
 
