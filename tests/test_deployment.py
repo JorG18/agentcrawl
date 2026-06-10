@@ -9,11 +9,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_dockerfile_has_safe_runtime_defaults() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
-    assert "FROM mcr.microsoft.com/playwright/python:" in dockerfile
+    assert dockerfile.startswith("FROM python:3.12-slim")
     assert "AGENTCRAWL_DB=/data/agentcrawl.db" in dockerfile
     assert "AGENTCRAWL_AUTH_ENABLED=true" in dockerfile
     assert "AGENTCRAWL_ALLOW_LOCAL_FILES=false" in dockerfile
     assert "AGENTCRAWL_ALLOW_PRIVATE_NETWORK=false" in dockerfile
+    assert "AGENTCRAWL_BROWSER_FALLBACK" not in dockerfile
     assert 'pip install --no-cache-dir -e ".[server,mcp]"' in dockerfile
     assert "USER agentcrawl" in dockerfile
     assert 'VOLUME ["/data"]' in dockerfile

@@ -6,6 +6,7 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -44,6 +45,20 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,suffix=,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build local image for smoke test
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: agentcrawl:smoke
+          cache-from: type=gha
+
+      - name: Smoke test Docker image
+        run: |
+          docker run --rm agentcrawl:smoke agentcrawl --version
+          docker run --rm agentcrawl:smoke agentcrawl doctor
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5

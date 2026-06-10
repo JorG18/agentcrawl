@@ -20,10 +20,18 @@ EXPECTED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
     "blog": ("How Agents Read The Web", "By Irene Shaw", "fixed fixtures"),
     "canonical": ("Canonical Deployment Guide", "authenticated stats endpoint", "rollback"),
     "messy_docs": ("Install Agent Runner", "isolated agent workflows", "agent-runner doctor"),
-    "noisy_article": ("Transit Agency Opens Realtime Feed", "By Lena Ortiz", "stable JSON endpoints"),
+    "noisy_article": (
+        "Transit Agency Opens Realtime Feed",
+        "By Lena Ortiz",
+        "stable JSON endpoints",
+    ),
     "complex_product": ("Field Recorder Kit", "$249.00", "128GB"),
     "api_reference": ("Extraction API Reference", "```python", "| Parameter", "```json"),
-    "media_article": ("Researchers Publish Open Climate Archive", "Coastal sensors", "Stable provenance"),
+    "media_article": (
+        "Researchers Publish Open Climate Archive",
+        "Coastal sensors",
+        "Stable provenance",
+    ),
     "nested_sidebar_docs": ("Agent Session Recovery", "crawler.crawl", "| Field"),
     "spa_rendered": ("Rendered Agent Dashboard", "active crawl workers", "| Metric", "```json"),
 }
@@ -37,7 +45,11 @@ EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
     "blog": ("Home Archive", "weekly AI newsletter"),
     "canonical": ("Billing", "Legacy footer"),
     "messy_docs": ("Pricing", "weekly newsletter popup", "related promotional article"),
-    "noisy_article": ("Sponsored cloud analytics", "Subscribe to our daily briefing", "Advertise with us"),
+    "noisy_article": (
+        "Sponsored cloud analytics",
+        "Subscribe to our daily briefing",
+        "Advertise with us",
+    ),
     "complex_product": ("Customers also bought", "Download app footer", "Clearance"),
     "api_reference": ("Pricing", "Legacy SDK", "Hidden accessibility duplicate", "Footer legal"),
     "media_article": ("Advertise", "celebrity weather myths", "Newsletter signup"),

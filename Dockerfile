@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright/python:v1.60.0-noble
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -18,7 +18,8 @@ LABEL org.opencontainers.image.title="AgentCrawl" \
 COPY pyproject.toml README.md LICENSE ./
 COPY agentcrawl ./agentcrawl
 
-RUN python -m pip install --no-cache-dir -e ".[server,mcp]" \
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir -e ".[server,mcp]" \
     && useradd --create-home --uid 10001 agentcrawl \
     && mkdir -p /data \
     && chown -R agentcrawl:agentcrawl /app /data

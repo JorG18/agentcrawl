@@ -131,9 +131,7 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
         return _legacy_strip_boilerplate(html)
 
     candidates = _content_candidates(parser.root)
-    selected = (
-        _select_content_node(candidates) if only_main_content and candidates else parser.root
-    )
+    selected = _select_content_node(candidates) if only_main_content and candidates else parser.root
     return _serialize_node(selected, only_main_content=only_main_content)
 
 
