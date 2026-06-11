@@ -10,7 +10,7 @@
 AgentCrawl turns web pages and local documents into clean Markdown, text, links, metadata, JSON-LD, and crawl results that agents can actually use. Run it as a CLI, Python library, HTTP API, Docker service, or MCP server. Your cache, jobs, retries, failures, and extracted data stay in your environment.
 
 ```bash
-pip install agentcrawl
+pip install agentcrawl-ai
 agentcrawl scrape https://example.com
 ```
 
@@ -19,7 +19,7 @@ agentcrawl scrape https://example.com
 ### For agents: MCP
 
 ```bash
-pip install "agentcrawl[mcp]"
+python -m pip install "agentcrawl-ai[browser]"
 agentcrawl doctor
 agentcrawl mcp
 ```
@@ -29,7 +29,7 @@ MCP tools cover `scrape_url`, `map_site`, `crawl_site`, job status, cancellation
 ### For developers: Python + CLI
 
 ```bash
-pip install agentcrawl
+pip install agentcrawl-ai
 agentcrawl scrape https://example.com
 ```
 
@@ -114,7 +114,7 @@ Authentication is enabled by default. Configure at least one API key before expo
 
 ```bash
 export AGENTCRAWL_API_KEYS="replace-with-a-long-random-key"
-pip install "agentcrawl[server]"
+python -m pip install "agentcrawl-ai[browser]"
 agentcrawl serve --host 0.0.0.0 --port 8000
 ```
 
@@ -197,7 +197,7 @@ Community supports local document ingestion without sending file contents to a h
 agentcrawl scrape ./notes.md
 agentcrawl scrape ./data.json
 agentcrawl scrape ./feed.xml
-pip install "agentcrawl[docs]"
+python -m pip install "agentcrawl-ai[browser]"
 agentcrawl scrape ./report.pdf
 ```
 
@@ -217,7 +217,7 @@ Current document support:
 The default package and default Docker image use HTTP extraction. Add browser rendering only when a site needs JavaScript:
 
 ```bash
-pip install "agentcrawl[browser]"
+python -m pip install "agentcrawl-ai[browser]"
 playwright install chromium
 ```
 
@@ -280,7 +280,7 @@ Do not expose the API without authentication, TLS, request limits, and network c
 
 ## Optional LLM extraction
 
-AgentCrawl Community does not require an LLM for scraping, crawling, API, Docker, or MCP usage. The legacy prompt-driven `AgentCrawler.extract()` path is optional: install `agentcrawl[llm]` and configure `llm` or `llm_model` before using it. Built-in web search is disabled by default; keep search in your agent/provider layer unless you explicitly configure a search backend.
+AgentCrawl Community does not require an LLM for scraping, crawling, API, Docker, or MCP usage. The legacy prompt-driven `AgentCrawler.extract()` path is optional: install `agentcrawl-ai[llm]` and configure `llm` or `llm_model` before using it. Built-in web search is disabled by default; keep search in your agent/provider layer unless you explicitly configure a search backend.
 
 ## Development
 

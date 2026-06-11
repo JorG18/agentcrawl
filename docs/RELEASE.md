@@ -25,8 +25,8 @@ python -m twine check dist/*
 Expected artifacts:
 
 ```text
-dist/agentcrawl-<version>.tar.gz
-dist/agentcrawl-<version>-py3-none-any.whl
+dist/agentcrawl_ai-<version>.tar.gz
+dist/agentcrawl_ai-<version>-py3-none-any.whl
 ```
 
 ## 3. Clean install smoke tests
@@ -35,7 +35,7 @@ Run in fresh virtual environments, not the development checkout:
 
 ```bash
 python -m venv /tmp/agentcrawl-smoke
-/tmp/agentcrawl-smoke/bin/python -m pip install dist/agentcrawl-<version>-py3-none-any.whl
+/tmp/agentcrawl-smoke/bin/python -m pip install dist/agentcrawl_ai-<version>-py3-none-any.whl
 /tmp/agentcrawl-smoke/bin/agentcrawl --version
 /tmp/agentcrawl-smoke/bin/agentcrawl doctor
 /tmp/agentcrawl-smoke/bin/agentcrawl scrape https://example.com
@@ -44,19 +44,19 @@ python -m venv /tmp/agentcrawl-smoke
 Also smoke optional extras when they changed:
 
 ```bash
-python -m pip install 'dist/agentcrawl-<version>-py3-none-any.whl[server]'
+python -m pip install 'dist/agentcrawl_ai-<version>-py3-none-any.whl[server]'
 python - <<'PY'
 from agentcrawl.server import app
 assert app.title == 'AgentCrawl'
 PY
 
-python -m pip install 'dist/agentcrawl-<version>-py3-none-any.whl[mcp]'
+python -m pip install 'dist/agentcrawl_ai-<version>-py3-none-any.whl[mcp]'
 python - <<'PY'
 import agentcrawl.mcp_server as s
 assert callable(s.main)
 PY
 
-python -m pip install 'dist/agentcrawl-<version>-py3-none-any.whl[docs]'
+python -m pip install 'dist/agentcrawl_ai-<version>-py3-none-any.whl[docs]'
 python - <<'PY'
 import fitz
 PY

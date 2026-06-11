@@ -18,7 +18,7 @@ AgentCrawl works as a local Python library, CLI tool, HTTP API, Docker service, 
 ### CLI
 
 ```bash
-pip install agentcrawl
+python -m pip install "agentcrawl-ai[browser]"
 agentcrawl scrape https://example.com
 ```
 
@@ -43,7 +43,7 @@ print(document.markdown)
 
 ```bash
 export AGENTCRAWL_API_KEYS="exampl...-key"
-pip install "agentcrawl[server]"
+python -m pip install "agentcrawl-ai[browser]"
 agentcrawl serve --host 127.0.0.1 --port 8000
 ```
 
@@ -65,7 +65,7 @@ docker run --rm -p 8000:8000 \
 ### MCP
 
 ```bash
-pip install "agentcrawl[mcp]"
+python -m pip install "agentcrawl-ai[browser]"
 agentcrawl doctor
 agentcrawl mcp
 ```
@@ -108,7 +108,7 @@ curl http://127.0.0.1:8000/v1/crawl \
 agentcrawl scrape ./notes.md
 agentcrawl scrape ./data.json
 agentcrawl scrape ./feed.xml
-pip install "agentcrawl[docs]"
+python -m pip install "agentcrawl-ai[browser]"
 agentcrawl scrape ./report.pdf
 ```
 

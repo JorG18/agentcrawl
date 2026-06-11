@@ -6,7 +6,7 @@ Use this when AgentCrawl is running as a self-hosted API.
 
 ```bash
 export AGENTCRAWL_API_KEYS="example-development-key"
-pip install "agentcrawl[server]"
+pip install "agentcrawl-ai[server]"
 agentcrawl serve --host 127.0.0.1 --port 8000
 ```
 

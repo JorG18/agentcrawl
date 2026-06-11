@@ -5,7 +5,7 @@ Use browser rendering only when HTTP extraction cannot see the content because t
 ## Install browser support
 
 ```bash
-pip install "agentcrawl[browser]"
+pip install "agentcrawl-ai[browser]"
 playwright install chromium
 ```
 

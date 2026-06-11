@@ -7,7 +7,7 @@ Use this when an agent client supports Model Context Protocol servers.
 Local mode does not require an API server:
 
 ```bash
-pip install "agentcrawl[mcp]"
+pip install "agentcrawl-ai[server]"
 agentcrawl doctor
 agentcrawl mcp
 ```

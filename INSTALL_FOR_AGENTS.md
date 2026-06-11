@@ -19,21 +19,21 @@ Install AgentCrawl, verify direct scraping, register its standards-based stdio M
 For a published release:
 
 ```bash
-python -m pip install "agentcrawl[mcp]"
+python -m pip install "agentcrawl-ai[browser]"
 ```
 
 For a repository checkout before a release is published:
 
 ```bash
-python -m pip install -e ".[mcp]"
+python -m pip install "agentcrawl-ai[browser]"
 ```
 
 The base package uses HTTP and does not install a browser. Install other capabilities only when needed:
 
 ```bash
-python -m pip install "agentcrawl[server]"
-python -m pip install "agentcrawl[docs]"     # local PDF ingestion
-python -m pip install "agentcrawl[browser]"
+python -m pip install "agentcrawl-ai[browser]"
+python -m pip install "agentcrawl-ai[docs]"     # local PDF ingestion
+python -m pip install "agentcrawl-ai[browser]"
 playwright install chromium
 ```
 
