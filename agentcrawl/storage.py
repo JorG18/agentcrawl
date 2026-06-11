@@ -11,6 +11,18 @@ from typing import Any
 from .html_tools import normalize_url
 
 
+def _cache_domain(value: str) -> str:
+    candidate = value.strip().lower()
+    if "://" not in candidate:
+        candidate = "//" + candidate
+    parsed = urllib.parse.urlsplit(candidate)
+    hostname = (parsed.hostname or parsed.netloc or candidate).rstrip(".").lower()
+    try:
+        return hostname.encode("idna").decode("ascii")
+    except UnicodeError:
+        return hostname
+
+
 class SQLiteStore:
     def __init__(self, path: str | Path = "agentcrawl.db"):
         self.path = Path(path)
@@ -866,7 +878,15 @@ class SQLiteStore:
     def cleanup_cache(self) -> int:
         with self._connect() as conn:
             cursor = conn.execute("delete from scrape_cache where expires_at <= ?", (time.time(),))
-            return int(cursor.rowcount or 0)
+            deleted = int(cursor.rowcount or 0)
+        self.checkpoint_wal()
+        return deleted
+
+    def checkpoint_wal(self, mode: str = "passive") -> None:
+        if mode not in {"passive", "full", "restart", "truncate"}:
+            raise ValueError(f"Unsupported WAL checkpoint mode: {mode}")
+        with self._connect() as conn:
+            conn.execute(f"pragma wal_checkpoint({mode})")
 
     def cache_count(self) -> int:
         with self._connect() as conn:
@@ -883,12 +903,12 @@ class SQLiteStore:
             if not domain:
                 cursor = conn.execute("delete from scrape_cache")
                 return int(cursor.rowcount or 0)
-            normalized_domain = domain.lower().strip()
+            normalized_domain = _cache_domain(domain)
             rows = conn.execute("select cache_key, url from scrape_cache").fetchall()
             keys = [
                 str(row["cache_key"])
                 for row in rows
-                if urllib.parse.urlsplit(str(row["url"])).netloc.lower() == normalized_domain
+                if _cache_domain(str(row["url"])) == normalized_domain
             ]
             conn.executemany(
                 "delete from scrape_cache where cache_key = ?", ((key,) for key in keys)

@@ -46,6 +46,12 @@ def scrape_url(
         int | None,
         Field(description="Optional cache lifetime from 1 to 2592000 seconds."),
     ] = None,
+    only_main_content: Annotated[
+        bool | None,
+        Field(
+            description="Extract only main content when true, full page when false, default engine behavior when omitted."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Default tool for reading or analyzing one web page.
 
@@ -61,8 +67,15 @@ def scrape_url(
             formats=formats or ["markdown", "links", "metadata"],
             cache=use_cache,
             cache_ttl_seconds=cache_ttl_seconds,
+            only_main_content=only_main_content,
         )
-    return to_jsonable(_crawler().scrape(url, formats=formats or ["markdown", "links", "metadata"]))
+    return to_jsonable(
+        _crawler().scrape(
+            url,
+            formats=formats or ["markdown", "links", "metadata"],
+            only_main_content=only_main_content,
+        )
+    )
 
 
 @mcp.tool()

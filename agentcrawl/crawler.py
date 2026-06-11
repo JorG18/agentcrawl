@@ -21,6 +21,12 @@ from .parsing import html_to_markdown, extraction_provenance, markdown_structure
 from .security import validate_remote_url
 
 
+_HEADING_MARKER_RE = re.compile(r"^#{1,6}\s+")
+_LIST_MARKER_RE = re.compile(r"^[-*+]\s+")
+_BLOCKQUOTE_MARKER_RE = re.compile(r"^>\s*")
+_ORDERED_LIST_MARKER_RE = re.compile(r"^\d+[.)]\s+")
+
+
 class AgentCrawl:
     """Local-first AgentCrawl engine.
 
@@ -448,10 +454,10 @@ def _markdown_to_text(markdown: str) -> str:
     lines = []
     for line in markdown.splitlines():
         cleaned = line.strip()
-        cleaned = re.sub(r"^#{1,6}\s+", "", cleaned)
-        cleaned = re.sub(r"^[-*+]\s+", "", cleaned)
-        cleaned = re.sub(r"^>\s*", "", cleaned)
-        cleaned = re.sub(r"^\d+[.)]\s+", "", cleaned)
+        cleaned = _HEADING_MARKER_RE.sub("", cleaned)
+        cleaned = _LIST_MARKER_RE.sub("", cleaned)
+        cleaned = _BLOCKQUOTE_MARKER_RE.sub("", cleaned)
+        cleaned = _ORDERED_LIST_MARKER_RE.sub("", cleaned)
         if cleaned:
             lines.append(cleaned)
     return "\n".join(lines)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import json
 import pathlib
 import re
@@ -147,6 +148,7 @@ def _json_scalar(value: object) -> str:
     return ""
 
 
+@lru_cache(maxsize=256)
 def _normalize_hostname(hostname: str) -> str:
     normalized = hostname.rstrip(".").lower()
     if not normalized:
