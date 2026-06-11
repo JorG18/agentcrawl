@@ -18,7 +18,7 @@ agentcrawl scrape https://example.com
 
 ## Pick your path 🚀
 
-### For agents: MCP
+### Agents: MCP 🤖
 
 ```bash
 python -m pip install "agentcrawl-ai[browser]"
@@ -28,7 +28,7 @@ agentcrawl mcp
 
 MCP tools cover `scrape_url`, `map_site`, `crawl_site`, job status, cancellation, event history, failure inspection, selective retries, usage, and cache control. Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
 
-### For developers: Python + CLI
+### Developers: Python + CLI 🧪
 
 ```bash
 pip install agentcrawl-ai
@@ -45,7 +45,7 @@ print(document.markdown)
 print(document.metadata)
 ```
 
-### For servers: Docker + API
+### Servers: Docker + API 🐳
 
 ```bash
 docker run --rm -p 8000:8000 \
@@ -64,7 +64,7 @@ docker compose up -d
 curl http://127.0.0.1:8000/health
 ```
 
-## Why AgentCrawl?
+## Why AgentCrawl? 🕸️
 
 Agents often need web context, but raw HTML is a mess. A useful page can arrive mixed with navigation, cookie text, related links, footer links, scripts, and layout junk.
 
@@ -72,14 +72,14 @@ AgentCrawl is a small local layer for that. Give it a URL, get something an agen
 
 What works today:
 
-- Known URL in, clean Markdown out: main-content extraction, tables, code blocks, links, metadata, and provenance.
-- HTTP first: fast default extraction without starting a browser.
-- Durable crawls: SQLite jobs with checkpoints, pagination, cancellation, events, retries, and failure inspection.
-- Local state: cache, usage, jobs, events, crawl failures, and extracted documents stay with you.
-- Safer API defaults: bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
-- Agent-facing interfaces: CLI, Python, HTTP API, Docker, and MCP.
+- 🧹 Known URL in, clean Markdown out: main-content extraction, tables, code blocks, links, metadata, and provenance.
+- ⚡ HTTP first: fast default extraction without starting a browser.
+- 🧱 Durable crawls: SQLite jobs with checkpoints, pagination, cancellation, events, retries, and failure inspection.
+- 📦 Local state: cache, usage, jobs, events, crawl failures, and extracted documents stay with you.
+- 🔒 Safer API defaults: bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
+- 🤖 Agent-facing interfaces: CLI, Python, HTTP API, Docker, and MCP.
 
-## What Community includes
+## What Community includes 🧰
 
 AgentCrawl Community is the self-hosted trust layer:
 
@@ -97,7 +97,7 @@ AgentCrawl Community is the self-hosted trust layer:
 
 Community is self-hosted. It is designed for accessible web content, local/private workflows, and honest failure reporting when a page is protected by anti-bot or browser challenges. Community may detect challenge pages and return a clear `client_challenge`/unsupported failure; it does not promise to bypass them. The optional browser path is local bring-your-own rendering, not a managed browser pool. Managed browsers, proxies, schedules, webhooks, retained datasets, teams, billing, and enterprise controls belong to planned enhanced/hosted tiers rather than the Community runtime.
 
-## Community boundary
+## Community boundary 🚧
 
 Community is the open, self-hosted trust layer. It should stay excellent for accessible public HTML, local documents, docs, API references, articles, and reference pages. It should not grow into a free hosted-scraping platform.
 
