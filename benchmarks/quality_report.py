@@ -61,6 +61,13 @@ EXPECTED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
     ),
     "nested_sidebar_docs": ("Agent Session Recovery", "crawler.crawl", "| Field"),
     "spa_rendered": ("Rendered Agent Dashboard", "active crawl workers", "| Metric", "```json"),
+    "technical_reference_index": (
+        "Protocol Semantics Reference",
+        "message semantics",
+        "stable provenance",
+        "```http",
+        "| Field",
+    ),
 }
 
 EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
@@ -122,6 +129,11 @@ EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
         "Footer documentation archive",
     ),
     "spa_rendered": ("Upgrade to the hosted dashboard", "Enable JavaScript"),
+    "technical_reference_index": (
+        "1xx Status Code 1",
+        "79xx Status Code 79",
+        "Footer archive legal",
+    ),
 }
 
 REQUIRED_METADATA_BY_FIXTURE: dict[str, tuple[str, ...]] = {

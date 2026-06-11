@@ -71,6 +71,28 @@ QUALITY_CASES = [
         metadata=("title", "extraction_strategy", "selected_content_hint"),
     ),
     QualityCase(
+        name="technical_reference_index",
+        expected=(
+            "Protocol Semantics Reference",
+            "message semantics",
+            "stable provenance",
+            "```http",
+            "Host: example.test",
+            "| Field",
+        ),
+        excluded=(
+            "1xx Status Code 1",
+            "79xx Status Code 79",
+            "Footer archive legal",
+        ),
+        metadata=(
+            "title",
+            "description",
+            "extraction_strategy",
+            "selected_content_hint",
+        ),
+    ),
+    QualityCase(
         name="table",
         expected=(
             "Regional Sales Table",

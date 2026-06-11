@@ -6,7 +6,7 @@ AgentCrawl treats extraction quality as a product surface: output should be read
 
 ## Current Community baseline
 
-The checked-in quality suite currently covers 18 fixtures and is used as a regression gate before release work. The report is local and reproducible; it is not a public claim that AgentCrawl beats another product.
+The checked-in quality suite currently covers 19 fixtures and is used as a regression gate before release work. The report is local and reproducible; it is not a public claim that AgentCrawl beats another product.
 
 ```bash
 python benchmarks/quality_report.py
@@ -15,7 +15,7 @@ python benchmarks/quality_report.py
 Expected release-candidate shape:
 
 ```text
-fixture_count: 18
+fixture_count: 19
 minimum_score: 85
 failed: 0
 ```
@@ -72,6 +72,7 @@ API reference pages with multiple fenced code blocks and parameter tables
 adversarial API references with shell commands, JSON responses, unlabeled code fences, blockquotes, and noisy docs navigation
 media-rich articles with figures, captions, blockquotes, and read-more cards
 adversarial media/news articles with captions, blockquotes, inline tables, JSON snippets, sponsor promos, related-story rails, and hidden duplicates
+technical reference pages where a huge generated index precedes the real specification content
 nested documentation layouts where <main> contains internal TOCs, sidebars, and related cards
 adversarial documentation shells with nested sticky rails, duplicated hidden text, captions, tables, and fenced code
 SPA/browser-rendered snapshots with tables, code blocks, and rendered-only content

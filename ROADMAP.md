@@ -25,7 +25,7 @@ AgentCrawl Community is a serious self-hosted alpha/release-candidate surface. T
 - Local document ingestion for Markdown, text, JSON, XML/RSS/Atom, and PDF-to-Markdown through the optional `docs` extra.
 - `agentcrawl doctor`, `agentcrawl --version`, package build verification, and clean install smoke tests.
 - Lightweight Docker image published through GHCR: `ghcr.io/jorg18/agentcrawl:latest`.
-- Quality extraction hardening: 18 checked-in quality fixtures plus browser-rendered SPA shell/snapshot coverage, score threshold, JSON report, richer provenance, JSON-LD/Product schema extraction, Product rating extraction, hidden-class filtering, Markdown structure checks, and Markdown structure metrics.
+- Quality extraction hardening: 19 checked-in quality fixtures plus browser-rendered SPA shell/snapshot coverage, score threshold, JSON report, richer provenance, JSON-LD/Product schema extraction, Product rating extraction, hidden-class filtering, Markdown structure checks, and Markdown structure metrics.
 
 ## Next community priorities
 
