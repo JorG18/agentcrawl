@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+  <title>Adversarial SDK Manual</title>
+  <meta name="description" content="A hostile documentation fixture with nested chrome and duplicated hidden content.">
+  <link rel="canonical" href="https://docs.example.test/adversarial-sdk-manual">
+</head>
+<body>
+  <header><a>Login</a> <a>Pricing</a> <a>Changelog</a></header>
+  <main id="docs-shell" class="layout docs content with-sidebar">
+    <aside class="sticky toc sidebar rail">
+      <h2>On this page</h2>
+      <a>Overview</a><a>Billing</a><a>Legacy crawler migration checklist</a>
+    </aside>
+    <div class="content-area doc-content article-body">
+      <div class="breadcrumbs">Docs / SDK / Advanced</div>
+      <article id="manual" class="article documentation primary-content">
+        <h1>Adversarial SDK Manual</h1>
+        <p>Use deterministic checkpoints to resume extraction jobs after an interrupted worker restart.</p>
+        <p>The agent should keep the canonical URL, cleaned Markdown, and structured provenance together.</p>
+        <pre><code class="language-python">from agentcrawl import AgentCrawl
+crawler = AgentCrawl({"fetcher": "http"})
+doc = crawler.scrape("https://example.com/manual")
+print(doc.metadata["content_sha256"])</code></pre>
+        <table>
+          <thead><tr><th>Signal</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>checkpoint</td><td>Resume marker stored safely</td></tr>
+            <tr><td>provenance</td><td>Source and final URL retained</td></tr>
+          </tbody>
+        </table>
+        <figure>
+          <img src="diagram.png" alt="pipeline diagram">
+          <figcaption>Checkpoint timeline keeps recovery explainable.</figcaption>
+        </figure>
+      </article>
+      <section class="related-posts promo cards">
+        <h2>Related guides</h2>
+        <p>Enterprise upgrade banner for managed crawlers.</p>
+      </section>
+      <p class="sr-only">Hidden accessibility duplicate Adversarial SDK Manual should not leak.</p>
+    </div>
+    <aside class="newsletter popup">Subscribe to the hosted dashboard newsletter</aside>
+  </main>
+  <footer>Footer documentation archive and legal links</footer>
+</body>
+</html>

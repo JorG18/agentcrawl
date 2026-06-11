@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+  <title>Adversarial Product Detail</title>
+  <meta name="description" content="Hostile ecommerce fixture with variants, reviews, schema graph, and recommendation noise.">
+  <link rel="canonical" href="https://shop.example.test/products/signal-pack-pro">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Product",
+        "name": "Signal Pack Pro",
+        "sku": "SPP-512",
+        "brand": {"@type": "Brand", "name": "FieldSignal"},
+        "offers": [
+          {"@type": "Offer", "price": "399.00", "priceCurrency": "USD", "availability": "https://schema.org/InStock"}
+        ],
+        "aggregateRating": {"@type": "AggregateRating", "ratingValue": "4.9", "reviewCount": 87},
+        "review": [
+          {"@type": "Review", "author": {"@type": "Person", "name": "Mara"}, "reviewBody": "Battery life held through a twelve hour field test."}
+        ]
+      },
+      {"@type": "BreadcrumbList", "name": "Shop breadcrumbs"}
+    ]
+  }
+  </script>
+</head>
+<body>
+  <header class="site-header promo">Flash sale navigation Account Cart</header>
+  <main id="product-shell" class="commerce product content">
+    <aside class="sticky recommendations rail related-products">
+      <h2>Customers also viewed</h2>
+      <p>Unrelated drone bundle</p>
+      <p>Clearance microphone cable</p>
+    </aside>
+    <section class="product-detail primary-content">
+      <h1>Signal Pack Pro</h1>
+      <p class="price">$399.00</p>
+      <p class="availability">In stock and ships tomorrow</p>
+      <p>Designed for field researchers who need resilient capture, clean provenance, and offline review workflows.</p>
+      <table>
+        <thead><tr><th>Variant</th><th>Battery</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>Base</td><td>18 hours</td><td>Available</td></tr>
+          <tr><td>Expedition</td><td>28 hours</td><td>Available</td></tr>
+        </tbody>
+      </table>
+      <section class="reviews content">
+        <h2>Field reviews</h2>
+        <blockquote>Battery life held through a twelve hour field test.</blockquote>
+        <p>Reviewers highlighted the waterproof case and stable metadata export.</p>
+      </section>
+    </section>
+    <section class="newsletter popup">Subscribe for limited drops</section>
+    <p class="visually-hidden">Hidden duplicate Signal Pack Pro should not leak.</p>
+  </main>
+  <footer>Download our app footer legal links</footer>
+</body>
+</html>

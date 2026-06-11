@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+  <title>Adversarial API Reference</title>
+  <meta name="description" content="Hostile API docs with nested code, parameter tables, and duplicated chrome.">
+  <link rel="canonical" href="https://docs.example.test/api/adversarial-reference">
+</head>
+<body>
+  <header class="top-nav">Product Pricing Login Status</header>
+  <main class="docs-shell content">
+    <aside class="toc sticky sidebar rail">
+      <h2>Reference nav</h2>
+      <a>Authentication</a>
+      <a>Legacy SDK</a>
+      <a>Enterprise migration</a>
+    </aside>
+    <section id="reference" class="api-reference doc-content primary-content">
+      <h1>Batch Scrape API Reference</h1>
+      <p>Submit a batch scrape when an agent needs several pages converted into stable Markdown with shared provenance.</p>
+      <h2>Request</h2>
+      <pre><code class="language-bash">curl -X POST https://api.example.test/v1/batch \
+  -H 'authorization: Bearer token' \
+  -H 'content-type: application/json' \
+  -d '{"urls":["https://example.com/a","https://example.com/b"],"formats":["markdown","metadata"]}'</code></pre>
+      <table>
+        <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>urls</td><td>array&lt;string&gt;</td><td>yes</td><td>Absolute HTTP URLs to extract.</td></tr>
+          <tr><td>formats</td><td>array&lt;string&gt;</td><td>no</td><td>Requested outputs such as markdown and metadata.</td></tr>
+          <tr><td>timeout_ms</td><td>integer</td><td>no</td><td>Per-page deadline for deterministic agent runs.</td></tr>
+        </tbody>
+      </table>
+      <h2>Response</h2>
+      <pre><code class="language-json">{
+  "documents": [
+    {"url": "https://example.com/a", "markdown": "# Alpha", "metadata": {"content_sha256": "abc"}}
+  ]
+}</code></pre>
+      <blockquote>Stable error envelopes let agents retry only the failed URLs.</blockquote>
+      <pre><code>UNLABELED_FENCE_SHOULD_STAY_BALANCED=true</code></pre>
+    </section>
+    <section class="related-posts promo cards">Related tutorial: migrate to the hosted batch dashboard</section>
+    <p class="screen-reader-only">Hidden duplicate Batch Scrape API Reference must not leak.</p>
+  </main>
+  <footer>Footer legal archive and pricing links</footer>
+</body>
+</html>

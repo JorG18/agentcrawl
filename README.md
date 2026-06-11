@@ -99,8 +99,8 @@ The Community engine focuses on stable, agent-ready Markdown before benchmark cl
 - removes unsafe and noisy page chrome such as scripts, styles, hidden content, nav, footer, cookie banners, sidebars, and related-post blocks;
 - preserves Markdown tables with headers and cell values;
 - preserves fenced code blocks and language tags from common classes such as `language-python` and `lang-javascript`;
-- attaches extraction provenance such as source/final URL, selected content hint, selection score, candidate count, content hash, extraction strategy, JSON-LD/schema fields, and output size/structure metadata;
-- validates extraction quality against checked-in fixtures with a minimum score threshold.
+- attaches extraction provenance such as source/final URL, selected content hint, selection score, candidate count, content hash, extraction strategy, JSON-LD/schema fields, Product offer/rating fields, and output size/structure metadata;
+- validates extraction quality against checked-in fixtures with a minimum score threshold and Markdown structure checks.
 
 Run the report locally:
 

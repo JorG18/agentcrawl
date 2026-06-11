@@ -12,6 +12,33 @@ FIXTURE_DIR = ROOT / "tests" / "fixtures" / "quality"
 MINIMUM_SCORE = 85
 
 EXPECTED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
+    "adversarial_api_reference": (
+        "Batch Scrape API Reference",
+        "```bash",
+        "| Parameter",
+        "```json",
+        "Stable error envelopes",
+    ),
+    "adversarial_media_news": (
+        "Civic Sensor Network Publishes Open Field Data",
+        "By Alina Reyes",
+        "Portable stations recorded humidity",
+        "| Metric",
+        "```json",
+    ),
+    "adversarial_docs": (
+        "Adversarial SDK Manual",
+        "deterministic checkpoints",
+        "```python",
+        "| Signal",
+        "Checkpoint timeline keeps recovery explainable",
+    ),
+    "adversarial_product": (
+        "Signal Pack Pro",
+        "$399.00",
+        "| Variant",
+        "Battery life held through a twelve hour field test",
+    ),
     "documentation": ("Agent SDK Guide", "reliable agent workflows", "```python"),
     "article": ("City Launches Open Data Portal", "By Maya Torres", "weekly updates"),
     "ecommerce": ("TrailRunner Pro Backpack", "$129.00", "In stock"),
@@ -37,6 +64,40 @@ EXPECTED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
 }
 
 EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
+    "adversarial_api_reference": (
+        "Product Pricing Login",
+        "Legacy SDK",
+        "Enterprise migration",
+        "hosted batch dashboard",
+        "Hidden duplicate Batch Scrape API Reference",
+        "Footer legal archive",
+    ),
+    "adversarial_media_news": (
+        "News Home Subscribe Advertise",
+        "Celebrity weather myths",
+        "Sponsored smart-city vendor ranking",
+        "Subscribe to our sponsor briefing",
+        "Hidden duplicate Civic Sensor Network",
+        "Footer archive newsletters",
+    ),
+    "adversarial_docs": (
+        "Pricing",
+        "Billing",
+        "Legacy crawler migration checklist",
+        "Enterprise upgrade banner",
+        "Hidden accessibility duplicate",
+        "Subscribe to the hosted dashboard newsletter",
+        "Footer documentation archive",
+    ),
+    "adversarial_product": (
+        "Flash sale navigation",
+        "Customers also viewed",
+        "Unrelated drone bundle",
+        "Clearance microphone cable",
+        "Subscribe for limited drops",
+        "Hidden duplicate Signal Pack Pro",
+        "Download our app footer",
+    ),
     "documentation": ("Pricing", "related promotional article", "Copyright Footer"),
     "article": ("Accept all cookies", "newsletter popup", "Advertise"),
     "ecommerce": ("Limited time promo", "unrelated upsell", "Account"),
@@ -71,6 +132,18 @@ REQUIRED_METADATA_BY_FIXTURE: dict[str, tuple[str, ...]] = {
         "product_price",
         "product_currency",
     ),
+    "adversarial_product": (
+        "jsonld_count",
+        "schema_types",
+        "product_name",
+        "product_sku",
+        "product_brand",
+        "product_price",
+        "product_currency",
+        "product_availability",
+        "product_rating_value",
+        "product_review_count",
+    ),
 }
 
 REQUIRED_METADATA = (
@@ -103,6 +176,7 @@ class FixtureResult:
     missing: list[str]
     boilerplate_found: list[str]
     missing_metadata: list[str]
+    structure_errors: list[str]
     quality_checks: dict[str, bool]
     errors: list[str]
 
@@ -126,6 +200,7 @@ def run_quality_report() -> dict[str, object]:
                     missing=[],
                     boilerplate_found=[],
                     missing_metadata=list(REQUIRED_METADATA),
+                    structure_errors=["scrape did not return markdown"],
                     quality_checks={
                         "expected_content": False,
                         "metadata": False,
@@ -160,6 +235,7 @@ def _score_fixture(name: str, doc: ScrapeDocument) -> FixtureResult:
         for key in (*REQUIRED_METADATA, *REQUIRED_METADATA_BY_FIXTURE.get(name, ()))
         if key not in doc.metadata or doc.metadata[key] in {None, ""}
     ]
+    structure_errors = _markdown_structure_errors(doc.markdown)
     provenance_ok = bool(doc.metadata.get("source_url")) and bool(
         doc.metadata.get("selected_content_hint")
     )
@@ -168,6 +244,7 @@ def _score_fixture(name: str, doc: ScrapeDocument) -> FixtureResult:
         "metadata": not missing_metadata,
         "boilerplate_removed": not boilerplate_found,
         "provenance": provenance_ok,
+        "markdown_structure": not structure_errors,
     }
     score = _quality_score(quality_checks, doc.errors)
     passed = doc.ok and score >= MINIMUM_SCORE
@@ -181,9 +258,21 @@ def _score_fixture(name: str, doc: ScrapeDocument) -> FixtureResult:
         missing=missing,
         boilerplate_found=boilerplate_found,
         missing_metadata=missing_metadata,
+        structure_errors=structure_errors,
         quality_checks=quality_checks,
         errors=doc.errors,
     )
+
+
+def _markdown_structure_errors(markdown: str) -> list[str]:
+    errors: list[str] = []
+    fence_count = sum(1 for line in markdown.splitlines() if line.startswith("```"))
+    if fence_count % 2:
+        errors.append("unbalanced fenced code blocks")
+    table_lines = [line for line in markdown.splitlines() if line.strip().startswith("|")]
+    if table_lines and not any("---" in line for line in table_lines):
+        errors.append("table rows found without a Markdown separator row")
+    return errors
 
 
 def _quality_score(checks: dict[str, bool], errors: list[str]) -> int:
@@ -196,6 +285,8 @@ def _quality_score(checks: dict[str, bool], errors: list[str]) -> int:
         score -= 20
     if not checks["provenance"]:
         score -= 10
+    if not checks.get("markdown_structure", False):
+        score -= 15
     if errors:
         score -= 10
     return max(0, score)

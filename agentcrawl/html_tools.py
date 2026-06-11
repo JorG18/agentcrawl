@@ -115,6 +115,12 @@ def _jsonld_metadata(documents: list[object]) -> dict[str, str]:
                 metadata["product_currency"] = currency
             if availability := _json_scalar(offers.get("availability")):
                 metadata["product_availability"] = availability.rsplit("/", 1)[-1]
+        rating = product.get("aggregateRating")
+        if isinstance(rating, dict):
+            if rating_value := _json_scalar(rating.get("ratingValue")):
+                metadata["product_rating_value"] = rating_value
+            if review_count := _json_scalar(rating.get("reviewCount")):
+                metadata["product_review_count"] = review_count
     return metadata
 
 

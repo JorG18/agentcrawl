@@ -42,3 +42,5 @@ def test_quality_report_summarizes_all_fixtures() -> None:
         assert result["quality_checks"]["metadata"]
         assert result["quality_checks"]["boilerplate_removed"]
         assert result["quality_checks"]["provenance"]
+        assert result["quality_checks"]["markdown_structure"]
+        assert "structure_errors" in result
