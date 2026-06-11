@@ -7,23 +7,13 @@
 
 🕷️ **A small self-hosted crawler for AI agents.**
 
-I built AgentCrawl because I wanted agents to read normal web pages without me pasting raw HTML into chat or sending every URL through a hosted scraper. It turns pages and local documents into Markdown, text, links, metadata, JSON-LD, and crawl results. You can run it from the CLI, Python, Docker/API, or as an MCP server.
+AgentCrawl gives agents a simple way to read normal web pages without pasting raw HTML into chat or routing every URL through a hosted scraper. It turns pages and local documents into Markdown, text, links, metadata, JSON-LD, and crawl results. It runs from the CLI, Python, Docker/API, or as an MCP server.
 
-It is early and intentionally boring: accessible pages first, clean output, local state, honest failures.
+The project is early, intentionally modest, and being worked on steadily: accessible pages first, clean output, local state, honest failures.
 
 ```bash
 pip install agentcrawl-ai
 agentcrawl scrape https://example.com
-```
-
-Example output:
-
-```markdown
-# Example Domain
-
-This domain is for use in documentation examples without needing permission. Avoid use in operations.
-
-[Learn more](https://iana.org/domains/example)
 ```
 
 ## Pick your path 🚀
@@ -76,11 +66,11 @@ curl http://127.0.0.1:8000/health
 
 ## Why AgentCrawl?
 
-I kept hitting the same annoying problem: agents need web context, but raw HTML is a mess. A page can include the useful article plus nav menus, cookie text, related links, footer links, scripts, and random layout junk.
+Agents often need web context, but raw HTML is a mess. A useful page can arrive mixed with navigation, cookie text, related links, footer links, scripts, and layout junk.
 
-AgentCrawl is my attempt at a small local layer for that. Give it a URL, get something an agent can read, and keep the cache/jobs/failures in your own environment.
+AgentCrawl is a small local layer for that. Give it a URL, get something an agent can read, and keep the cache, jobs, and failures in your own environment.
 
-What it has right now:
+What works today:
 
 - Known URL in, clean Markdown out: main-content extraction, tables, code blocks, links, metadata, and provenance.
 - HTTP first: fast default extraction without starting a browser.
