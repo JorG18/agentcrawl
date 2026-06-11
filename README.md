@@ -278,6 +278,10 @@ Do not expose the API without authentication, TLS, request limits, and network c
 - [Release checklist](docs/RELEASE.md): PyPI/GHCR release validation and smoke tests.
 - [Comparison](docs/COMPARISON.md): choose between AgentCrawl, Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
 
+## Optional LLM extraction
+
+AgentCrawl Community does not require an LLM for scraping, crawling, API, Docker, or MCP usage. The legacy prompt-driven `AgentCrawler.extract()` path is optional: install `agentcrawl[llm]` and configure `llm` or `llm_model` before using it. Built-in web search is disabled by default; keep search in your agent/provider layer unless you explicitly configure a search backend.
+
 ## Development
 
 ```bash

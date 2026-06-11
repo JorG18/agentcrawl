@@ -50,7 +50,7 @@ class CrawlConfig:
     reattempt_condition: str = "empty or validation_error"
 
     parallelism: int = 4
-    search_engine: str = "duckduckgo"
+    search_engine: str = "none"
     search_limit: int = 5
     serper_api_key: str | None = None
 

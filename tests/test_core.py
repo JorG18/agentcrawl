@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
 
 from agentcrawl import AgentCrawler
@@ -13,12 +14,28 @@ class Product(BaseModel):
     price: str
 
 
+def test_search_defaults_to_disabled_for_community() -> None:
+    crawler = AgentCrawler()
+
+    assert crawler.search("agentcrawl") == []
+
+
 def test_parse_and_chunk() -> None:
     markdown = html_to_markdown(
         "<html><body><h1>Hello</h1><p>World</p></body></html>", AgentCrawler().config
     )
     assert "Hello" in markdown
     assert chunk_text(markdown, AgentCrawler().config)
+
+
+def test_extract_without_llm_has_actionable_error(tmp_path: Path) -> None:
+    html = tmp_path / "page.html"
+    html.write_text("<h1>Widget</h1><p>Price: 10 EUR</p>", encoding="utf-8")
+
+    crawler = AgentCrawler({"auto_reattempt": False})
+
+    with pytest.raises(ValueError, match=r"agentcrawl\[llm\]"):
+        crawler.extract(str(html), "Extract product name and price.", Product)
 
 
 def test_extract_local_file_with_fake_llm(tmp_path: Path) -> None:

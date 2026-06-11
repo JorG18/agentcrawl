@@ -9,7 +9,10 @@ def get_llm(config: CrawlConfig) -> Any:
     if config.llm is not None:
         return config.llm
     if not config.llm_model:
-        raise ValueError("No LLM configured. Set config['llm'] or config['llm_model'].")
+        raise ValueError(
+            "LLM extraction requires an LLM. Install agentcrawl[llm] and set "
+            "config['llm'], config['llm_model'], or use AgentCrawl for non-LLM scraping."
+        )
 
     try:
         from langchain.chat_models import init_chat_model
