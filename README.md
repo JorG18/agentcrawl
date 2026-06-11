@@ -5,13 +5,25 @@
 
 ![AgentCrawl README hero](assets/readme-hero.png)
 
-🕷️ **Self-hosted web extraction for AI agents.**
+🕷️ **A small self-hosted crawler for AI agents.**
 
-AgentCrawl turns web pages and local documents into clean Markdown, text, links, metadata, JSON-LD, and crawl results that agents can actually use. Run it as a CLI, Python library, HTTP API, Docker service, or MCP server. Your cache, jobs, retries, failures, and extracted data stay in your environment.
+I built AgentCrawl because I wanted agents to read normal web pages without me pasting raw HTML into chat or sending every URL through a hosted scraper. It turns pages and local documents into Markdown, text, links, metadata, JSON-LD, and crawl results. You can run it from the CLI, Python, Docker/API, or as an MCP server.
+
+It is early and intentionally boring: accessible pages first, clean output, local state, honest failures.
 
 ```bash
 pip install agentcrawl-ai
 agentcrawl scrape https://example.com
+```
+
+Example output:
+
+```markdown
+# Example Domain
+
+This domain is for use in documentation examples without needing permission. Avoid use in operations.
+
+[Learn more](https://iana.org/domains/example)
 ```
 
 ## Pick your path 🚀
@@ -62,16 +74,20 @@ docker compose up -d
 curl http://127.0.0.1:8000/health
 ```
 
-## Why AgentCrawl? ✨
+## Why AgentCrawl?
 
-Agents need fresh web context, but raw HTML is noisy and one-off scraper scripts age badly. AgentCrawl gives them a reliable extraction layer with the operational pieces already built in:
+I kept hitting the same annoying problem: agents need web context, but raw HTML is a mess. A page can include the useful article plus nav menus, cookie text, related links, footer links, scripts, and random layout junk.
 
-- 🎯 **Known URL in, clean Markdown out** — main-content extraction, table preservation, fenced code blocks, links, metadata, and provenance.
-- ⚡ **HTTP first** — fast default extraction without a browser runtime.
-- 🧱 **Durable crawls** — SQLite-backed jobs with checkpoints, pagination, cancellation, events, retries, and failure inspection.
-- 🗄️ **Local state** — cache, usage, jobs, events, crawl failures, and extracted documents stay in your environment.
-- 🔐 **Safer API defaults** — bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
-- 🤖 **Agent-native interfaces** — CLI, Python, HTTP API, Docker, and MCP.
+AgentCrawl is my attempt at a small local layer for that. Give it a URL, get something an agent can read, and keep the cache/jobs/failures in your own environment.
+
+What it has right now:
+
+- Known URL in, clean Markdown out: main-content extraction, tables, code blocks, links, metadata, and provenance.
+- HTTP first: fast default extraction without starting a browser.
+- Durable crawls: SQLite jobs with checkpoints, pagination, cancellation, events, retries, and failure inspection.
+- Local state: cache, usage, jobs, events, crawl failures, and extracted documents stay with you.
+- Safer API defaults: bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
+- Agent-facing interfaces: CLI, Python, HTTP API, Docker, and MCP.
 
 ## What Community includes
 
