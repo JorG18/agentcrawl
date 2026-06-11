@@ -48,12 +48,11 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build local image for smoke test
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           load: true
           tags: agentcrawl:smoke
-          cache-from: type=gha
 
       - name: Smoke test Docker image
         run: |
@@ -61,11 +60,9 @@ jobs:
           docker run --rm agentcrawl:smoke agentcrawl doctor
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
