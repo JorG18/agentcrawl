@@ -25,6 +25,11 @@ _HEADING_MARKER_RE = re.compile(r"^#{1,6}\s+")
 _LIST_MARKER_RE = re.compile(r"^[-*+]\s+")
 _BLOCKQUOTE_MARKER_RE = re.compile(r"^>\s*")
 _ORDERED_LIST_MARKER_RE = re.compile(r"^\d+[.)]\s+")
+_BLOCKED_PAGE_PATTERNS = (
+    re.compile(r"client challenge", re.IGNORECASE),
+    re.compile(r"required part of this site (?:couldn[’']t|could not) load", re.IGNORECASE),
+    re.compile(r"disable any ad blockers", re.IGNORECASE),
+)
 
 
 class AgentCrawl:
@@ -46,6 +51,24 @@ class AgentCrawl:
         requested = formats or ["markdown"]
         try:
             html, fetch_metadata = fetch_source(source, self.config)
+            blocked_reason = _blocked_page_reason(html)
+            if blocked_reason:
+                document = ScrapeDocument(
+                    url=source,
+                    markdown="",
+                    text="",
+                    metadata={
+                        **fetch_metadata,
+                        "error_type": "client_challenge",
+                        "blocked_reason": blocked_reason,
+                        "source_url": source,
+                        "final_url": str(fetch_metadata.get("final_url") or source),
+                    },
+                    errors=[f"Blocked or challenge page detected: {blocked_reason}"],
+                )
+                if formats is None:
+                    return document
+                return _format_document(document, requested)
             links, metadata = extract_html_facts(html, source)
             main_content = True if only_main_content is None else only_main_content
             markdown = markdown_from_fetched_content(html, fetch_metadata)
@@ -430,6 +453,14 @@ def _pop_ready_item(
         earliest = ready_at if earliest is None else min(earliest, ready_at)
         queue.append(item)
     return None, earliest
+
+
+def _blocked_page_reason(html: str) -> str:
+    text = _markdown_to_text(html)
+    for pattern in _BLOCKED_PAGE_PATTERNS:
+        if pattern.search(text):
+            return pattern.pattern
+    return ""
 
 
 def _format_document(document: ScrapeDocument, formats: list[str]) -> dict[str, Any]:

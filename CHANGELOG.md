@@ -16,4 +16,5 @@
 - Lightweight default Docker image based on `python:3.12-slim`, published through GHCR as `ghcr.io/jorg18/agentcrawl:latest`.
 - GitHub Actions Docker workflow builds, smoke-tests, and publishes GHCR images for `main`, tags, and commit SHAs.
 - README quickstart refreshed around CLI, Python, MCP, Docker/API, and Community scope.
-- Quality report baseline: 14 checked-in fixtures, minimum score threshold 85, current local average 100.0, richer provenance metadata, JSON-LD/Product schema extraction, Markdown structure metrics, and noisy-layout coverage.
+- Quality report baseline: 19 checked-in fixtures, minimum score threshold 85, current local average 100.0, richer provenance metadata, JSON-LD/Product schema extraction, Markdown structure metrics, and noisy-layout coverage.
+- Phase 2 hardening: protected/challenge pages are classified as honest failures instead of scraped content, and technical reference extraction avoids generated index/TOC candidates when selecting main content.

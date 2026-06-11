@@ -99,12 +99,10 @@ The assertions live in `tests/test_quality_fixtures.py` and verify expected cont
 
 ## Competitive benchmark policy
 
-Comparisons against Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, or Stagehand should wait until:
+Comparisons against Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, or Stagehand should stay separated by product lane.
 
-1. public install paths are stable;
-2. examples/cookbook are complete;
-3. release smoke tests are documented;
-4. live target selection is reproducible;
-5. scoring rules are public and fair.
+Community benchmark targets should be accessible public docs, API references, blogs, RFC/reference pages, non-protected ecommerce/product pages, and pages without active browser/proxy challenges. Community does **not** lose for detecting a protected page honestly and returning a clear unsupported/challenge failure. Community **does** lose if it returns challenge, cookie, nav, or other garbage as if it were page content.
 
-Until then, public docs should describe the quality standard and reproducible local checks, not claim superiority.
+Enhanced-gap targets belong in a separate private lane: PyPI/Cloudflare-style challenges, JS-heavy apps, anti-bot/proxy/geolocation needs, screenshots, schedules, webhooks, and managed browser workflows.
+
+Until repeated runs and fair scoring are ready, public docs should describe the quality standard and reproducible local checks, not claim broad superiority.

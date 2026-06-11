@@ -89,7 +89,13 @@ AgentCrawl Community is the self-hosted trust layer:
 | Basic browser fallback | Optional local browser/Camofox path, not required for the default image. |
 | Lightweight docs | Install, examples, operations, release, quality notes. |
 
-Community is self-hosted. A managed hosted AgentCrawl service is planned later for users who want managed browsers, proxies, schedules, webhooks, datasets, teams, billing, and enterprise controls.
+Community is self-hosted. It is designed for accessible web content, local/private workflows, and honest failure reporting when a page is protected by anti-bot or browser challenges. Community may detect challenge pages and return a clear `client_challenge`/unsupported failure; it does not promise to bypass them. The optional browser path is local bring-your-own rendering, not a managed browser pool. Managed browsers, proxies, schedules, webhooks, retained datasets, teams, billing, and enterprise controls belong to planned enhanced/hosted tiers rather than the Community runtime.
+
+## Community boundary
+
+Community is the open, self-hosted trust layer. It should stay excellent for accessible public HTML, local documents, docs, API references, articles, and reference pages. It should not grow into a free hosted-scraping platform.
+
+Community should report protected pages honestly instead of returning challenge text as content. For protected pages, use a local browser fallback when that is enough; if the target requires managed browser/proxy/challenge infrastructure, treat it as an Enhanced/Hosted use case. Community does not include hosted infrastructure, managed browser pools, proxy networks, geolocation, stealth, schedules, webhooks, retained datasets, teams, billing, or enterprise controls.
 
 ## Extraction quality 🧹
 

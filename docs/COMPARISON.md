@@ -48,15 +48,16 @@ Use Stagehand when the main task is operating a browser through natural-language
 
 ## Current product boundary
 
-AgentCrawl is strongest today as a self-hosted extraction layer for agents and internal tools. It is not positioned as a hosted scraping network, a full browser automation framework, or a general crawler framework.
+AgentCrawl is strongest today as a self-hosted extraction layer for agents and internal tools. It is not positioned as a hosted scraping network, a managed anti-bot platform, a full browser automation framework, or a general crawler framework.
+
+Community should be compared on accessible pages where local/private extraction is the goal: docs, API references, blogs, reference material, local documents, and non-protected product pages. If a page requires managed browser pools, proxies, geolocation, stealth, or challenge solving, that is an Enhanced/Hosted gap rather than a Community promise.
 
 The public roadmap tracks the next product areas:
 
-- PyPI release and final release tag;
-- examples/cookbook expansion;
-- reproducible extraction-quality benchmarks;
-- document ingestion improvements;
-- richer browser workflows;
+- reproducible Community quality checks;
+- protected-page/challenge detection without returning garbage content;
+- lightweight document ingestion improvements;
+- local browser examples where users bring their own runtime;
 - TypeScript usage examples before deciding whether a dedicated SDK is needed.
 
 That boundary is intentional: AgentCrawl focuses first on agent-facing extraction that remains under user control.

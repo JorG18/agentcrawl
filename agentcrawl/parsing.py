@@ -38,7 +38,8 @@ _CONTENT_HINTS = re.compile(
     r"doc-content|page-content)\b",
     re.IGNORECASE,
 )
-_CONTENT_CONTAINER_TAGS = {"article", "main", "section", "div", "td"}
+_INDEX_HINTS = re.compile(r"\b(index|appendix-[a-z]|appendix-[0-9]|toc)\b", re.IGNORECASE)
+_CONTENT_CONTAINER_TAGS = {"article", "main", "section", "div", "td", "body"}
 _MIN_CONTENT_CANDIDATE_CHARS = 120
 
 
@@ -219,9 +220,10 @@ def _content_score(node: _HTMLNode) -> float:
     links = sum(1 for child in descendants if child.tag == "a")
     blocks = sum(1 for child in descendants if child.tag in {"p", "pre", "table", "li"})
     heading_bonus = 500 if any(child.tag == "h1" for child in descendants) else 0
-    semantic_bonus = 350 if node.tag in {"main", "article"} else 0
+    semantic_bonus = 350 if node.tag in {"main", "article", "body"} else 0
     hint_bonus = 250 if _CONTENT_HINTS.search(_node_identity(node)) else 0
     boilerplate_penalty = 700 if _BOILERPLATE_HINTS.search(_node_identity(node)) else 0
+    index_penalty = 10000 if _INDEX_HINTS.search(_node_identity(node)) else 0
     child_boilerplate_penalty = sum(
         120 for child in descendants if _BOILERPLATE_HINTS.search(_node_identity(child))
     )
@@ -233,6 +235,7 @@ def _content_score(node: _HTMLNode) -> float:
         + hint_bonus
         - links * 15
         - boilerplate_penalty
+        - index_penalty
         - child_boilerplate_penalty
     )
 
@@ -242,6 +245,8 @@ def _serialize_node(node: _HTMLNode, *, only_main_content: bool) -> str:
         return ""
     if node.tag != "document":
         if _BOILERPLATE_HINTS.search(_node_identity(node)):
+            return ""
+        if only_main_content and _INDEX_HINTS.search(_node_identity(node)):
             return ""
         if only_main_content and node.tag in _BOILERPLATE_TAGS:
             return ""

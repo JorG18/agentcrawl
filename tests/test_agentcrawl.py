@@ -567,3 +567,23 @@ def test_crawl_page_quantum_yields_and_resumes(monkeypatch) -> None:
 
     assert resumed.metadata["fairness_yielded"] is False
     assert resumed.visited_urls == [root, child]
+
+
+def test_scrape_marks_client_challenge_pages_as_blocked(monkeypatch) -> None:
+    challenge_html = """
+    <html><head><title>Client Challenge</title></head>
+    <body>Client Challenge A required part of this site couldn’t load.</body></html>
+    """
+
+    def fake_fetch_source(source, config):
+        return challenge_html, {"fetcher": "http", "final_url": source}
+
+    monkeypatch.setattr("agentcrawl.crawler.fetch_source", fake_fetch_source)
+
+    doc = AgentCrawl({"fetcher": "http"}).scrape("https://pypi.org/project/example/")
+
+    assert not doc.ok
+    assert doc.markdown == ""
+    assert doc.text == ""
+    assert doc.metadata["error_type"] == "client_challenge"
+    assert "client challenge" in doc.errors[0].lower()

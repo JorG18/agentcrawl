@@ -29,11 +29,15 @@ AgentCrawl Community is a serious self-hosted alpha/release-candidate surface. T
 
 ## Next community priorities
 
-1. Publish the first PyPI release after final token/config verification.
-2. Finish the minimal examples/cookbook set for CLI, Python, HTTP API, Docker, MCP, and browser-rendered pages.
-3. Add release notes and final public release tag.
-4. Add live smoke targets for release checks without turning them into unsupported benchmark claims.
-5. Improve document ingestion beyond PDF only when it remains lightweight for Community.
+1. Keep the Community benchmark lane focused on accessible public docs, API references, blogs, RFC/reference pages, and non-protected ecommerce/product pages.
+2. Keep challenge/protected-page handling honest: detection is Community; bypassing managed challenges belongs to Enhanced/Hosted.
+3. Maintain release smoke targets without turning them into unsupported public comparison claims.
+4. Improve document ingestion beyond PDF only when it remains lightweight for Community.
+5. Add examples only when they reflect verified Community behavior.
+
+## Enhanced / hosted priorities
+
+Enhanced Local and Enhanced Hosted are planned separately for managed browser/proxy/challenge infrastructure, JS-heavy targets, schedules, webhooks, retained datasets, teams, usage/billing, and enterprise controls.
 
 ## Competitive priorities
 
