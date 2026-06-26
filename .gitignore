@@ -5,6 +5,8 @@ __pycache__/
 .ruff_cache/
 *.db
 .env
+.env.bak.*
+*.bak
 .DS_Store
 
 # Build artifacts
