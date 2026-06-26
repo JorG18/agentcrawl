@@ -29,11 +29,25 @@ AgentCrawl Community is a serious self-hosted alpha/release-candidate surface. T
 
 ## Next community priorities
 
-1. Keep the Community benchmark lane focused on accessible public docs, API references, blogs, RFC/reference pages, and non-protected ecommerce/product pages.
-2. Keep challenge/protected-page handling honest: detection is Community; bypassing managed challenges belongs to Enhanced/Hosted.
-3. Maintain release smoke targets without turning them into unsupported public comparison claims.
-4. Improve document ingestion beyond PDF only when it remains lightweight for Community.
-5. Add examples only when they reflect verified Community behavior.
+These are follow-up areas for Community that stay under the self-hosted, governed-extraction boundary. They are not yet shipped; each one will land only when its verification criteria are met.
+
+1. Tighten cookie-consent and similar boilerplate filtering so challenge-like text is not passed through as content.
+2. Allow `browser_fallback=true` to retry once on 200-OK protected pages before reporting `client_challenge`. Managed proxy rotation, residential IPs, and remote challenge-solving remain outside Community.
+3. Harden RFC/technical-reference main-content selection against generated index/TOC candidates when large reference pages are scraped.
+4. Keep the Community benchmark lane focused on accessible public docs, API references, blogs, RFC/reference pages, and non-protected ecommerce/product pages; do not turn it into broad competitor claims.
+5. Maintain release smoke targets without turning them into unsupported public comparison claims.
+6. Improve document ingestion beyond PDF only when it remains lightweight for Community.
+7. Add examples only when they reflect verified Community behavior.
+
+## Public launch readiness
+
+Public marketing and visibility copies (Show HN, Reddit, blog, demo assets) are drafted in private planning docs and will roll out only after:
+
+- the three quality fixes above close the gap in the private severe benchmark for Community-target lanes;
+- the local smoke run from `tests/` is green and the quality report still holds at the 19-fixture baseline;
+- `README.md` and the public docs do not make comparative quality claims unsupported by reproducible evidence.
+
+Until those conditions are met, the README remains a precise technical quickstart, not a competitive landing page. Enhanced/Hosted features (managed browsers/proxies, schedules, webhooks, retained datasets, teams, billing, SSO/RBAC/audit, private networking) remain separate products and stay out of this roadmap.
 
 ## Enhanced / hosted priorities
 

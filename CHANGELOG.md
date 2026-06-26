@@ -1,5 +1,17 @@
 # Changelog
 
+All notable changes to AgentCrawl Community will be documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## 0.1.1 - Unreleased
+
+In progress. No code changes yet for this version; this section will be filled as work lands. Targets:
+
+- Tighten cookie-consent and similar boilerplate filtering so cookie-banner text is not passed through as extracted content.
+- Allow `browser_fallback=true` to retry once on 200-OK protected pages before reporting `client_challenge`. Managed proxy rotation, residential IPs, and remote challenge-solving remain Enhanced/Hosted.
+- Harden RFC/technical-reference main-content selection against generated index/TOC candidates when large reference pages are scraped.
+- Refresh public docs once the three fixes above close the gap in the private severe benchmark for Community-target lanes. Public comparative claims require reproducible evidence first.
+- Verify `pytest`, `ruff`, and the local quality report (`benchmarks/quality_report.py`) stay green for every change.
+
 ## 0.1.0 - Unreleased
 
 - Initial AgentCrawl Community release candidate.
