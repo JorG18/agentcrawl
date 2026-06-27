@@ -21,23 +21,24 @@ AgentCrawl Community is a serious self-hosted alpha/release-candidate surface. T
 - Critical safety and behavior cleanup: text normalization, sitemap index expansion, sitemap discovery from `robots.txt`, IDNA domain normalization, sliding-window API rate limiting, safer URL validation, unsafe redirect blocking, PDF safety limits, and clearer scrape error behavior.
 - Main-content extraction for semantic containers and text-rich fallback blocks.
 - Boilerplate reduction for page chrome, cookie banners, sidebars, related posts, hidden content, and unsafe tags.
+- Cookie-consent node-level filter: drops text-only cookie-consent blocks inside generic containers, while preserving legitimate documentation that mentions cookies as a feature. (0.1.1)
+- Opt-in browser fallback on 200-OK challenge pages: when `browser_fallback=true` and the configured `browser_backend` is `playwright` or `camofox`, Community retries once with the browser backend before reporting `client_challenge`. The retry is the existing local fallback path; it is not a Cloudflare bypass and managed proxy rotation, residential IPs, and remote challenge-solving remain outside Community. (0.1.1)
+- README and INSTALL pointer swapped from `example.com` to `pypi.org/project/agentcrawl-ai/` for the canonical quickstart, and `example.com` is now documented explicitly as the boundary case (Cloudflare client challenge → `client_challenge`).
 - Markdown table preservation and fenced code block preservation with language tags.
 - Local document ingestion for Markdown, text, JSON, XML/RSS/Atom, and PDF-to-Markdown through the optional `docs` extra.
 - `agentcrawl doctor`, `agentcrawl --version`, package build verification, and clean install smoke tests.
 - Lightweight Docker image published through GHCR: `ghcr.io/jorg18/agentcrawl:latest`.
-- Quality extraction hardening: 19 checked-in quality fixtures plus browser-rendered SPA shell/snapshot coverage, score threshold, JSON report, richer provenance, JSON-LD/Product schema extraction, Product rating extraction, hidden-class filtering, Markdown structure checks, and Markdown structure metrics.
+- Quality extraction hardening: 19 checked-in quality fixtures plus browser-rendered SPA shell/snapshot coverage, score threshold, JSON report, richer provenance, JSON-LD/Product schema extraction, Product rating extraction, hidden-class filtering, Markdown structure checks, and Markdown structure metrics. Cookie-consent fixture added in 0.1.1 (20 fixtures total).
 
 ## Next community priorities
 
 These are follow-up areas for Community that stay under the self-hosted, governed-extraction boundary. They are not yet shipped; each one will land only when its verification criteria are met.
 
-1. Tighten cookie-consent and similar boilerplate filtering so challenge-like text is not passed through as content.
-2. Allow `browser_fallback=true` to retry once on 200-OK protected pages before reporting `client_challenge`. Managed proxy rotation, residential IPs, and remote challenge-solving remain outside Community.
-3. Harden RFC/technical-reference main-content selection against generated index/TOC candidates when large reference pages are scraped.
-4. Keep the Community benchmark lane focused on accessible public docs, API references, blogs, RFC/reference pages, and non-protected ecommerce/product pages; do not turn it into broad competitor claims.
-5. Maintain release smoke targets without turning them into unsupported public comparison claims.
-6. Improve document ingestion beyond PDF only when it remains lightweight for Community.
-7. Add examples only when they reflect verified Community behavior.
+1. **Three differentiation pillars** — Token Efficiency (CLI/API/MCP/Python surface exposing `estimated_tokens`), Audit / Airgap (`--audit` flag + `AGENTCRAWL_AIRGAP=true` blocking any non-target request), and Observable packaging (`agentcrawl dashboard`/local read-only HTML over SQLite, `--export failures.csv`, and `--alert-on-failure` for local commands). Each pillar adds a verifiable surface and keeps the self-hosted/private boundary intact.
+2. Keep the Community benchmark lane focused on accessible public docs, API references, blogs, RFC/reference pages, and non-protected ecommerce/product pages; do not turn it into broad competitor claims.
+3. Maintain release smoke targets without turning them into unsupported public comparison claims.
+4. Improve document ingestion beyond PDF only when it remains lightweight for Community.
+5. Add examples only when they reflect verified Community behavior.
 
 ## Public launch readiness
 

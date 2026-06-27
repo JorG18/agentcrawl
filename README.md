@@ -13,8 +13,25 @@ The project is early, intentionally modest, and being worked on steadily: access
 
 ```bash
 pip install agentcrawl-ai
-agentcrawl scrape https://example.com
+agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
 ```
+
+### Edge case: `example.com` returns a Cloudflare client challenge
+
+```bash
+$ agentcrawl scrape https://example.com
+# → ok=False, error_type=client_challenge
+```
+
+`example.com` sits behind Cloudflare and returns a client challenge on
+most networks. AgentCrawl **detects** challenge pages and returns an
+honest `client_challenge` error rather than scraping challenge DOM as
+content. This is the Community product boundary, not a bug. Managed
+browser/proxy/challenge handling belongs to Enhanced/Hosted and
+requires an operator or paid plan.
+
+To verify Community works on your machine, point it at any accessible
+docs page: FastAPI, GitHub, Wikipedia, the RFC editor.
 
 ## Pick your path 🚀
 
@@ -32,14 +49,14 @@ MCP tools cover `scrape_url`, `map_site`, `crawl_site`, job status, cancellation
 
 ```bash
 pip install agentcrawl-ai
-agentcrawl scrape https://example.com
+agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
 ```
 
 ```python
 from agentcrawl import AgentCrawl
 
 crawler = AgentCrawl({"fetcher": "http"})
-document = crawler.scrape("https://example.com")
+document = crawler.scrape("https://pypi.org/project/agentcrawl-ai/")
 
 print(document.markdown)
 print(document.metadata)
