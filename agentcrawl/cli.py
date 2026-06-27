@@ -81,6 +81,12 @@ def main(argv: list[str] | None = None) -> int:
     failures.add_argument("--domain")
     failures.add_argument("--offset", type=int, default=0)
     failures.add_argument("--limit", type=int, default=100)
+    failures.add_argument(
+        "--export",
+        dest="export_csv",
+        metavar="PATH",
+        help="Write the filtered failures to a CSV file (path may be relative).",
+    )
 
     job_failures = sub.add_parser("job-failures")
     job_failures.add_argument("job_id")
@@ -163,8 +169,52 @@ def main(argv: list[str] | None = None) -> int:
         and _scrape_ok(result)
     ):
         _print_token_stats(result.get("metadata", {}))
+    if (
+        args.command == "failures"
+        and getattr(args, "export_csv", None)
+        and isinstance(result, list)
+    ):
+        written = _export_failures_csv(result, args.export_csv)
+        print(
+            json.dumps(
+                {"exported_rows": written, "path": str(Path(args.export_csv).resolve())},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
+
+
+def _export_failures_csv(rows: list[dict[str, Any]], dest: str) -> int:
+    """Write failures rows to a CSV file at dest. Returns count written.
+
+    Columns are derived from the union of keys in the input rows so the
+    CSV does not depend on the failure schema staying static.
+    """
+    import csv
+
+    fieldnames: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in row:
+            if key not in seen:
+                seen.add(key)
+                fieldnames.append(key)
+    written = 0
+    Path(dest).parent.mkdir(parents=True, exist_ok=True)
+    with open(dest, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames or ["failure_id"])
+        writer.writeheader()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            writer.writerow({k: row.get(k, "") for k in fieldnames})
+            written += 1
+    return written
 
 
 def _scrape_ok(result: dict[str, Any]) -> bool:
