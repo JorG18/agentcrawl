@@ -68,6 +68,12 @@ EXPECTED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
         "```http",
         "| Field",
     ),
+    "cookie_consent": (
+        "Authenticating With API Keys",
+        "Generate a key on the dashboard",
+        "JSON. The 200 response",
+        "X-RateLimit-Remaining",
+    ),
 }
 
 EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
@@ -133,6 +139,14 @@ EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
         "1xx Status Code 1",
         "79xx Status Code 79",
         "Footer archive legal",
+    ),
+    "cookie_consent": (
+        "This site uses cookies",
+        "we use cookies",
+        "manage cookies",
+        "consent to cookies",
+        "by continuing you accept",
+        "Footer legal archive",
     ),
 }
 

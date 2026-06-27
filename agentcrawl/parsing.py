@@ -33,6 +33,17 @@ _BOILERPLATE_HINTS = re.compile(
     r"pagination|sidebar|toc|sticky|rail|social-share|share-buttons|related-posts)\b",
     re.IGNORECASE,
 )
+# Text-level cookie/consent notice patterns. Used to drop leaf nodes whose
+# body text is dominated by cookie-consent wording even when the surrounding
+# container has no `cookie`/`consent` class or id.
+_COOKIE_CONSENT_TEXT_RE = re.compile(
+    r"\b(cookies?\s+consent|we\s+use\s+cookies|"
+    r"this\s+(site|website)\s+uses\s+cookies|"
+    r"cookie\s+(policy|settings|preferences|notice)|"
+    r"accept\s+(all\s+)?cookies|manage\s+cookies?|"
+    r"by\s+continuing\s+you\s+accept|consent\s+to\s+cookies)\b",
+    re.IGNORECASE,
+)
 _CONTENT_HINTS = re.compile(
     r"\b(article|body|content|entry|main|post|story|documentation|docs|readme|"
     r"doc-content|page-content)\b",
@@ -250,6 +261,8 @@ def _serialize_node(node: _HTMLNode, *, only_main_content: bool) -> str:
             return ""
         if only_main_content and node.tag in _BOILERPLATE_TAGS:
             return ""
+        if _is_cookie_consent_text(node):
+            return ""
 
     children = "".join(
         html_module.escape(child, quote=False)
@@ -286,6 +299,27 @@ def _node_text(node: _HTMLNode) -> str:
         elif child.tag not in _ALWAYS_REMOVE_TAGS:
             parts.append(_node_text(child))
     return " ".join(" ".join(parts).split())
+
+
+def _is_cookie_consent_text(node: _HTMLNode) -> bool:
+    """Return True for non-empty, leaf-ish nodes whose text reads as a
+    cookie / consent notice. Containers with substantial non-cookie
+    children are left alone so legitimate content that merely mentions
+    cookies is preserved."""
+    if node.tag not in {"p", "div", "section", "aside", "small", "span", "li"}:
+        return False
+    text = _node_text(node)
+    if not text:
+        return False
+    if len(text) > 600:  # long blocks are content, not boilerplate
+        return False
+    if not _COOKIE_CONSENT_TEXT_RE.search(text):
+        return False
+    # Require at least one cookie/consent phrase to be near the start so we
+    # don't drop paragraphs that contain the word "cookie" in unrelated
+    # technical content (e.g. docs about cookies-as-a-feature).
+    head = text[:160]
+    return bool(_COOKIE_CONSENT_TEXT_RE.search(head))
 
 
 def _node_identity(node: _HTMLNode) -> str:

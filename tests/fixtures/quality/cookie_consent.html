@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+  <title>Cookie fence: generic-container banner</title>
+  <meta name="description" content="Cookie consent inside generic p/section containers must not bleed into agent-visible text.">
+</head>
+<body>
+  <header>Site Header Navigation</header>
+  <main>
+    <article>
+      <h1>Authenticating With API Keys</h1>
+      <p>Section 1. Generate a key on the dashboard. Store it in environment variables; never commit it to source control.</p>
+      <p>Section 2. Documents from the public API are returned as JSON. The 200 response indicates success; 401 indicates a missing key.</p>
+      <p>Section 3. Rate limits are applied per token. Check the response headers for X-RateLimit-Remaining before issuing the next call.</p>
+    </article>
+  </main>
+  <section>
+    <p>This site uses cookies to ensure you get the best experience.</p>
+  </section>
+  <div>
+    <p>We use cookies for analytics and personalization. By continuing you accept the cookie policy and consent to cookies across this website.</p>
+  </div>
+  <p>Manage cookies in your browser settings at any time.</p>
+  <footer>Footer legal archive</footer>
+</body>
+</html>
