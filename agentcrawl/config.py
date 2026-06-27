@@ -37,6 +37,9 @@ class CrawlConfig:
     browser_block_resources: tuple[str, ...] = field(default_factory=tuple)
     browser_init_script: str | None = None
     allow_private_network: bool = False
+    airgap: bool = False
+    allowlist_domains: tuple[str, ...] = field(default_factory=tuple)
+    audit: bool = False
     output_format: str = "json"
     chunk_size: int = 8_000
     max_chunks: int = 8
@@ -83,4 +86,9 @@ class CrawlConfig:
         unknown = sorted(set(config) - allowed)
         if unknown:
             raise ValueError(f"Unknown config keys: {', '.join(unknown)}")
-        return cls(**config)
+        normalized = dict(config)
+        # Tuple normalization for fields that use tuples by convention.
+        for tuple_field in ("allowlist_domains", "browser_fallback_statuses"):
+            if tuple_field in normalized and not isinstance(normalized[tuple_field], tuple):
+                normalized[tuple_field] = tuple(normalized[tuple_field])
+        return cls(**normalized)
