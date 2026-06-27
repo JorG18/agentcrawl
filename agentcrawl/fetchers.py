@@ -29,10 +29,32 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _safe_urlopen(request, *, timeout: float, allow_private_network: bool):
-    opener = urllib.request.build_opener(
+def _safe_urlopen(
+    request,
+    *,
+    timeout: float,
+    allow_private_network: bool,
+    airgap: bool = False,
+    allowlist_domains: tuple = (),
+    audit_trail: Any | None = None,
+    target_host: str | None = None,
+):
+    handlers: list[urllib.request.BaseHandler] = [
         _SafeRedirectHandler(allow_private_network=allow_private_network)
-    )
+    ]
+    if airgap or audit_trail is not None:
+        from .airgap import _AirgapHandler, AuditTrail
+
+        audit_for_handler = audit_trail if audit_trail is not None else AuditTrail()
+        handlers.append(
+            _AirgapHandler(
+                target=request.full_url,
+                allowlist=allowlist_domains,
+                audit=audit_for_handler,
+                target_host=target_host,
+            )
+        )
+    opener = urllib.request.build_opener(*handlers)
     return opener.open(request, timeout=timeout)
 
 
@@ -94,6 +116,10 @@ def _fetch_local_file(source: str) -> tuple[str, dict[str, Any]]:
 def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     headers = {"user-agent": config.user_agent or "AgentCrawl/0.1"}
     request = urllib.request.Request(url, headers=headers)
+    from urllib.parse import urlparse
+
+    target_host = urlparse(url).hostname or ""
+    audit_trail = None  # populated when config.audit is True at the call site
     last_exc: Exception | None = None
     for attempt in range(max(1, config.http_retries + 1)):
         try:
@@ -101,6 +127,10 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                 request,
                 timeout=config.timeout_ms / 1000,
                 allow_private_network=config.allow_private_network,
+                airgap=config.airgap,
+                allowlist_domains=config.allowlist_domains,
+                audit_trail=audit_trail,
+                target_host=target_host,
             ) as response:
                 final_url = response.geturl()
                 validate_remote_url(
