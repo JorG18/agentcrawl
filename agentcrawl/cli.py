@@ -1,11 +1,11 @@
 from __future__ import annotations
-
 import argparse
 import importlib.util
 import json
 import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 import time
 import urllib.error
@@ -42,6 +42,11 @@ def main(argv: list[str] | None = None) -> int:
     scrape.add_argument("--no-cache", action="store_true")
     scrape.add_argument("--cache-ttl", type=int, default=None)
     scrape.add_argument("--full-page", action="store_true")
+    scrape.add_argument(
+        "--token-stats",
+        action="store_true",
+        help="Print a Token Efficiency Report after a successful scrape (community feature).",
+    )
 
     map_cmd = sub.add_parser("map")
     map_cmd.add_argument("url")
@@ -151,8 +156,48 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     result = _run_remote(args) if args.remote else _run_local(args)
+    if (
+        args.command == "scrape"
+        and getattr(args, "token_stats", False)
+        and isinstance(result, dict)
+        and _scrape_ok(result)
+    ):
+        _print_token_stats(result.get("metadata", {}))
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
+
+
+def _scrape_ok(result: dict[str, Any]) -> bool:
+    """to_jsonable does not include ScrapeDocument.ok (it's a property)."""
+    if "ok" in result:
+        return bool(result.get("ok"))
+    return not result.get("errors")
+
+
+def _print_token_stats(metadata: dict[str, Any]) -> None:
+    text_tokens = metadata.get("estimated_tokens")
+    raw_tokens = metadata.get("raw_html_tokens_estimate")
+    raw_bytes = metadata.get("raw_html_bytes")
+    text_chars = metadata.get("text_chars")
+    markdown_chars = metadata.get("markdown_chars")
+    if text_tokens is None or raw_tokens is None:
+        print(
+            "Token Efficiency Report: insufficient metadata on this document.",
+            file=sys.stderr,
+        )
+        return
+    savings_pct = max(0.0, 100.0 * (1.0 - text_tokens / max(1, raw_tokens)))
+    print("Token Efficiency Report", file=sys.stderr)
+    print("─" * 30, file=sys.stderr)
+    print(f"  Raw HTML tokens          : {raw_tokens:>10,}", file=sys.stderr)
+    print(f"  Extracted text tokens    : {text_tokens:>10,}", file=sys.stderr)
+    print(f"  Estimated savings        : {savings_pct:>9.1f}%", file=sys.stderr)
+    if raw_bytes is not None:
+        print(f"  Raw HTML bytes           : {raw_bytes:>10,}", file=sys.stderr)
+    if markdown_chars is not None:
+        print(f"  Markdown chars           : {markdown_chars:>10,}", file=sys.stderr)
+    if text_chars is not None:
+        print(f"  Text chars               : {text_chars:>10,}", file=sys.stderr)
 
 
 def _doctor() -> dict[str, Any]:

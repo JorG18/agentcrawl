@@ -142,6 +142,9 @@ class AgentCrawl:
                     "markdown_chars": len(markdown),
                     "text_chars": len(text),
                     "link_count": len(links),
+                    "estimated_tokens": _estimate_tokens(text),
+                    "raw_html_bytes": len(html.encode("utf-8", errors="replace")),
+                    "raw_html_tokens_estimate": _estimate_tokens(html),
                 },
             )
             if formats is None:
@@ -607,3 +610,20 @@ def _load_robots(root_url: str, config: CrawlConfig) -> urllib.robotparser.Robot
     parser.set_url(robots_url)
     parser.parse(content.splitlines())
     return parser
+
+
+# ---------------------------------------------------------------------------
+# Token estimation
+# ---------------------------------------------------------------------------
+# Cheap, deterministic token estimate. The rule of thumb ~4 chars per token
+# is OpenAI's documented approximation for English-like text and is good
+# enough for an extraction-time signal that consumers can compare against
+# raw_html_tokens_estimate to see how much noise the extraction removed.
+# We deliberately avoid tiktoken at scrape time: keeping Community
+# dependency-light is more important than 5% accuracy on this metric.
+
+
+def _estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
