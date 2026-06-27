@@ -25,6 +25,18 @@ _HEADING_MARKER_RE = re.compile(r"^#{1,6}\s+")
 _LIST_MARKER_RE = re.compile(r"^[-*+]\s+")
 _BLOCKQUOTE_MARKER_RE = re.compile(r"^>\s*")
 _ORDERED_LIST_MARKER_RE = re.compile(r"^\d+[.)]\s+")
+# Lines dominated by cookie/consent notice wording should be dropped from the
+# plain-text view. Node-identity filters in parsing.py already remove
+# explicitly badged nodes, but banners inside generic <section>/<p>/<div>
+# pass through. Apply at the line level so the result never leaks
+# boilerplate text into agent-visible output.
+_COOKIE_CONSENT_LINE_RE = re.compile(
+    r"(?i)^.*\b(cookies?\s+consent|we\s+use\s+cookies|"
+    r"this\s+(site|website)\s+uses\s+cookies|"
+    r"cookie\s+(policy|settings|preferences|notice)|"
+    r"accept\s+(all\s+)?cookies|manage\s+cookies?|"
+    r"by\s+continuing\s+you\s+accept|consent\s+to\s+cookies)\b.*$"
+)
 _BLOCKED_PAGE_PATTERNS = (
     re.compile(r"client challenge", re.IGNORECASE),
     re.compile(r"required part of this site (?:couldn[’']t|could not) load", re.IGNORECASE),
@@ -49,10 +61,35 @@ class AgentCrawl:
         only_main_content: bool | None = None,
     ) -> ScrapeDocument | dict[str, Any]:
         requested = formats or ["markdown"]
+        from .browser_retry import attempt_browser_retry  # local import keeps scrape() cheap
+
         try:
             html, fetch_metadata = fetch_source(source, self.config)
             blocked_reason = _blocked_page_reason(html)
             if blocked_reason:
+                # If the user opted into the local browser fallback, try once
+                # with a browser fetcher before giving up. The retry only
+                # happens when the user explicitly enabled `browser_fallback`
+                # AND the original fetcher was non-browser; it does not turn
+                # Community into a Cloudflare bypass.
+                retry = None
+                if (
+                    self.config.browser_fallback
+                    and (self.config.fetcher or "http") == "http"
+                    and self.config.browser_backend in {"playwright", "camofox"}
+                ):
+                    retry = attempt_browser_retry(
+                        source,
+                        original_metadata=fetch_metadata,
+                        blocked_reason=blocked_reason,
+                        original_config=self.config,
+                        only_main_content=only_main_content,
+                        requested=requested,
+                    )
+                if retry is not None:
+                    if formats is None:
+                        return retry
+                    return _format_document(retry, requested)
                 document = ScrapeDocument(
                     url=source,
                     markdown="",
@@ -489,8 +526,11 @@ def _markdown_to_text(markdown: str) -> str:
         cleaned = _LIST_MARKER_RE.sub("", cleaned)
         cleaned = _BLOCKQUOTE_MARKER_RE.sub("", cleaned)
         cleaned = _ORDERED_LIST_MARKER_RE.sub("", cleaned)
-        if cleaned:
-            lines.append(cleaned)
+        if not cleaned:
+            continue
+        if _COOKIE_CONSENT_LINE_RE.match(cleaned):
+            continue
+        lines.append(cleaned)
     return "\n".join(lines)
 
 
