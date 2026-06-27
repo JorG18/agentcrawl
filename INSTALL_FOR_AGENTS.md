@@ -49,11 +49,32 @@ whether an API key is configured and never prints secret values.
 
 ## 2. Verify Direct Scraping
 
+Use a target that returns real content locally:
+
 ```bash
-agentcrawl scrape https://example.com
+agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
+agentcrawl doctor
 ```
 
-Success requires non-empty content containing `Example Domain`. Fix installation or network errors before configuring MCP.
+`agentcrawl doctor` is the most robust verification step: it reports
+installed extras, command/path health, local-scrape readiness, and
+optional remote API status without ever printing secret values.
+
+### Edge case: `https://example.com` is intentionally a challenge page
+
+```bash
+agentcrawl scrape https://example.com   # → ok=False, error_type=client_challenge
+```
+
+`example.com` is behind Cloudflare and returns a client challenge on
+many networks. AgentCrawl **detects** challenge pages and returns an
+honest `client_challenge` error rather than scraping challenge DOM as
+content. This is the **Community product boundary** — managed browser
+pools, proxy rotation, and challenge solving live in Enhanced/Hosted,
+and require a server-side paywall or operator approval.
+
+To confirm scrape actually works, point it at any accessible docs page:
+FastAPI, GitHub, Wikipedia, the RFC editor, etc.
 
 ## 3. Register The MCP Server
 

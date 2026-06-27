@@ -4,13 +4,38 @@ All notable changes to AgentCrawl Community will be documented here. The format 
 
 ## 0.1.1 - Unreleased
 
-In progress. No code changes yet for this version; this section will be filled as work lands. Targets:
+In progress.
 
-- Tighten cookie-consent and similar boilerplate filtering so cookie-banner text is not passed through as extracted content.
-- Allow `browser_fallback=true` to retry once on 200-OK protected pages before reporting `client_challenge`. Managed proxy rotation, residential IPs, and remote challenge-solving remain Enhanced/Hosted.
-- Harden RFC/technical-reference main-content selection against generated index/TOC candidates when large reference pages are scraped.
-- Refresh public docs once the three fixes above close the gap in the private severe benchmark for Community-target lanes. Public comparative claims require reproducible evidence first.
-- Verify `pytest`, `ruff`, and the local quality report (`benchmarks/quality_report.py`) stay green for every change.
+### Fixed
+
+- Cookie-consent text inside generic containers (`<p>`, `<div>`,
+  `<section>`, `<aside>`, `<span>`, `<small>`, `<li>` without a
+  `cookie`/`consent` class) is now dropped at the node level before
+  Markdown conversion. Legitimate documentation that discusses cookies
+  as a feature (e.g. FastAPI's "Cookie Sessions") is preserved.
+  Added fixture `tests/fixtures/quality/cookie_consent.html` and
+  regression tests in `tests/test_parsing.py`.
+- When `browser_fallback=true` and the configured `browser_backend`
+  is `playwright` or `camofox`, `scrape()` now retries once with the
+  browser backend on a fresh 200-OK challenge page before reporting
+  `client_challenge`. The retry is opt-in (gated on the user flag)
+  and falls back silently to the original error if the browser itself
+  is challenged or raises. The retry path is the existing local
+  fallback and does NOT make Community a Cloudflare bypass; managed
+  proxy rotation, residential IPs, and stealth challenge-solving
+  remain in Enhanced/Hosted.
+  Added `agentcrawl/browser_retry.py` and regression tests in
+  `tests/test_browser_retry.py` covering 6 paths (no retry when
+  source is non-remote, opt-out preserved, retry success, browser
+  also challenged, browser raises, fetcher already a browser).
+
+### Documentation
+
+- `INSTALL_FOR_AGENTS.md`: replaced the `example.com` smoke test with
+  `pypi.org/project/agentcrawl-ai` plus `agentcrawl doctor`, and
+  documented `example.com` explicitly as the canonical Community
+  boundary case (Cloudflare client challenge, `ok=False`,
+  `error_type=client_challenge`).
 
 ## 0.1.0 - Unreleased
 
