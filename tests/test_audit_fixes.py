@@ -7,8 +7,6 @@ Each test names the audit ID in the docstring for traceability.
 
 from __future__ import annotations
 
-import queue
-import sqlite3
 import threading
 import time
 import urllib.error
@@ -17,15 +15,14 @@ from collections import deque
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
-from agentcrawl import AgentCrawl, ScrapeDocument
+from agentcrawl import AgentCrawl
 from agentcrawl.crawler import _blocked_page_reason, _html_to_plain_text, _pop_ready_item
 from agentcrawl.config import CrawlConfig
 from agentcrawl.exceptions import FetchError
 import agentcrawl.fetchers as fetchers_module
-from agentcrawl.fetchers import _fetch_http, fetch_source
-from agentcrawl.server import app, server
+from agentcrawl.fetchers import _fetch_http
+from agentcrawl.server import server
 from agentcrawl.storage import SQLiteStore
 
 
