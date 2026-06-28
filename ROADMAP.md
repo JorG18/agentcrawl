@@ -32,6 +32,8 @@ AgentCrawl Community is a serious self-hosted alpha/release-candidate surface. T
 - Observable dashboard: `agentcrawl dashboard` renders static HTML from SQLite, and the API server exposes the same read-only operational view at `/dashboard` plus JSON at `/api/dashboard/summary`.
 - Local failure alert hook: `agentcrawl crawl ... --alert-on-failure --cmd "..."` runs an explicit local command with failure JSON on stdin.
 - README PyPI version badge pointing to the published `agentcrawl-ai` package.
+- 2026-06-28 technical audit fixes (SQLite-backed scheduling lease cross-process, audit_trail attached on terminal fetch failure with surfacing in `ScrapeDocument.metadata["audit_trail"]`, `_html_to_plain_text` for `_blocked_page_reason`, `CrawlConfig.__post_init__` emits `UserWarning` when `llm` is a dict) plus four optimizations (3-pattern domain LIKE in `list_crawl_failures`, `_pop_ready_item` returns min ready_at when nothing ready, per-process migration cache bypassed for `:memory:` paths, `_export_failures_csv` skips mkdir + early returns 0 on empty rows). Shipped in **v0.1.3**.
+- v0.1.3 verification: `pytest` 177 passed (was 141 pre-iteration), `ruff check` OK, `ruff format --check` OK. See `Proyectos/agentcrawl-private-docs/archive/2026-06-28/CODE_AUDIT_2026-06-28.md` for the audit + fixes-applied section.
 
 ## Next community priorities
 
