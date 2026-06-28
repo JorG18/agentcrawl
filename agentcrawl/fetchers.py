@@ -119,9 +119,22 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     from urllib.parse import urlparse
 
     target_host = urlparse(url).hostname or ""
-    audit_trail = None  # populated when config.audit is True at the call site
+
+    # Build the audit trail ONCE (may be passed into the opener per call).
+    # When the user opts into audit=True, every entry the airgap/AirgapHandler
+    # records bleeds back into the trail's .records list; we then expose it
+    # via fetch_metadata so AgentCrawl.scrape() can attach it to the document.
+    from .airgap import AuditTrail
+
+    audit_trail: AuditTrail | None = AuditTrail() if config.audit else None
+
     last_exc: Exception | None = None
     for attempt in range(max(1, config.http_retries + 1)):
+        # Fresh per-attempt view so a partial failure doesn't poison the
+        # next retry's audit log; only kept at the top if it actually exists.
+        per_attempt_trail: AuditTrail | None = (
+            AuditTrail() if audit_trail is not None else None
+        )
         try:
             with _safe_urlopen(
                 request,
@@ -129,7 +142,7 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                 allow_private_network=config.allow_private_network,
                 airgap=config.airgap,
                 allowlist_domains=config.allowlist_domains,
-                audit_trail=audit_trail,
+                audit_trail=per_attempt_trail,
                 target_host=target_host,
             ) as response:
                 final_url = response.geturl()
@@ -137,12 +150,37 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     final_url,
                     allow_private_network=config.allow_private_network,
                 )
-                return response.read().decode("utf-8", errors="replace"), {
+                html_bytes = response.read()
+                try:
+                    len_bytes = len(html_bytes)
+                except Exception:  # pragma: no cover - extremely defensive
+                    len_bytes = 0
+                fetch_metadata: dict[str, Any] = {
                     "fetcher": "http",
                     "final_url": final_url,
                 }
+                if per_attempt_trail is not None:
+                    per_attempt_trail.record(
+                        "GET",
+                        url,
+                        final_url=final_url,
+                        status=getattr(response, "status", None) or 200,
+                        bytes_count=len_bytes,
+                        target_host=target_host,
+                    )
+                    fetch_metadata.update(per_attempt_trail.to_metadata())
+                return html_bytes.decode("utf-8", errors="replace"), fetch_metadata
         except urllib.error.HTTPError as exc:
             last_exc = exc
+            if per_attempt_trail is not None:
+                per_attempt_trail.record(
+                    "GET",
+                    url,
+                    final_url=url,
+                    status=exc.code,
+                    bytes_count=0,
+                    target_host=target_host,
+                )
             if exc.code not in {429, 500, 502, 503, 504} or attempt >= config.http_retries:
                 break
             retry_after = exc.headers.get("Retry-After")
