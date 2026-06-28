@@ -21,7 +21,7 @@ crawler = AgentCrawl({
     "block_resources": ["image", "font", "media"],
 })
 
-document = crawler.scrape("https://example.com")
+document = crawler.scrape("https://pypi.org/project/agentcrawl-ai/")
 assert isinstance(document, ScrapeDocument)
 print(document.markdown)
 ```

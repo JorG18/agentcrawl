@@ -9,7 +9,7 @@ python -m compileall -q agentcrawl benchmarks
 python -m pytest -q
 ruff check agentcrawl tests benchmarks examples
 ruff format --check agentcrawl tests benchmarks examples
-python benchmarks/quality_report.py
+python -m benchmarks.quality_report
 ```
 
 Required result: tests pass, lint/format pass, and quality fixtures pass above the configured threshold.
@@ -38,7 +38,7 @@ python -m venv /tmp/agentcrawl-smoke
 /tmp/agentcrawl-smoke/bin/python -m pip install dist/agentcrawl_ai-<version>-py3-none-any.whl
 /tmp/agentcrawl-smoke/bin/agentcrawl --version
 /tmp/agentcrawl-smoke/bin/agentcrawl doctor
-/tmp/agentcrawl-smoke/bin/agentcrawl scrape https://example.com
+/tmp/agentcrawl-smoke/bin/agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
 ```
 
 Also smoke optional extras when they changed:

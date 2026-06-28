@@ -11,15 +11,17 @@ pip install agentcrawl-ai
 ## Scrape one URL
 
 ```bash
-agentcrawl scrape https://example.com
+agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
 ```
 
-Expected result: Markdown/text containing `Example Domain`.
+Expected result: Markdown/text from the AgentCrawl PyPI project page.
+
+`https://example.com` is documented separately as a Community boundary case because it commonly returns a Cloudflare client challenge.
 
 ## Include specific formats
 
 ```bash
-agentcrawl scrape https://example.com --format markdown --format links --format metadata
+agentcrawl scrape https://pypi.org/project/agentcrawl-ai/ --format markdown --format links --format metadata
 ```
 
 ## Local files

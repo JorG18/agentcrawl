@@ -19,7 +19,7 @@ AgentCrawl works as a local Python library, CLI tool, HTTP API, Docker service, 
 
 ```bash
 python -m pip install "agentcrawl-ai[browser]"
-agentcrawl scrape https://example.com
+agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
 ```
 
 For deterministic local testing from a repository checkout:
@@ -34,7 +34,7 @@ AGENTCRAWL_ALLOW_LOCAL_FILES=true agentcrawl scrape tests/fixtures/quality/docum
 from agentcrawl import AgentCrawl, ScrapeDocument
 
 crawler = AgentCrawl({"fetcher": "http"})
-document = crawler.scrape("https://example.com")
+document = crawler.scrape("https://pypi.org/project/agentcrawl-ai/")
 assert isinstance(document, ScrapeDocument)
 print(document.markdown)
 ```
@@ -51,7 +51,7 @@ agentcrawl serve --host 127.0.0.1 --port 8000
 curl http://127.0.0.1:8000/v1/scrape \
   -H "authorization: Bearer exampl...key" \
   -H "content-type: application/json" \
-  -d '{"url":"https://example.com","formats":["markdown","links","metadata"]}'
+  -d '{"url":"https://pypi.org/project/agentcrawl-ai/","formats":["markdown","links","metadata"]}'
 ```
 
 ### Docker
@@ -88,7 +88,7 @@ Generic MCP configuration:
 Use the remote API for crawls designed to survive retries and remain inspectable later.
 
 ```bash
-agentcrawl --remote crawl https://example.com --max-pages 25 --max-depth 2
+agentcrawl --remote crawl https://pypi.org/project/agentcrawl-ai/ --max-pages 25 --max-depth 2
 agentcrawl --remote job JOB_ID --offset 0 --limit 100
 ```
 
@@ -99,7 +99,7 @@ curl http://127.0.0.1:8000/v1/crawl \
   -H "authorization: Bearer exampl...key" \
   -H "content-type: application/json" \
   -H "Idempotency-Key: docs-crawl-2026-06-06" \
-  -d '{"url":"https://example.com","max_pages":25,"max_depth":2}'
+  -d '{"url":"https://pypi.org/project/agentcrawl-ai/","max_pages":25,"max_depth":2}'
 ```
 
 ## Local documents
@@ -127,5 +127,5 @@ AgentCrawl's Community extractor protects the output shape agents care about mos
 Run the fixture report:
 
 ```bash
-python benchmarks/quality_report.py
+python -m benchmarks.quality_report
 ```

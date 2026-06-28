@@ -6,16 +6,16 @@ AgentCrawl treats extraction quality as a product surface: output should be read
 
 ## Current Community baseline
 
-The checked-in quality suite currently covers 19 fixtures and is used as a regression gate before release work. The report is local and reproducible; it is not a public claim that AgentCrawl beats another product.
+The checked-in quality suite currently covers 20 fixtures and is used as a regression gate before release work. The report is local and reproducible; it is not a public claim that AgentCrawl beats another product.
 
 ```bash
-python benchmarks/quality_report.py
+python -m benchmarks.quality_report
 ```
 
 Expected release-candidate shape:
 
 ```text
-fixture_count: 19
+fixture_count: 20
 minimum_score: 85
 failed: 0
 ```

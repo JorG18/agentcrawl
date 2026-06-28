@@ -22,9 +22,9 @@ curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/v1/scrape \
   -H "authorization: Bearer example-development-key" \
   -H "content-type: application/json" \
-  -d '{"url":"https://example.com","formats":["markdown","links","metadata"]}'
+  -d '{"url":"https://pypi.org/project/agentcrawl-ai/","formats":["markdown","links","metadata"]}'
 ```
 
-Expected result: JSON containing Markdown with `Example Domain`.
+Expected result: JSON containing Markdown from the AgentCrawl PyPI project page.
 
 Do not expose the API publicly without TLS, authentication, request limits, and network controls.

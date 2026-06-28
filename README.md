@@ -140,7 +140,7 @@ The Community engine focuses on stable, agent-ready Markdown before benchmark cl
 Run the report locally:
 
 ```bash
-python benchmarks/quality_report.py
+python -m benchmarks.quality_report
 ```
 
 ## HTTP API 🌐
@@ -329,6 +329,7 @@ Do not expose the API without authentication, TLS, request limits, and network c
 ## Docs you'll actually use 📚
 
 - [Install for agents](INSTALL_FOR_AGENTS.md): canonical setup flow for coding agents.
+- [Docs index](docs/README.md): map of the public documentation set.
 - [Examples](docs/EXAMPLES.md): copy-paste workflows for CLI, Python, HTTP, MCP, Docker, and agents.
 - [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): how extraction quality is measured and reported.
 - [Operations](docs/OPERATIONS.md): deployment, backup, restore, and production checks.
