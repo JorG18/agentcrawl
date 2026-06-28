@@ -30,12 +30,13 @@ AgentCrawl Community is a serious self-hosted alpha/release-candidate surface. T
 - Lightweight Docker image published through GHCR: `ghcr.io/jorg18/agentcrawl:latest`.
 - Quality extraction hardening: 19 checked-in quality fixtures plus browser-rendered SPA shell/snapshot coverage, score threshold, JSON report, richer provenance, JSON-LD/Product schema extraction, Product rating extraction, hidden-class filtering, Markdown structure checks, and Markdown structure metrics. Cookie-consent fixture added in 0.1.1 (20 fixtures total).
 - Observable dashboard: `agentcrawl dashboard` renders static HTML from SQLite, and the API server exposes the same read-only operational view at `/dashboard` plus JSON at `/api/dashboard/summary`.
+- Local failure alert hook: `agentcrawl crawl ... --alert-on-failure --cmd "..."` runs an explicit local command with failure JSON on stdin.
 
 ## Next community priorities
 
 These are follow-up areas for Community that stay under the self-hosted, governed-extraction boundary. They are not yet shipped; each one will land only when its verification criteria are met.
 
-1. **Observable packaging follow-up** — `--alert-on-failure` for local commands. The dashboard and `--export failures.csv` surfaces are implemented; the remaining hook should stay local, explicit, and dependency-free.
+1. **README badge PyPI**: cosmetic `[![PyPI version](...)]`.
 2. Keep the Community benchmark lane focused on accessible public docs, API references, blogs, RFC/reference pages, and non-protected ecommerce/product pages; do not turn it into broad competitor claims.
 3. Maintain release smoke targets without turning them into unsupported public comparison claims.
 4. Improve document ingestion beyond PDF only when it remains lightweight for Community.

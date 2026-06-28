@@ -7,6 +7,7 @@ All notable changes to AgentCrawl Community will be documented here. The format 
 ### Added
 
 - **Observable dashboard** — `agentcrawl dashboard --db agentcrawl.db --output dashboard.html` renders a dependency-free static HTML dashboard from the local SQLite database. The FastAPI server also exposes the same read-only view at `GET /dashboard` and JSON summary at `GET /api/dashboard/summary`.
+- **Failure alert hook** — `agentcrawl crawl ... --alert-on-failure --cmd "..."` runs a local shell command only when the completed crawl reports terminal failures. The command receives JSON on stdin with `source`, `failure_count`, and the failure rows.
 
 ## 0.1.2 - 2026-06-28
 

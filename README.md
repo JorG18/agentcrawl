@@ -226,6 +226,16 @@ Read completed documents page by page:
 agentcrawl --remote job JOB_ID --offset 0 --limit 100
 ```
 
+Run a local command when a crawl finishes with terminal failures:
+
+```bash
+agentcrawl crawl https://example.com \
+  --alert-on-failure \
+  --cmd 'python notify.py'
+```
+
+The command receives JSON on stdin with `source`, `failure_count`, and `failures`.
+
 Inspect or cancel a job:
 
 ```bash

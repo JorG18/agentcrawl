@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
@@ -60,6 +61,15 @@ def main(argv: list[str] | None = None) -> int:
     crawl.add_argument("--max-depth", type=int, default=None)
     crawl.add_argument("--wait", action="store_true")
     crawl.add_argument("--idempotency-key")
+    crawl.add_argument(
+        "--alert-on-failure",
+        action="store_true",
+        help="Run --cmd after crawl completion when terminal failures exist.",
+    )
+    crawl.add_argument(
+        "--cmd",
+        help="Shell command that receives failure JSON on stdin when --alert-on-failure is set.",
+    )
 
     job = sub.add_parser("job")
     job.add_argument("job_id")
@@ -138,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    if args.command == "crawl" and args.alert_on_failure and not args.cmd:
+        parser.error("crawl --alert-on-failure requires --cmd")
+
     if args.command == "doctor":
         print(json.dumps(_doctor(), ensure_ascii=False, indent=2))
         return 0
@@ -184,6 +197,13 @@ def main(argv: list[str] | None = None) -> int:
 
     result = _run_remote(args) if args.remote else _run_local(args)
     if (
+        args.command == "crawl"
+        and getattr(args, "alert_on_failure", False)
+        and getattr(args, "cmd", None)
+        and isinstance(result, dict)
+    ):
+        _run_failure_alert(result, args.cmd)
+    if (
         args.command == "scrape"
         and getattr(args, "token_stats", False)
         and isinstance(result, dict)
@@ -206,6 +226,32 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
+
+
+def _run_failure_alert(result: dict[str, Any], cmd: str) -> bool:
+    """Run cmd with terminal crawl failures as JSON on stdin.
+
+    Returns True when the command was executed, False when the crawl had no
+    terminal failures to report.
+    """
+    crawl_result = result.get("data") if isinstance(result.get("data"), dict) else result
+    metadata = crawl_result.get("metadata", {}) if isinstance(crawl_result, dict) else {}
+    failures = metadata.get("terminal_failures") or []
+    if not failures:
+        return False
+    payload = {
+        "source": crawl_result.get("source") if isinstance(crawl_result, dict) else None,
+        "failure_count": len(failures),
+        "failures": failures,
+    }
+    subprocess.run(
+        cmd,
+        input=json.dumps(payload, ensure_ascii=False),
+        text=True,
+        shell=True,
+        check=False,
+    )
+    return True
 
 
 def _export_failures_csv(rows: list[dict[str, Any]], dest: str) -> int:
