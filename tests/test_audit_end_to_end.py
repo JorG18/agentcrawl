@@ -22,6 +22,7 @@ def test_fetch_http_record_audit_when_audit_true(monkeypatch) -> None:
         return addinfourl(io.BytesIO(body), {"Content-Type": "text/html"}, request.full_url, 200)
 
     import agentcrawl.fetchers as f
+
     monkeypatch.setattr(f, "_safe_urlopen", fake_safe_urlopen)
 
     body_text, meta = f._fetch_http("https://example.com/article", cfg)

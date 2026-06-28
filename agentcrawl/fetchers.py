@@ -132,9 +132,7 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     for attempt in range(max(1, config.http_retries + 1)):
         # Fresh per-attempt view so a partial failure doesn't poison the
         # next retry's audit log; only kept at the top if it actually exists.
-        per_attempt_trail: AuditTrail | None = (
-            AuditTrail() if audit_trail is not None else None
-        )
+        per_attempt_trail: AuditTrail | None = AuditTrail() if audit_trail is not None else None
         try:
             with _safe_urlopen(
                 request,
