@@ -2,6 +2,31 @@
 
 All notable changes to AgentCrawl Community will be documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.1.2 - Unreleased
+
+Patch release. `pip install --upgrade agentcrawl-ai==0.1.2` from
+0.1.1 is safe: identical runtime semantics, two latent fixes that
+were masked by accidental chance.
+
+### Fixed
+
+- `agentcrawl.__version__` now resolves through
+  `importlib.metadata.version("agentcrawl-ai")` (the distribution
+  name) instead of looking up `"agentcrawl"` (the import name). The
+  old code worked because the `except PackageNotFoundError` branch
+  returned the fallback literal by coincidence, which would have
+  reported a stale version if the fallback had ever been tweaked.
+  Affects `agentcrawl --version` and any caller reading
+  `agentcrawl.__version__` programmatically.
+
+### Verification
+
+- `pytest`: 153 passed (unchanged from 0.1.1).
+- `ruff check` OK; `ruff format --check` OK.
+- `pip install --upgrade agentcrawl-ai==0.1.2` in a fresh venv:
+  `agentcrawl.__version__` reports `0.1.2`, airgap/crawler/parse
+  modules import cleanly.
+
 ## 0.1.1 - 2026-06-26
 
 Privacy and observability pillars land as opt-in Community

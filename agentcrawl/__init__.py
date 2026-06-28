@@ -10,9 +10,9 @@ from .models import CrawlResult, CrawlRun, MapResult, ScrapeDocument, SearchResu
 from .remote_client import AgentCrawlClient
 
 try:
-    __version__ = version("agentcrawl")
+    __version__ = version("agentcrawl-ai")
 except PackageNotFoundError:
-    __version__ = "0.1.1"
+    __version__ = "0.1.2"
 
 __all__ = [
     "AgentCrawlClient",
