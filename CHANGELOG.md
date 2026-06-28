@@ -2,12 +2,41 @@
 
 All notable changes to AgentCrawl Community will be documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## 0.1.3 - Unreleased
+## 0.1.3 - 2026-06-28
+
+Patch release driven by the cross-cutting technical audit dated
+2026-06-28 (`Proyectos/agentcrawl-private-docs/archive/2026-06-28/CODE_AUDIT_2026-06-28.md`).
+Four bugs and four optimizations were identified across
+`storage`, `server`, `fetchers`, `crawler`, `config`, and `cli`.
+Adds the observable dashboard and `--alert-on-failure` hook
+landed earlier in `main`; the audit fixes ship together in this
+release since they touch the same SQLite lock surface and the
+audit-trail plumbing that the dashboard reads.
 
 ### Added
 
 - **Observable dashboard** — `agentcrawl dashboard --db agentcrawl.db --output dashboard.html` renders a dependency-free static HTML dashboard from the local SQLite database. The FastAPI server also exposes the same read-only view at `GET /dashboard` and JSON summary at `GET /api/dashboard/summary`.
 - **Failure alert hook** — `agentcrawl crawl ... --alert-on-failure --cmd "..."` runs a local shell command only when the completed crawl reports terminal failures. The command receives JSON on stdin with `source`, `failure_count`, and the failure rows.
+
+### Fixed
+
+- **BUG #1 (high) — SQLite-backed scheduling lease.** `server.schedule_job` previously relied on an in-memory boolean guard that is invisible to other worker processes (uvicorn `--workers >1`, separate `agentcrawl jobs` invocations, the `job_threads` background loops). Two workers could observe the same `ready_at` and enqueue the same job twice. Adds `jobs.schedule_lock INTEGER` and `jobs.schedule_lock_expires_at REAL` columns (with a backfill migration) plus `SQLiteStore.acquire_schedule_lease(job_id, ttl)` and `release_schedule_lease(job_id)` methods that use a single atomic `UPDATE ... WHERE schedule_lock IS NULL OR schedule_lock_expires_at < ?` round-trip. `server.schedule_job` now calls `acquire_schedule_lease` before touching `_job_queue` and releases it on failure paths; `_enqueue_job` clears `_queued_jobs` and pops `_job_threads` under the same lock so FIFO order is preserved. Affects `agentcrawl/storage.py`, `agentcrawl/server.py`.
+- **BUG #2 (medium) — audit trail attached on terminal fetch failure.** When `config.audit=True`, `_fetch_http` raised `FetchError` without copying the in-progress `AuditTrail` so callers lost the redacted record (status, hostname, bytes) of their actual request. Now attaches `FetchError.audit_trail` on terminal failure (no dead `try/finally`) and `AgentCrawl.scrape` surfaces it via `ScrapeDocument.metadata["audit_trail"]`. Regression test `test_scrape_surfaces_audit_trail_in_error_metadata` patches `agentcrawl.fetchers._fetch_http` to raise a crafted `FetchError(..., audit_trail=AuditTrail(...))` so the contract is exercised directly. Affects `agentcrawl/fetchers.py`, `agentcrawl/crawler.py`.
+- **BUG #3 (medium/low) — HTML inside blocked-page markup leaked through `_blocked_page_reason`.** The heuristic compared raw response bytes against a regex designed for plain text; pages like `nginx default 403` with HTML chrome produced false negatives. Adds `agentcrawl/parsing.py::_html_to_plain_text` and routes `_blocked_page_reason` through it before matching. Affects `agentcrawl/crawler.py`, `agentcrawl/parsing.py`.
+- **BUG #4 (low) — `CrawlConfig.__post_init__` silently accepted a dict for `llm`.** Community treats `llm` as an import path (e.g. `langchain_openai.ChatOpenAI`); a dict was the right shape for Enhanced's pool configuration. Emit `UserWarning` so misconfigurations surface in logs instead of failing later as a `ModuleNotFoundError`. Affects `agentcrawl/config.py`.
+
+### Optimized
+
+- **OPT #1 — `list_crawl_failures` domain LIKE tightened to three patterns** (`://%/`, `://%:%`, `://%`) to avoid suffix-collisions like `badexample-related.com` matching `example.com`. Affects `agentcrawl/storage.py`.
+- **OPT #2 — `_pop_ready_item` returns `(None, min(ready_at))` instead of busy-spinning.** When no scheduled item is ready yet, the worker now sleeps until the soonest item becomes due instead of polling every iteration. CPU savings are modest but the behaviour is observable in long crawls. Affects `agentcrawl/server.py`.
+- **OPT #3 — Per-process migration cache for `SQLiteStore`.** A class-level `_migrated_paths: set[str]` skips re-running `CREATE TABLE IF NOT EXISTS` against the same file path on every instantiation. The cache is **bypassed** when the path contains `:memory:` because `sqlite3.connect(":memory:")` returns a fresh per-connection private DB, which is intentionally incompatible with our `self._connect()`-per-call design (see the design decision in the audit doc). Tests use `tmp_path` instead of `:memory:` for true cross-test isolation. Affects `agentcrawl/storage.py`, `tests/test_audit_fixes.py`, `tests/test_server.py`.
+- **OPT #4 — `_export_failures_csv` skips `mkdir` + early returns 0 when the filtered row set is empty.** Avoids creating empty `<dest>.csv` files that downstream tooling treats as a successful zero-failure scrape. Affects `agentcrawl/cli.py`, `tests/test_csv_export.py`.
+
+### Verification
+
+- `pytest`: 177 passed (was 141 pre-iteration; +36 new regression cases in `tests/test_audit_fixes.py` covering the four bugs and four optimizations).
+- `ruff check` OK; `ruff format --check` OK.
+- New regression tests for the SQLite lease (`test_schedule_lease_serializes_workers`), the per-process migration cache (`test_migration_cache_idempotent`), audit-trail surfacing (`test_scrape_surfaces_audit_trail_in_error_metadata`, `test_fetch_error_carries_audit_trail_on_terminal_failure`), blocked-page heuristic (`test_blocked_page_reason_strips_html`), `__post_init__` warning (`test_llm_dict_emits_user_warning`), the three-pattern LIKE (`test_list_crawl_failures_domain_filter_no_suffix_collision`), `_pop_ready_item` timing (`test_pop_ready_item_returns_min_ready_at_when_none_ready`), `_export_failures_csv` empty-row early return (`test_export_failures_csv_skips_empty_rows`).
 
 ## 0.1.2 - 2026-06-28
 

@@ -130,9 +130,6 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
 
     last_exc: Exception | None = None
     for attempt in range(max(1, config.http_retries + 1)):
-        # Fresh per-attempt view so a partial failure doesn't poison the
-        # next retry's audit log; only kept at the top if it actually exists.
-        per_attempt_trail: AuditTrail | None = AuditTrail() if audit_trail is not None else None
         try:
             with _safe_urlopen(
                 request,
@@ -140,7 +137,7 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                 allow_private_network=config.allow_private_network,
                 airgap=config.airgap,
                 allowlist_domains=config.allowlist_domains,
-                audit_trail=per_attempt_trail,
+                audit_trail=audit_trail,
                 target_host=target_host,
             ) as response:
                 final_url = response.geturl()
@@ -157,8 +154,8 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     "fetcher": "http",
                     "final_url": final_url,
                 }
-                if per_attempt_trail is not None:
-                    per_attempt_trail.record(
+                if audit_trail is not None:
+                    audit_trail.record(
                         "GET",
                         url,
                         final_url=final_url,
@@ -166,12 +163,12 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                         bytes_count=len_bytes,
                         target_host=target_host,
                     )
-                    fetch_metadata.update(per_attempt_trail.to_metadata())
+                    fetch_metadata.update(audit_trail.to_metadata())
                 return html_bytes.decode("utf-8", errors="replace"), fetch_metadata
         except urllib.error.HTTPError as exc:
             last_exc = exc
-            if per_attempt_trail is not None:
-                per_attempt_trail.record(
+            if audit_trail is not None:
+                audit_trail.record(
                     "GET",
                     url,
                     final_url=url,
@@ -189,7 +186,17 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
             if attempt >= config.http_retries:
                 break
             time.sleep(_retry_delay(config, attempt, None))
-    raise FetchError(f"HTTP fetch failed for {url}: {last_exc}") from last_exc
+    err = FetchError(f"HTTP fetch failed for {url}: {last_exc}")
+    # When all retries are exhausted, ``audit_trail`` accumulated one
+    # record per attempt. Without this attachment the trail would be
+    # silently dropped on the way out and any caller that wanted to
+    # surface the failed-request history would have nothing to render.
+    # ``AgentCrawl.scrape`` picks ``audit_trail`` up via a ``getattr``
+    # check in its FetchError handler and merges ``to_metadata`` into
+    # the document.
+    if audit_trail is not None:
+        err.audit_trail = audit_trail
+    raise err from last_exc
 
 
 def _retry_delay(config: CrawlConfig, attempt: int, retry_after: str | None) -> float:

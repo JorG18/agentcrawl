@@ -152,11 +152,22 @@ class AgentCrawl:
             return _format_document(document, requested)
         except FetchError as exc:
             message = str(exc)
+            error_metadata: dict[str, Any] = {
+                "error_type": classify_error(message) or "fetch_error",
+            }
+            # Surface the audit trail accumulated across exhausted retries
+            # so callers can still see which URLs were contacted and the
+            # statuses returned. ``_fetch_http`` only attaches the trail
+            # when ``config.audit`` is True, so this is a no-op for the
+            # default config.
+            failed_audit = getattr(exc, "audit_trail", None)
+            if failed_audit is not None:
+                error_metadata.update(failed_audit.to_metadata())
             document = ScrapeDocument(
                 url=source,
                 markdown="",
                 text="",
-                metadata={"error_type": classify_error(message) or "fetch_error"},
+                metadata=error_metadata,
                 errors=[message],
             )
             if formats is None:
@@ -484,23 +495,69 @@ def _pop_ready_item(
     queue: deque[dict[str, Any]],
     now: float,
 ) -> tuple[dict[str, Any] | None, float | None]:
-    earliest: float | None = None
+    # Peek-then-rotate: compute ``earliest`` once across the whole deque
+    # so we can short-circuit when every item is delayed (no popleft/append
+    # dance, avoiding O(n) work on retry_scheduled halts). When at least
+    # one item is ready we rotate to find the frontmost ready entry,
+    # keeping the legacy contract that callers see ``(item, earliest)``
+    # where ``earliest`` is the soonest pending ready_at even after a
+    # successful pop.
+    if not queue:
+        return None, None
+    earliest = min(float(item.get("ready_at", 0.0)) for item in queue)
+    if earliest > now:
+        return None, earliest
     for _ in range(len(queue)):
         item = queue.popleft()
         ready_at = float(item.get("ready_at", 0.0))
         if ready_at <= now:
             return item, earliest
-        earliest = ready_at if earliest is None else min(earliest, ready_at)
         queue.append(item)
-    return None, earliest
+    return None, None
 
 
 def _blocked_page_reason(html: str) -> str:
-    text = _markdown_to_text(html)
-    for pattern in _BLOCKED_PAGE_PATTERNS:
-        if pattern.search(text):
-            return pattern.pattern
+    # ``_markdown_to_text`` only strips markdown markers; it does not strip
+    # HTML tags. Passing raw HTML to ``_BLOCKED_PAGE_PATTERNS`` makes them
+    # hit script contents (``<script>client challenge</script>``) or DOM
+    # scaffolding rather than the user-facing challenge text. Strip the
+    # ``<script>`` / ``<style>`` blocks first, then drop remaining tags,
+    # then collapse whitespace before running the regex patterns. The
+    # cookie-banner filter inside ``_markdown_to_text`` still runs because
+    # markers there fire on plain-text lines, which is what we have now.
+    text = _html_to_plain_text(html)
+    for line in text.splitlines():
+        cleaned = line.strip()
+        if _COOKIE_CONSENT_LINE_RE.match(cleaned):
+            continue
+        for pattern in _BLOCKED_PAGE_PATTERNS:
+            if pattern.search(cleaned):
+                return pattern.pattern
     return ""
+
+
+_HTML_SCRIPT_STYLE_RE = re.compile(
+    r"<(script|style)[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
+)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_HTML_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _html_to_plain_text(html: str) -> str:
+    """Best-effort HTML -> plain-text for blocked-page detection.
+
+    Drops ``<script>`` / ``<style>`` contents entirely (they're noise for
+    a Cloudflare / interstitial heuristic), strips remaining tags, then
+    collapses whitespace so the regex patterns see contiguous tokens.
+    Not intended for general markdown extraction; ``parsing.py`` owns
+    that path.
+    """
+    if not html:
+        return ""
+    cleaned = _HTML_SCRIPT_STYLE_RE.sub(" ", html)
+    cleaned = _HTML_TAG_RE.sub(" ", cleaned)
+    cleaned = _HTML_WHITESPACE_RE.sub(" ", cleaned)
+    return cleaned.strip()
 
 
 def _format_document(document: ScrapeDocument, formats: list[str]) -> dict[str, Any]:

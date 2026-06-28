@@ -564,16 +564,36 @@ def test_owner_api_key_bypasses_rate_limit(tmp_path: Path) -> None:
     assert client.get("/v1/usage", headers=headers).status_code == 200
 
 
-def test_job_scheduler_preserves_fifo_order() -> None:
+def test_job_scheduler_preserves_fifo_order(monkeypatch, tmp_path) -> None:
+    """The queue worker must drain jobs in FIFO order. After the 2026-06-28
+    audit added cross-process scheduling leases, ``schedule_job`` requires a
+    real ``queued`` row in the jobs table to acquire a lease. We short-circuit
+    the lease here (the FIFO ordering is what we're testing) and supply two
+    matching DB rows.
+
+    We use a filesystem-backed SQLiteStore under ``tmp_path`` rather than
+    ``":memory:"`` because ``sqlite3.connect(":memory:")`` returns a *fresh
+    private* in-memory database per connection, so the schema created in
+    ``_init`` would be gone by the time ``create_job`` opens its second
+    connection.
+    """
     original_queue = server._job_queue
     original_started = server._workers_started
     original_queued = server._queued_jobs
     original_threads = server._job_threads
+    original_store = server.store
     try:
         server._job_queue = queue.Queue()
         server._workers_started = True
         server._queued_jobs = set()
         server._job_threads = {}
+        store = SQLiteStore(tmp_path / "fifo.db")
+        server.store = store
+        monkeypatch.setattr(
+            SQLiteStore, "acquire_schedule_lease", lambda self, *a, **kw: True
+        )
+        store.create_job("crawl", {"url": "https://one.example"})
+        store.create_job("crawl", {"url": "https://two.example"})
 
         assert server.schedule_job("first", {"url": "https://one.example"}, None)
         assert server.schedule_job("second", {"url": "https://two.example"}, None)
@@ -585,6 +605,7 @@ def test_job_scheduler_preserves_fifo_order() -> None:
         server._workers_started = original_started
         server._queued_jobs = original_queued
         server._job_threads = original_threads
+        server.store = original_store
 
 
 def test_domain_slot_limits_same_domain_concurrency() -> None:

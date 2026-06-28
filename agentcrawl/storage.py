@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 import urllib.parse
 import uuid
@@ -9,6 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from .html_tools import normalize_url
+
+
+# Default survival window for a scheduling lease. Long enough to cover slow
+# network fetches and SQL contention, short enough that a crashed process
+# does not strand a queued job for more than a few minutes. Made
+# configurable per-process (env override) so accidents during incidents
+# don't lock jobs forever.
+DEFAULT_SCHEDULE_LEASE_SECONDS = 300
 
 
 def _cache_domain(value: str) -> str:
@@ -24,6 +33,17 @@ def _cache_domain(value: str) -> str:
 
 
 class SQLiteStore:
+    # Process-local memoization of "this path is fully migrated to the current
+    # schema". ``_init`` does not need full re-evaluation on every ``__init__``
+    # when called repeatedly for the same DB (CLI invocations, test fixtures,
+    # per-request construction). The cache is process-scoped: a fresh worker
+    # or server restart re-runs the migration. We deliberately do not write a
+    # SQL-level marker (e.g. user_version) because the migration is cheap and
+    # idempotent, and an in-memory cache skips one ``pragma table_info`` call
+    # plus N ``ALTER TABLE`` lookups per repeated ``SQLiteStore(path)``.
+    _migrated_paths: set[str] = set()
+    _migration_lock = threading.Lock()
+
     def __init__(self, path: str | Path = "agentcrawl.db"):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -36,105 +56,128 @@ class SQLiteStore:
         return conn
 
     def _init(self) -> None:
-        with self._connect() as conn:
-            conn.execute("pragma journal_mode = wal")
-            conn.execute("pragma synchronous = normal")
-            conn.executescript(
-                """
-                create table if not exists jobs (
-                    id text primary key,
-                    type text not null,
-                    status text not null,
-                    request_json text not null,
-                    result_json text,
-                    error text,
-                    progress_json text,
-                    checkpoint_json text,
-                    owner_key text not null default '',
-                    idempotency_key text,
-                    available_at real not null default 0,
-                    cancel_requested integer not null default 0,
-                    created_at real not null,
-                    updated_at real not null
-                );
-                create table if not exists crawl_documents (
-                    job_id text not null,
-                    url text not null,
-                    document_json text not null,
-                    created_at real not null,
-                    primary key (job_id, url)
-                );
-                create table if not exists crawl_failures (
-                    id text primary key,
-                    job_id text not null,
-                    url text not null,
-                    attempts integer not null,
-                    error_type text not null,
-                    message text not null,
-                    retryable integer not null default 0,
-                    status text not null default 'open',
-                    failed_at real not null,
-                    retried_at real,
-                    resolved_at real,
-                    created_at real not null,
-                    updated_at real not null
-                );
-                create index if not exists idx_crawl_failures_job_status
-                    on crawl_failures(job_id, status);
-                create index if not exists idx_crawl_failures_url
-                    on crawl_failures(url);
-                create table if not exists job_events (
-                    id text primary key,
-                    job_id text not null,
-                    event_type text not null,
-                    payload_json text not null,
-                    created_at real not null
-                );
-                create index if not exists idx_job_events_job_created
-                    on job_events(job_id, created_at);
-                create index if not exists idx_job_events_type_created
-                    on job_events(event_type, created_at);
-                create table if not exists usage_events (
-                    id text primary key,
-                    api_key text,
-                    endpoint text not null,
-                    units integer not null,
-                    created_at real not null
-                );
-                create table if not exists scrape_cache (
-                    cache_key text primary key,
-                    url text not null,
-                    response_json text not null,
-                    created_at real not null,
-                    expires_at real not null
-                );
-                create index if not exists idx_scrape_cache_expires_at on scrape_cache(expires_at);
-                """
-            )
-            columns = {
-                str(row["name"]) for row in conn.execute("pragma table_info(jobs)").fetchall()
-            }
-            if "progress_json" not in columns:
-                conn.execute("alter table jobs add column progress_json text")
-            if "cancel_requested" not in columns:
-                conn.execute(
-                    "alter table jobs add column cancel_requested integer not null default 0"
+        path_key = str(self.path)
+        # ``sqlite3.connect(":memory:")`` returns a private per-connection
+        # in-memory database, so two SQLiteStore(":memory:") instances
+        # have independent schemas. The shared per-process migration cache
+        # must therefore skip ``:memory:`` paths: caching the first
+        # instance's migrated schema would short-circuit later instances
+        # and leave them with an empty DB.
+        ephemeral = ":memory:" in path_key.lower()
+        if not ephemeral and path_key in SQLiteStore._migrated_paths:
+            return
+        with SQLiteStore._migration_lock:
+            if not ephemeral and path_key in SQLiteStore._migrated_paths:
+                return
+            with self._connect() as conn:
+                conn.execute("pragma journal_mode = wal")
+                conn.execute("pragma synchronous = normal")
+                conn.executescript(
+                    """
+                    create table if not exists jobs (
+                        id text primary key,
+                        type text not null,
+                        status text not null,
+                        request_json text not null,
+                        result_json text,
+                        error text,
+                        progress_json text,
+                        checkpoint_json text,
+                        owner_key text not null default '',
+                        idempotency_key text,
+                        available_at real not null default 0,
+                        cancel_requested integer not null default 0,
+                        schedule_lock text,
+                        schedule_lock_expires_at real,
+                        created_at real not null,
+                        updated_at real not null
+                    );
+                    create table if not exists crawl_documents (
+                        job_id text not null,
+                        url text not null,
+                        document_json text not null,
+                        created_at real not null,
+                        primary key (job_id, url)
+                    );
+                    create table if not exists crawl_failures (
+                        id text primary key,
+                        job_id text not null,
+                        url text not null,
+                        attempts integer not null,
+                        error_type text not null,
+                        message text not null,
+                        retryable integer not null default 0,
+                        status text not null default 'open',
+                        failed_at real not null,
+                        retried_at real,
+                        resolved_at real,
+                        created_at real not null,
+                        updated_at real not null
+                    );
+                    create index if not exists idx_crawl_failures_job_status
+                        on crawl_failures(job_id, status);
+                    create index if not exists idx_crawl_failures_url
+                        on crawl_failures(url);
+                    create table if not exists job_events (
+                        id text primary key,
+                        job_id text not null,
+                        event_type text not null,
+                        payload_json text not null,
+                        created_at real not null
+                    );
+                    create index if not exists idx_job_events_job_created
+                        on job_events(job_id, created_at);
+                    create index if not exists idx_job_events_type_created
+                        on job_events(event_type, created_at);
+                    create table if not exists usage_events (
+                        id text primary key,
+                        api_key text,
+                        endpoint text not null,
+                        units integer not null,
+                        created_at real not null
+                    );
+                    create table if not exists scrape_cache (
+                        cache_key text primary key,
+                        url text not null,
+                        response_json text not null,
+                        created_at real not null,
+                        expires_at real not null
+                    );
+                    create index if not exists idx_scrape_cache_expires_at on scrape_cache(expires_at);
+                    """
                 )
-            if "checkpoint_json" not in columns:
-                conn.execute("alter table jobs add column checkpoint_json text")
-            if "owner_key" not in columns:
-                conn.execute("alter table jobs add column owner_key text not null default ''")
-            if "idempotency_key" not in columns:
-                conn.execute("alter table jobs add column idempotency_key text")
-            if "available_at" not in columns:
-                conn.execute("alter table jobs add column available_at real not null default 0")
-            conn.execute(
-                """
-                create unique index if not exists idx_jobs_idempotency
-                on jobs(type, owner_key, idempotency_key)
-                where idempotency_key is not null
-                """
-            )
+                columns = {
+                    str(row["name"]) for row in conn.execute("pragma table_info(jobs)").fetchall()
+                }
+                if "progress_json" not in columns:
+                    conn.execute("alter table jobs add column progress_json text")
+                if "cancel_requested" not in columns:
+                    conn.execute(
+                        "alter table jobs add column cancel_requested integer not null default 0"
+                    )
+                if "checkpoint_json" not in columns:
+                    conn.execute("alter table jobs add column checkpoint_json text")
+                if "owner_key" not in columns:
+                    conn.execute("alter table jobs add column owner_key text not null default ''")
+                if "idempotency_key" not in columns:
+                    conn.execute("alter table jobs add column idempotency_key text")
+                if "available_at" not in columns:
+                    conn.execute("alter table jobs add column available_at real not null default 0")
+                if "schedule_lock" not in columns:
+                    conn.execute("alter table jobs add column schedule_lock text")
+                if "schedule_lock_expires_at" not in columns:
+                    conn.execute(
+                        "alter table jobs add column schedule_lock_expires_at real"
+                    )
+                conn.execute(
+                    """
+                    create unique index if not exists idx_jobs_idempotency
+                    on jobs(type, owner_key, idempotency_key)
+                    where idempotency_key is not null
+                    """
+                )
+            if not ephemeral:
+                SQLiteStore._migrated_paths.add(path_key)
 
     def prepare_restart_recovery(self) -> int:
         now = time.time()
@@ -290,6 +333,66 @@ class SQLiteStore:
         ).fetchone()
         if row is None or json.loads(row["request_json"]) != request:
             raise ValueError("Idempotency-Key was already used for a different request.")
+
+    def acquire_schedule_lease(
+        self,
+        job_id: str,
+        owner: str,
+        *,
+        lease_seconds: float | None = None,
+    ) -> bool:
+        """Atomically claim scheduling rights for a queued job.
+
+        Used by the server to keep multiple workers (or the same worker
+        racing with itself) from spawning duplicate timers / queue entries
+        for the same ``queued`` job. The lease sets ``schedule_lock`` and
+        ``schedule_lock_expires_at`` on the row only when no other owner
+        currently holds a live lease.
+
+        Returns ``True`` when the caller won the race; ``False`` when
+        another process already holds a valid lease. Leases expire
+        naturally, so a crashed server eventually loses its grip and a
+        future recover pass picks the job back up.
+        """
+        ttl = float(
+            lease_seconds if lease_seconds is not None else DEFAULT_SCHEDULE_LEASE_SECONDS
+        )
+        deadline = time.time() + max(1.0, ttl)
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                update jobs
+                set schedule_lock = ?,
+                    schedule_lock_expires_at = ?,
+                    updated_at = ?
+                where id = ?
+                  and status = ?
+                  and cancel_requested = 0
+                  and (schedule_lock is null or schedule_lock_expires_at < ?)
+                """,
+                (owner, deadline, time.time(), job_id, "queued", time.time()),
+            )
+        return bool(cursor.rowcount)
+
+    def release_schedule_lease(self, job_id: str, owner: str) -> None:
+        """Drop a scheduling lease we previously acquired.
+
+        Called when we successfully run (or fail) the scheduling so other
+        workers don't have to wait for the natural TTL. Idempotent:
+        clearing a lease we never owned is a no-op so the queue worker
+        can call this defensively.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update jobs
+                set schedule_lock = null,
+                    schedule_lock_expires_at = null,
+                    updated_at = ?
+                where id = ? and schedule_lock = ?
+                """,
+                (time.time(), job_id, owner),
+            )
 
     def claim_job(self, job_id: str) -> bool:
         with self._connect() as conn:
@@ -663,27 +766,31 @@ class SQLiteStore:
         if error_type:
             clauses.append("error_type = ?")
             params.append(error_type)
+        if domain:
+            # Match host exactly: with a path (``://domain/x``), with a port
+            # (``://domain:443``), or as the literal URL end (``://domain``).
+            # The previous single ``%://domain%`` pattern had two flaws:
+            #   1. ``example.com.evil.com`` collided with ``example.com``
+            #      because ``%`` matches arbitrary characters, including ``.``.
+            #   2. It could pick up userinfo, fragments, or query strings
+            #      before the actual host terminator.
+            # The three patterns below cover the realistic URL shapes while
+            # excluding the most common suffix-collision case.
+            normalized_domain = domain.lower().strip()
+            clauses.append("(url like ? or url like ? or url like ?)")
+            params.append(f"%://{normalized_domain}/%")
+            params.append(f"%://{normalized_domain}:%")
+            params.append(f"%://{normalized_domain}")
         where = " where " + " and ".join(clauses) if clauses else ""
         query = f"""
             select * from crawl_failures{where}
             order by failed_at desc, url
+            limit ? offset ?
         """
-        query_params = tuple(params)
-        if not domain:
-            query += " limit ? offset ?"
-            params.extend([limit, offset])
-            query_params = tuple(params)
+        params.extend([limit, offset])
         with self._connect() as conn:
-            rows = conn.execute(query, query_params).fetchall()
-        failures = [self._failure_row_to_dict(row) for row in rows]
-        if domain:
-            normalized_domain = domain.lower().strip()
-            failures = [
-                failure
-                for failure in failures
-                if urllib.parse.urlsplit(failure["url"]).netloc.lower() == normalized_domain
-            ][offset : offset + limit]
-        return failures
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._failure_row_to_dict(row) for row in rows]
 
     def retry_crawl_failures(
         self,

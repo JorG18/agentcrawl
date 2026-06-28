@@ -33,11 +33,13 @@ def test_export_failures_csv_creates_parent_dirs(tmp_path: Path) -> None:
 
 
 def test_export_failures_csv_handles_empty_list(tmp_path: Path) -> None:
-    dest = tmp_path / "empty.csv"
+    dest = tmp_path / "nested" / "empty.csv"
+    # Empty rows must short-circuit _before_ mkdir runs so neither the
+    # parent directory nor the destination file is materialized on disk.
     written = _export_failures_csv([], str(dest))
     assert written == 0
-    # File should still exist with at least a header line
-    assert dest.exists()
+    assert not dest.exists()
+    assert not (tmp_path / "nested").exists()
 
 
 def test_export_failures_csv_uses_union_of_keys(tmp_path: Path) -> None:

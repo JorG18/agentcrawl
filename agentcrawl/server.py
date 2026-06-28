@@ -19,6 +19,7 @@ from .serializers import to_jsonable
 from .security import validate_remote_url
 from .utils import is_probably_url
 from .storage import SQLiteStore
+import uuid
 
 try:
     from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -73,6 +74,16 @@ class RetryFailuresRequest(BaseModel):
 class AgentCrawlServer:
     def __init__(self) -> None:
         self.store = SQLiteStore(os.getenv("AGENTCRAWL_DB", "agentcrawl.db"))
+        # Stable per-process identifier used as the schedule-lease owner. We
+        # generate it once so that even if the server instantiates itself
+        # multiple times the lease records belong to the same logical owner.
+        self.instance_id = (
+            os.getenv("AGENTCRAWL_INSTANCE_ID")
+            or f"pid-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+        )
+        self.schedule_lease_seconds = float(
+            os.getenv("AGENTCRAWL_SCHEDULE_LEASE_SECONDS", "300")
+        )
         self.job_workers = int(os.getenv("AGENTCRAWL_WORKERS", "4"))
         self._job_semaphore = threading.BoundedSemaphore(self.job_workers)
         self._job_threads_lock = threading.Lock()
@@ -123,6 +134,7 @@ class AgentCrawlServer:
         self._domain_lock = threading.Lock()
         self._domain_last_seen: dict[str, float] = {}
         self._domain_semaphores: dict[str, threading.BoundedSemaphore] = {}
+        self._recover_lock = threading.Lock()
         self.default_config = {
             "fetcher": os.getenv("AGENTCRAWL_FETCHER", "http"),
             "browser_backend": os.getenv("AGENTCRAWL_BROWSER_BACKEND", "playwright"),
@@ -289,6 +301,14 @@ class AgentCrawlServer:
         with self._job_threads_lock:
             self._job_threads.pop(job_id, None)
         self._job_queue.put((job_id, payload, api_key))
+        # Drop the in-process de-dup entry as soon as the job lands on
+        # the queue. Without this, a transient ``claim_job`` failure (the
+        # row flipped status while we were waking the timer) would leave
+        # ``_queued_jobs`` holding the id until the next process restart,
+        # blocking future ``schedule_job`` calls for the same id. The
+        # cross-process lease remains the safety net for inter-worker
+        # dedupe.
+        self._queued_jobs.discard(job_id)
 
     def schedule_job(
         self,
@@ -305,32 +325,56 @@ class AgentCrawlServer:
             if current and current.is_alive():
                 return False
             self._queued_jobs.add(job_id)
+        # Cross-process dedupe: only one worker (out of N Uvicorn workers
+        # racing through ``recover_jobs``) actually schedules the job.
+        # The other workers see ``False`` here and skip the queue-and-timer
+        # fan-out that used to create zombie BoundedSemaphore acquisitions.
+        lease_seconds = max(
+            self.schedule_lease_seconds,
+            max(1.0, available_at - time.time()) + 30.0,
+        )
+        if not self.store.acquire_schedule_lease(
+            job_id, self.instance_id, lease_seconds=lease_seconds
+        ):
+            with self._job_threads_lock:
+                self._queued_jobs.discard(job_id)
+            return False
+        try:
             delay = max(0.0, available_at - time.time())
-            if delay <= 0:
-                self._job_queue.put((job_id, payload, api_key))
+            with self._job_threads_lock:
+                if delay <= 0:
+                    self._job_queue.put((job_id, payload, api_key))
+                    return True
+                thread = threading.Timer(
+                    delay,
+                    self._enqueue_job,
+                    args=(job_id, payload, api_key),
+                )
+                thread.name = f"agentcrawl-retry-{job_id[:8]}"
+                thread.daemon = True
+                self._job_threads[job_id] = thread
+                thread.start()
                 return True
-            thread = threading.Timer(
-                delay,
-                self._enqueue_job,
-                args=(job_id, payload, api_key),
-            )
-            thread.name = f"agentcrawl-retry-{job_id[:8]}"
-            thread.daemon = True
-            self._job_threads[job_id] = thread
-            thread.start()
-            return True
+        except Exception:
+            # If anything blows up while wiring the timer we drop the lease
+            # so another worker (or the next recover pass) can try again.
+            self.store.release_schedule_lease(job_id, self.instance_id)
+            with self._job_threads_lock:
+                self._queued_jobs.discard(job_id)
+            raise
 
     def recover_jobs(self) -> int:
-        recovered = 0
-        for job in self.store.recoverable_jobs():
-            if self.schedule_job(
-                job["id"],
-                job["request"],
-                job["owner_key"] or None,
-                job["available_at"],
-            ):
-                recovered += 1
-        return recovered
+        with self._recover_lock:
+            recovered = 0
+            for job in self.store.recoverable_jobs():
+                if self.schedule_job(
+                    job["id"],
+                    job["request"],
+                    job["owner_key"] or None,
+                    job["available_at"],
+                ):
+                    recovered += 1
+            return recovered
 
 
 server = AgentCrawlServer()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import warnings
 from typing import Any
 
 
@@ -75,6 +76,22 @@ class CrawlConfig:
     crawl_exclude: list[str] = field(default_factory=list)
 
     verbose: bool = False
+
+    def __post_init__(self) -> None:
+        # Catch the silent footgun where users do ``CrawlConfig({"airgap": True})``
+        # expecting to pass a config dict. Because ``llm`` is the first positional
+        # field with a default, Python assigns the dict to ``self.llm`` and the
+        # rest of the fields stay at defaults. The intended API is
+        # ``CrawlConfig.from_dict(...)`` or simply ``AgentCrawl({"airgap": True})``
+        # which routes through ``from_dict``.
+        if isinstance(self.llm, dict):
+            warnings.warn(
+                "CrawlConfig received a dict in its first positional 'llm' field. "
+                "Use CrawlConfig.from_dict(...) or wrap the dict in AgentCrawl(...) so "
+                "the other config keys actually apply.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     @classmethod
     def from_dict(cls, config: dict[str, Any] | "CrawlConfig" | None) -> "CrawlConfig":

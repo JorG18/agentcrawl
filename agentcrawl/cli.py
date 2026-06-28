@@ -216,13 +216,15 @@ def main(argv: list[str] | None = None) -> int:
         and isinstance(result, list)
     ):
         written = _export_failures_csv(result, args.export_csv)
-        print(
-            json.dumps(
-                {"exported_rows": written, "path": str(Path(args.export_csv).resolve())},
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        payload: dict[str, Any] = {
+            "exported_rows": written,
+            "path": str(Path(args.export_csv).resolve()),
+        }
+        # Empty rows means the early-return in ``_export_failures_csv`` did
+        # not create the destination file. Surface that explicitly so
+        # callers don\u2019t think the file exists at ``payload['path']``.
+        payload["written"] = written > 0
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
@@ -259,9 +261,15 @@ def _export_failures_csv(rows: list[dict[str, Any]], dest: str) -> int:
 
     Columns are derived from the union of keys in the input rows so the
     CSV does not depend on the failure schema staying static.
+
+    An empty ``rows`` list returns 0 without touching the filesystem —
+    skipping the parent-directory creation avoids leaving empty export
+    directories in CI runs.
     """
     import csv
 
+    if not rows:
+        return 0
     fieldnames: list[str] = []
     seen: set[str] = set()
     for row in rows:
@@ -271,9 +279,10 @@ def _export_failures_csv(rows: list[dict[str, Any]], dest: str) -> int:
             if key not in seen:
                 seen.add(key)
                 fieldnames.append(key)
+    target = Path(dest).expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
     written = 0
-    Path(dest).parent.mkdir(parents=True, exist_ok=True)
-    with open(dest, "w", encoding="utf-8", newline="") as handle:
+    with target.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames or ["failure_id"])
         writer.writeheader()
         for row in rows:
