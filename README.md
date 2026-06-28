@@ -70,6 +70,9 @@ docker run --rm -p 8000:8000 \
   ghcr.io/jorg18/agentcrawl:latest
 
 curl http://127.0.0.1:8000/health
+# Read-only local dashboard:
+# open http://127.0.0.1:8000/dashboard
+# curl http://127.0.0.1:8000/api/dashboard/summary
 ```
 
 Or with Compose:
@@ -93,6 +96,7 @@ What works today:
 - ⚡ HTTP first: fast default extraction without starting a browser.
 - 🧱 Durable crawls: SQLite jobs with checkpoints, pagination, cancellation, events, retries, and failure inspection.
 - 📦 Local state: cache, usage, jobs, events, crawl failures, and extracted documents stay with you.
+- 📊 Read-only dashboard: generate static HTML from SQLite with `agentcrawl dashboard` or open `/dashboard` on the API server.
 - 🔒 Safer API defaults: bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
 - 🤖 Agent-facing interfaces: CLI, Python, HTTP API, Docker, and MCP.
 
@@ -108,6 +112,7 @@ AgentCrawl Community is the self-hosted trust layer:
 | MCP | Standards-based stdio MCP server for agent clients. |
 | Docker / GHCR | Public image built and smoke-tested by GitHub Actions. |
 | Durable crawls | SQLite jobs, events, checkpoints, retries, and failure records. |
+| Local dashboard | Read-only static HTML over SQLite via `agentcrawl dashboard` and `/dashboard`. |
 | Quality extraction | Markdown, links, metadata, JSON-LD/provenance, tables, code blocks. |
 | Basic browser fallback | Optional local browser/Camofox path, not required for the default image. |
 | Lightweight docs | Install, examples, operations, release, quality notes. |
@@ -166,6 +171,8 @@ Main endpoints:
 
 ```text
 GET    /health
+GET    /dashboard
+GET    /api/dashboard/summary
 POST   /v1/scrape
 POST   /v1/map
 POST   /v1/crawl
@@ -182,6 +189,16 @@ DELETE /v1/cache
 ```
 
 OpenAPI docs are available at `/docs` when the server is running.
+
+## Local dashboard 📊
+
+Generate a dependency-free static HTML snapshot from any AgentCrawl SQLite database:
+
+```bash
+agentcrawl dashboard --db agentcrawl.db --output dashboard.html
+```
+
+When the API server is running, open the same read-only view at `/dashboard` or fetch JSON at `/api/dashboard/summary`. The dashboard reports job status, crawl queue, open failures, cache domains, and usage units without sending data to any hosted service.
 
 ## Crawl jobs 🧭
 

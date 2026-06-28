@@ -2,7 +2,13 @@
 
 All notable changes to AgentCrawl Community will be documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## 0.1.2 - Unreleased
+## 0.1.3 - Unreleased
+
+### Added
+
+- **Observable dashboard** — `agentcrawl dashboard --db agentcrawl.db --output dashboard.html` renders a dependency-free static HTML dashboard from the local SQLite database. The FastAPI server also exposes the same read-only view at `GET /dashboard` and JSON summary at `GET /api/dashboard/summary`.
+
+## 0.1.2 - 2026-06-28
 
 Patch release. `pip install --upgrade agentcrawl-ai==0.1.2` from
 0.1.1 is safe: identical runtime semantics, two latent fixes that

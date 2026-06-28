@@ -11,7 +11,7 @@ AgentCrawl Community is a serious self-hosted alpha/release-candidate surface. T
 - CLI, Python library, HTTP API, Docker/GHCR image, and MCP server.
 - HTTP-first scraping with optional browser/Camofox fallback when needed.
 - Durable crawl jobs with checkpoints, retries, cancellation, pagination, events, and failure inspection.
-- SQLite-backed cache, usage, jobs, events, crawl failures, and extracted documents.
+- SQLite-backed cache, usage, jobs, events, crawl failures, extracted documents, and a read-only local dashboard.
 - Safer server defaults: bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
 - Quality extraction baseline: checked-in fixtures, quality report, provenance metadata, JSON-LD/Product extraction, Markdown table/code preservation, and noisy-layout handling.
 - Distribution readiness: wheel/sdist checks, clean install smoke tests, CI, lightweight Docker image, and GHCR publication.
@@ -29,12 +29,13 @@ AgentCrawl Community is a serious self-hosted alpha/release-candidate surface. T
 - `agentcrawl doctor`, `agentcrawl --version`, package build verification, and clean install smoke tests.
 - Lightweight Docker image published through GHCR: `ghcr.io/jorg18/agentcrawl:latest`.
 - Quality extraction hardening: 19 checked-in quality fixtures plus browser-rendered SPA shell/snapshot coverage, score threshold, JSON report, richer provenance, JSON-LD/Product schema extraction, Product rating extraction, hidden-class filtering, Markdown structure checks, and Markdown structure metrics. Cookie-consent fixture added in 0.1.1 (20 fixtures total).
+- Observable dashboard: `agentcrawl dashboard` renders static HTML from SQLite, and the API server exposes the same read-only operational view at `/dashboard` plus JSON at `/api/dashboard/summary`.
 
 ## Next community priorities
 
 These are follow-up areas for Community that stay under the self-hosted, governed-extraction boundary. They are not yet shipped; each one will land only when its verification criteria are met.
 
-1. **Three differentiation pillars** — Token Efficiency (CLI/API/MCP/Python surface exposing `estimated_tokens`), Audit / Airgap (`--audit` flag + `AGENTCRAWL_AIRGAP=true` blocking any non-target request), and Observable packaging (`agentcrawl dashboard`/local read-only HTML over SQLite, `--export failures.csv`, and `--alert-on-failure` for local commands). Each pillar adds a verifiable surface and keeps the self-hosted/private boundary intact.
+1. **Observable packaging follow-up** — `--alert-on-failure` for local commands. The dashboard and `--export failures.csv` surfaces are implemented; the remaining hook should stay local, explicit, and dependency-free.
 2. Keep the Community benchmark lane focused on accessible public docs, API references, blogs, RFC/reference pages, and non-protected ecommerce/product pages; do not turn it into broad competitor claims.
 3. Maintain release smoke targets without turning them into unsupported public comparison claims.
 4. Improve document ingestion beyond PDF only when it remains lightweight for Community.

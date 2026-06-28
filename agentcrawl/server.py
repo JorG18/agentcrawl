@@ -12,6 +12,7 @@ import time
 import urllib.parse
 from typing import Any
 
+from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
 from .crawler import AgentCrawl
 from .serializers import to_jsonable
@@ -21,6 +22,7 @@ from .storage import SQLiteStore
 
 try:
     from fastapi import Depends, FastAPI, Header, HTTPException, Query
+    from fastapi.responses import HTMLResponse
     from pydantic import BaseModel, Field, ConfigDict
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError("Install agentcrawl[server] to run the API server.") from exc
@@ -347,6 +349,17 @@ app = FastAPI(title="AgentCrawl", version="0.1.0", lifespan=lifespan)
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {"ok": True, "service": "agentcrawl", "auth_enabled": server.auth_enabled}
+
+
+@app.get("/api/dashboard/summary")
+def dashboard_summary_endpoint() -> dict[str, Any]:
+    return {"success": True, "data": dashboard_summary(server.store)}
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard() -> HTMLResponse:
+    summary = dashboard_summary(server.store)
+    return HTMLResponse(render_dashboard_html(summary))
 
 
 @app.post("/v1/scrape")

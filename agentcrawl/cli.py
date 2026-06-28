@@ -16,8 +16,10 @@ from typing import Any
 
 from . import __version__
 from .crawler import AgentCrawl
+from .dashboard import dashboard_summary, render_dashboard_html
 from .remote_client import AgentCrawlClient
 from .serializers import to_jsonable
+from .storage import SQLiteStore
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -104,6 +106,15 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("usage")
     sub.add_parser("stats")
+
+    dashboard = sub.add_parser("dashboard")
+    dashboard.add_argument("--db", default=os.getenv("AGENTCRAWL_DB", "agentcrawl.db"))
+    dashboard.add_argument(
+        "--output",
+        metavar="PATH",
+        help="Write a static HTML dashboard to PATH instead of stdout.",
+    )
+
     sub.add_parser("doctor")
     sub.add_parser("mcp")
 
@@ -145,6 +156,16 @@ def main(argv: list[str] | None = None) -> int:
                 indent=2,
             )
         )
+        return 0
+    if args.command == "dashboard":
+        html = render_dashboard_html(dashboard_summary(SQLiteStore(args.db)))
+        if args.output:
+            output = Path(args.output)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(html, encoding="utf-8")
+            print(json.dumps({"path": str(output.resolve())}, ensure_ascii=False, indent=2))
+        else:
+            print(html)
         return 0
     if args.command == "mcp":
         from .mcp_server import main as mcp_main
