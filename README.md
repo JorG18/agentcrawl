@@ -1,6 +1,7 @@
 # AgentCrawl
 
 [![CI](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/agentcrawl-ai.svg)](https://pypi.org/project/agentcrawl-ai/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 ![AgentCrawl README hero](assets/readme-hero.png)
