@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import threading
 import time
@@ -16,7 +17,22 @@ from .exceptions import FetchError
 from .security import validate_remote_url
 from .utils import is_probably_url
 
-_BROWSER_SEMAPHORE = threading.BoundedSemaphore(2)
+_browser_sem: threading.BoundedSemaphore | None = None
+
+
+def _get_browser_semaphore() -> threading.BoundedSemaphore:
+    """Return a process-wide semaphore limiting concurrent browser fetches.
+
+    The limit defaults to 2 and can be overridden via the
+    ``AGENTCRAWL_BROWSER_CONCURRENCY`` environment variable so that
+    parallel-test runners or memory-constrained hosts can tune it
+    without changing code.
+    """
+    global _browser_sem
+    if _browser_sem is None:
+        limit = max(1, int(os.getenv("AGENTCRAWL_BROWSER_CONCURRENCY", "2")))
+        _browser_sem = threading.BoundedSemaphore(limit)
+    return _browser_sem
 
 
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -289,7 +305,7 @@ def _fetch_playwright(url: str, config: CrawlConfig) -> str:
             "Playwright is not installed. Install agentcrawl[browser] or use fetcher='http'."
         ) from exc
 
-    acquired = _BROWSER_SEMAPHORE.acquire(timeout=max(1, config.timeout_ms / 1000))
+    acquired = _get_browser_semaphore().acquire(timeout=max(1, config.timeout_ms / 1000))
     if not acquired:
         raise FetchError(f"Playwright fetch failed for {url}: browser concurrency limit reached")
     browser = None
@@ -332,4 +348,4 @@ def _fetch_playwright(url: str, config: CrawlConfig) -> str:
                 browser.close()
         except Exception:
             pass
-        _BROWSER_SEMAPHORE.release()
+        _get_browser_semaphore().release()

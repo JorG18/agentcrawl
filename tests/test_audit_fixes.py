@@ -107,9 +107,7 @@ def test_fetch_http_attaches_audit_trail_on_terminal_failure(monkeypatch) -> Non
     )
 
     def fake_safe_urlopen(request, **_kwargs):
-        raise urllib.error.HTTPError(
-            request.full_url, 503, "Service Unavailable", {}, None
-        )
+        raise urllib.error.HTTPError(request.full_url, 503, "Service Unavailable", {}, None)
 
     monkeypatch.setattr(fetchers_module, "_safe_urlopen", fake_safe_urlopen)
 
@@ -146,8 +144,12 @@ def test_scrape_surfaces_audit_trail_in_error_metadata(monkeypatch) -> None:
     from agentcrawl.airgap import AuditTrail
 
     trail = AuditTrail()
-    trail.record("GET", "https://example.com/", status=503, bytes_count=0, target_host="example.com")
-    trail.record("GET", "https://example.com/", status=503, bytes_count=0, target_host="example.com")
+    trail.record(
+        "GET", "https://example.com/", status=503, bytes_count=0, target_host="example.com"
+    )
+    trail.record(
+        "GET", "https://example.com/", status=503, bytes_count=0, target_host="example.com"
+    )
 
     def fake_fetch_http(*args, **kwargs):
         err = FetchError("HTTP fetch failed for https://example.com/: boom")
@@ -427,3 +429,60 @@ def test_sqlite_store_memory_path_unsupported_by_design() -> None:
 # Regression for OPT#4 lives in ``tests/test_csv_export.py::test_export_failures_csv_handles_empty_list``.
 # We keep the audit-fixes file focused on the new assertions so the two
 # suites don't drift.
+
+
+# ---------------------------------------------------------------------------
+# OPT #5 (Bloque C): _BROWSER_SEMAPHORE configurable via env var
+# ---------------------------------------------------------------------------
+
+
+def test_browser_semaphore_uses_default_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without AGENTCRAWL_BROWSER_CONCURRENCY the helper must default to 2."""
+    monkeypatch.delenv("AGENTCRAWL_BROWSER_CONCURRENCY", raising=False)
+    from agentcrawl import fetchers as fetchers_module
+    from agentcrawl.fetchers import _get_browser_semaphore
+
+    monkeypatch.setattr(fetchers_module, "_browser_sem", None)
+    sem = _get_browser_semaphore()
+    # Acquire two slots (the configured limit) before the third is rejected.
+    a = sem.acquire(blocking=False)
+    b = sem.acquire(blocking=False)
+    c = sem.acquire(blocking=False)
+    assert a is True
+    assert b is True
+    assert c is False  # third concurrent request is rejected
+    sem.release()
+    sem.release()
+
+
+def test_browser_semaphore_respects_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AGENTCRAWL_BROWSER_CONCURRENCY=4 must yield a semaphore with value 4."""
+    monkeypatch.setenv("AGENTCRAWL_BROWSER_CONCURRENCY", "4")
+    from agentcrawl import fetchers as fetchers_module
+    from agentcrawl.fetchers import _get_browser_semaphore
+
+    monkeypatch.setattr(fetchers_module, "_browser_sem", None)
+    sem = _get_browser_semaphore()
+    # We can acquire up to 4 slots before the 5th is rejected.
+    acquired = []
+    for _ in range(5):
+        if sem.acquire(blocking=False):
+            acquired.append(True)
+        else:
+            acquired.append(False)
+    assert acquired == [True, True, True, True, False]
+    for _ in range(4):
+        sem.release()
+
+
+def test_browser_semaphore_floors_to_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AGENTCRAWL_BROWSER_CONCURRENCY=0 must not break the semaphore."""
+    monkeypatch.setenv("AGENTCRAWL_BROWSER_CONCURRENCY", "0")
+    from agentcrawl import fetchers as fetchers_module
+    from agentcrawl.fetchers import _get_browser_semaphore
+
+    monkeypatch.setattr(fetchers_module, "_browser_sem", None)
+    sem = _get_browser_semaphore()
+    # Floor of 1 means we can still acquire one slot.
+    assert sem.acquire(blocking=False) is True
+    sem.release()
