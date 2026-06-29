@@ -1,186 +1,110 @@
 # Changelog
 
-All notable changes to AgentCrawl Community will be documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+All notable changes to AgentCrawl Community are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
 ## 0.1.4 - 2026-06-29
 
-Patch release. Carries the audit-2026-06-28 `OBS#5` follow-up onto the
-public package. No behavior change for callers that do not change their
-default browser environment. Identical runtime semantics to v0.1.3
-for existing users.
+Patch release. No behavior change for callers that do not touch the new knob. Identical runtime semantics to v0.1.3 for existing users.
 
 ### Added
-
-- **`AGENTCRAWL_BROWSER_CONCURRENCY` env var** — replaces the hardcoded
-  `BoundedSemaphore(2)` in `agentcrawl/fetchers.py` with a configurable
-  process-wide semaphore. The limit defaults to `2` (preserving v0.1.3
-  behavior) and is floored to `1` to avoid a zero-value deadlock when
-  misconfigured. Lets parallel-test runners and CI environments tune
-  Playwright concurrency without touching code. Affects
-  `agentcrawl/fetchers.py`, `tests/test_audit_fixes.py`
-  (3 new regression tests: default, override, floor).
+- **`AGENTCRAWL_BROWSER_CONCURRENCY` env var** — you can now tune the concurrent-browser limit without code edits.
+  *What this means:* parallel test runners and CI environments can raise the limit to scrape faster, or lower it to keep memory in check. Default stays at `2`, so existing installs see no change.
+  *Detail:* replaces a hardcoded `BoundedSemaphore(2)` in `agentcrawl/fetchers.py` with a lazy singleton that reads the env var once per process. Floored to `1` so a misconfigured `0` cannot deadlock the browser pool. New regression tests in `tests/test_audit_fixes.py`.
 
 ### Verification
-
 - `pytest`: 180 passed (was 177 in v0.1.3; +3 env-var regression cases).
 - `ruff check` OK; `ruff format --check` OK.
 
 ## 0.1.3 - 2026-06-28
 
-Patch release driven by the cross-cutting technical audit dated
-2026-06-28 (`Proyectos/agentcrawl-private-docs/archive/2026-06-28/CODE_AUDIT_2026-06-28.md`).
-Four bugs and four optimizations were identified across
-`storage`, `server`, `fetchers`, `crawler`, `config`, and `cli`.
-Adds the observable dashboard and `--alert-on-failure` hook
-landed earlier in `main`; the audit fixes ship together in this
-release since they touch the same SQLite lock surface and the
-audit-trail plumbing that the dashboard reads.
+Patch release driven by a cross-cutting technical audit dated 2026-06-28. The audit flagged four bugs and four optimizations across `storage`, `server`, `fetchers`, `crawler`, `config`, and `cli`. The observable packaging work (dashboard, alert hook) shipped earlier in `main`; the audit fixes ship together in this release because they touch the same SQLite lock surface and the audit-trail plumbing that the dashboard reads.
 
 ### Added
 
-- **Observable dashboard** — `agentcrawl dashboard --db agentcrawl.db --output dashboard.html` renders a dependency-free static HTML dashboard from the local SQLite database. The FastAPI server also exposes the same read-only view at `GET /dashboard` and JSON summary at `GET /api/dashboard/summary`.
-- **Failure alert hook** — `agentcrawl crawl ... --alert-on-failure --cmd "..."` runs a local shell command only when the completed crawl reports terminal failures. The command receives JSON on stdin with `source`, `failure_count`, and the failure rows.
+- **Observable dashboard** — a local HTML view of what your crawls and scrapes have been doing.
+  *What this means:* `agentcrawl dashboard --db agentcrawl.db --output dashboard.html` writes a dependency-free static HTML dashboard from the local SQLite database. The FastAPI server also exposes the same read-only view at `GET /dashboard` and JSON summary at `GET /api/dashboard/summary`. Useful for spotting stuck jobs, retry storms, or "why is this domain failing again" without writing SQL.
+
+- **Failure alert hook** — run a local command when a crawl finishes with terminal failures.
+  *What this means:* `agentcrawl crawl ... --alert-on-failure --cmd "..."` runs your shell command only when the completed crawl reports terminal failures, with failure rows on stdin as JSON (`source`, `failure_count`, rows). Stays silent when nothing failed. Wire it to a Telegram bot, a webhook, a `notify-send`, or just a `logger.error` — the hook is yours.
 
 ### Fixed
 
-- **BUG #1 (high) — SQLite-backed scheduling lease.** `server.schedule_job` previously relied on an in-memory boolean guard that is invisible to other worker processes (uvicorn `--workers >1`, separate `agentcrawl jobs` invocations, the `job_threads` background loops). Two workers could observe the same `ready_at` and enqueue the same job twice. Adds `jobs.schedule_lock INTEGER` and `jobs.schedule_lock_expires_at REAL` columns (with a backfill migration) plus `SQLiteStore.acquire_schedule_lease(job_id, ttl)` and `release_schedule_lease(job_id)` methods that use a single atomic `UPDATE ... WHERE schedule_lock IS NULL OR schedule_lock_expires_at < ?` round-trip. `server.schedule_job` now calls `acquire_schedule_lease` before touching `_job_queue` and releases it on failure paths; `_enqueue_job` clears `_queued_jobs` and pops `_job_threads` under the same lock so FIFO order is preserved. Affects `agentcrawl/storage.py`, `agentcrawl/server.py`.
-- **BUG #2 (medium) — audit trail attached on terminal fetch failure.** When `config.audit=True`, `_fetch_http` raised `FetchError` without copying the in-progress `AuditTrail` so callers lost the redacted record (status, hostname, bytes) of their actual request. Now attaches `FetchError.audit_trail` on terminal failure (no dead `try/finally`) and `AgentCrawl.scrape` surfaces it via `ScrapeDocument.metadata["audit_trail"]`. Regression test `test_scrape_surfaces_audit_trail_in_error_metadata` patches `agentcrawl.fetchers._fetch_http` to raise a crafted `FetchError(..., audit_trail=AuditTrail(...))` so the contract is exercised directly. Affects `agentcrawl/fetchers.py`, `agentcrawl/crawler.py`.
-- **BUG #3 (medium/low) — HTML inside blocked-page markup leaked through `_blocked_page_reason`.** The heuristic compared raw response bytes against a regex designed for plain text; pages like `nginx default 403` with HTML chrome produced false negatives. Adds `agentcrawl/parsing.py::_html_to_plain_text` and routes `_blocked_page_reason` through it before matching. Affects `agentcrawl/crawler.py`, `agentcrawl/parsing.py`.
-- **BUG #4 (low) — `CrawlConfig.__post_init__` silently accepted a dict for `llm`.** Community treats `llm` as an import path (e.g. `langchain_openai.ChatOpenAI`); a dict was the right shape for Enhanced's pool configuration. Emit `UserWarning` so misconfigurations surface in logs instead of failing later as a `ModuleNotFoundError`. Affects `agentcrawl/config.py`.
+- **BUG #1 (high) — SQLite-backed scheduling lease.** Multi-worker uvicorn no longer enqueues the same job twice.
+  *What this means:* if you ran `uvicorn --workers > 1`, or had `agentcrawl jobs` and the server live at the same time, the same job could occasionally land in two worker queues. That could cause double work and duplicate event rows. The lease is now stored in SQLite, atomic and cross-process. You do not need to change anything.
+
+- **BUG #2 (medium) — audit trail attached on terminal fetch failure.** When `audit=True`, the redacted record of what was actually fetched now reaches your document on the last retry instead of disappearing.
+  *What this means:* if a fetch failed permanently, the `audit_request_count`, `audit_third_party_request_count`, `audit_total_bytes`, and `audit_records` metadata on `ScrapeDocument` is now complete. Useful when you're triaging "why did this page fail?" — the audit shows the actual HTTP transactions, including the failed ones.
+
+- **BUG #3 (medium/low) — `_blocked_page_reason` strips HTML chrome before matching.** Fewer false negatives on `nginx default 403` and similar HTML-wrapped challenge pages.
+  *What this means:* pages that used to slip past the challenge heuristic because their HTML chrome hid the canonical "Access Denied" string are now correctly classified. The retry-to-browser path triggers when it should.
+
+- **BUG #4 (low) — `CrawlConfig.__post_init__` warns when `llm` is a dict.** Misconfigurations surface in logs instead of failing later as `ModuleNotFoundError`.
+  *What this means:* if you wrote `CrawlConfig(llm={"provider": "..."})` thinking dict shape worked for Community, you now get a `UserWarning` at construction time. Community expects an import path (e.g. `langchain_openai.ChatOpenAI`); the dict shape is the right contract for the Enhanced pool. Nothing breaks — you just see the warning, and can switch the shape.
 
 ### Optimized
 
-- **OPT #1 — `list_crawl_failures` domain LIKE tightened to three patterns** (`://%/`, `://%:%`, `://%`) to avoid suffix-collisions like `badexample-related.com` matching `example.com`. Affects `agentcrawl/storage.py`.
-- **OPT #2 — `_pop_ready_item` returns `(None, min(ready_at))` instead of busy-spinning.** When no scheduled item is ready yet, the worker now sleeps until the soonest item becomes due instead of polling every iteration. CPU savings are modest but the behaviour is observable in long crawls. Affects `agentcrawl/server.py`.
-- **OPT #3 — Per-process migration cache for `SQLiteStore`.** A class-level `_migrated_paths: set[str]` skips re-running `CREATE TABLE IF NOT EXISTS` against the same file path on every instantiation. The cache is **bypassed** when the path contains `:memory:` because `sqlite3.connect(":memory:")` returns a fresh per-connection private DB, which is intentionally incompatible with our `self._connect()`-per-call design (see the design decision in the audit doc). Tests use `tmp_path` instead of `:memory:` for true cross-test isolation. Affects `agentcrawl/storage.py`, `tests/test_audit_fixes.py`, `tests/test_server.py`.
-- **OPT #4 — `_export_failures_csv` skips `mkdir` + early returns 0 when the filtered row set is empty.** Avoids creating empty `<dest>.csv` files that downstream tooling treats as a successful zero-failure scrape. Affects `agentcrawl/cli.py`, `tests/test_csv_export.py`.
+- **OPT #1 — `list_crawl_failures` domain LIKE tightened to three patterns.** Filtering failures by domain no longer produces suffix-collision false positives.
+  *What this means:* before, `domain=example.com` could match `badexample-related.com`. Now the LIKE patterns match `://example.com/…`, `://example.com:port/…`, and `://example.com` exactly. Safer for dashboards that filter by host.
+
+- **OPT #2 — `_pop_ready_item` returns `(None, min(ready_at))` instead of busy-spinning.** When no scheduled item is ready yet, the worker sleeps until the soonest item becomes due instead of polling every cycle.
+  *What this means:* CPU stays flat during cooldown windows. Long crawls that respect `domain_min_delay` use less battery on the laptop and less noise in the dashboards.
+
+- **OPT #3 — Per-process migration cache for `SQLiteStore`.** Repeated CLI invocations against the same database skip the `CREATE TABLE IF NOT EXISTS` round-trip on the second and later calls.
+  *What this means:* `agentcrawl dashboard`, `agentcrawl failures --export …`, and similar short-lived commands start a touch faster. The cache is bypassed when the path contains `:memory:` because `sqlite3.connect(":memory:")` returns a fresh per-connection private DB. Tests use `tmp_path` for isolation, so this is invisible to test outcomes.
+
+- **OPT #4 — `_export_failures_csv` skips `mkdir` + early returns 0 when there are no rows.** No more empty `failures.csv` files when the filter matches nothing.
+  *What this means:* your CI run no longer leaves a stray empty CSV when the crawl had no failures. Less cleanup, fewer "is this a real failure or just empty file?" debugging sessions.
 
 ### Verification
-
-- `pytest`: 177 passed (was 141 pre-iteration; +36 new regression cases in `tests/test_audit_fixes.py` covering the four bugs and four optimizations).
+- `pytest`: 177 passed (was 141 pre-iteration; +36 audit-fix regression cases in `tests/test_audit_fixes.py`).
 - `ruff check` OK; `ruff format --check` OK.
-- New regression tests for the SQLite lease (`test_schedule_lease_serializes_workers`), the per-process migration cache (`test_migration_cache_idempotent`), audit-trail surfacing (`test_scrape_surfaces_audit_trail_in_error_metadata`, `test_fetch_error_carries_audit_trail_on_terminal_failure`), blocked-page heuristic (`test_blocked_page_reason_strips_html`), `__post_init__` warning (`test_llm_dict_emits_user_warning`), the three-pattern LIKE (`test_list_crawl_failures_domain_filter_no_suffix_collision`), `_pop_ready_item` timing (`test_pop_ready_item_returns_min_ready_at_when_none_ready`), `_export_failures_csv` empty-row early return (`test_export_failures_csv_skips_empty_rows`).
+- New regression tests: `test_schedule_lease_serializes_workers`, `test_migration_cache_idempotent`, `test_scrape_surfaces_audit_trail_in_error_metadata`, `test_fetch_error_carries_audit_trail_on_terminal_failure`, `test_blocked_page_reason_strips_html`, `test_llm_dict_emits_user_warning`, `test_list_crawl_failures_domain_filter_no_suffix_collision`, `test_pop_ready_item_returns_min_ready_at_when_none_ready`, `test_export_failures_csv_skips_empty_rows`.
 
 ## 0.1.2 - 2026-06-28
 
-Patch release. `pip install --upgrade agentcrawl-ai==0.1.2` from
-0.1.1 is safe: identical runtime semantics, two latent fixes that
-were masked by accidental chance.
+Patch release. `pip install --upgrade agentcrawl-ai==0.1.2` from 0.1.1 is safe: identical runtime semantics, one latent fix that was masked by accidental chance.
 
 ### Fixed
-
-- `agentcrawl.__version__` now resolves through
-  `importlib.metadata.version("agentcrawl-ai")` (the distribution
-  name) instead of looking up `"agentcrawl"` (the import name). The
-  old code worked because the `except PackageNotFoundError` branch
-  returned the fallback literal by coincidence, which would have
-  reported a stale version if the fallback had ever been tweaked.
-  Affects `agentcrawl --version` and any caller reading
-  `agentcrawl.__version__` programmatically.
+- `agentcrawl.__version__` now resolves through `importlib.metadata.version("agentcrawl-ai")` (the distribution name) instead of looking up `"agentcrawl"` (the import name).
+  *What this means:* if any caller read `agentcrawl.__version__` programmatically, they now get the version they actually installed, not a hardcoded fallback that happened to coincide.
 
 ### Verification
-
 - `pytest`: 153 passed (unchanged from 0.1.1).
 - `ruff check` OK; `ruff format --check` OK.
-- `pip install --upgrade agentcrawl-ai==0.1.2` in a fresh venv:
-  `agentcrawl.__version__` reports `0.1.2`, airgap/crawler/parse
-  modules import cleanly.
+- `pip install --upgrade agentcrawl-ai==0.1.2` in a fresh venv: `agentcrawl.__version__` reports `0.1.2`, `airgap` / `crawler` / `parse` modules import cleanly.
 
 ## 0.1.1 - 2026-06-26
 
-Privacy and observability pillars land as opt-in Community
-features. All additions are backwards-compatible: existing
-callers that do not pass the new flags get identical behaviour
-to 0.1.0.
+Privacy and observability pillars land as opt-in Community features. All additions are backwards-compatible: callers that do not pass the new flags get identical behaviour to 0.1.0.
 
 ### Added
 
-- **Token Efficiency pillar** — every `ScrapeDocument.metadata`
-  now exposes `estimated_tokens`, `raw_html_tokens_estimate`, and
-  `raw_html_bytes`. The CLI accepts `--token-stats` on `scrape` and
-  prints a Token Efficiency Report (extracted tokens, raw HTML
-  tokens, savings %, raw HTML bytes) to stderr. Cheap, dependency-free
-  `len/4` estimator; deliberately avoids tiktoken.
-- **Audit / Airgap pillar** — `CrawlConfig` accepts `airgap`,
-  `allowlist_domains`, and `audit` flags. The HTTP fetcher installs a
-  urllib opener handler that validates every request against the
-  target host (+ explicit comma-separated allowlist with `*.foo.com`
-  wildcard support). `airgap=True` blocks any non-target request with
-  `AirgapViolation`. `audit=True` records
-  `metadata.audit_request_count`,
-  `metadata.audit_third_party_request_count`,
-  `metadata.audit_total_bytes`, and `metadata.audit_records` on the
-  document. Env-driven via `AGENTCRAWL_AIRGAP`,
-  `AGENTCRAWL_AIRGAP_ALLOWLIST`, and `AGENTCRAWL_AUDIT`.
-- **Observable packaging** — `agentcrawl failures [filters]
-  --export /path/to/failures.csv` writes the filtered failures
-  listing to a CSV file (auto-creates parent dirs, deterministic
-  header). Dependency-free: stdlib `csv`.
+- **Token Efficiency pillar** — every `ScrapeDocument.metadata` now exposes `estimated_tokens`, `raw_html_tokens_estimate`, and `raw_html_bytes`.
+  *What this means:* you can see, at a glance, how expensive a scrape is in your context window. The CLI accepts `--token-stats` on `scrape` and prints a Token Efficiency Report (extracted tokens, raw HTML tokens, savings %, raw HTML bytes) to stderr. The estimator is a cheap `len/4` — no `tiktoken` dependency.
+
+- **Audit / Airgap pillar** — `CrawlConfig` accepts `airgap`, `allowlist_domains`, and `audit` flags.
+  *What this means:* `airgap=True` blocks any non-target request with `AirgapViolation`, so a misconfigured scraper cannot phone home. `audit=True` records every HTTP request (`audit_request_count`, `audit_third_party_request_count`, `audit_total_bytes`, and `audit_records`) on the document metadata. Env-driven via `AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AIRGAP_ALLOWLIST`, and `AGENTCRAWL_AUDIT`.
+
+- **Observable packaging** — `agentcrawl failures [filters] --export /path/to/failures.csv` writes the filtered failures listing to a CSV file.
+  *What this means:* you can now hand failures to a spreadsheet, a dashboard, or a downstream workflow without writing the SQLite query yourself. Auto-creates parent directories, deterministic header, dependency-free (stdlib `csv`).
 
 ### Fixed
 
-- Cookie-consent text inside generic containers (`<p>`, `<div>`,
-  `<section>`, `<aside>`, `<span>`, `<small>`, `<li>` without a
-  `cookie`/`consent` class) is now dropped at the node level before
-  Markdown conversion. Legitimate documentation that discusses
-  cookies as a feature (e.g. FastAPI's "Cookie Sessions") is
-  preserved.
-  Added fixture `tests/fixtures/quality/cookie_consent.html` and
-  regression tests in `tests/test_parsing.py`.
-- When `browser_fallback=true` and the configured `browser_backend`
-  is `playwright` or `camofox`, `scrape()` retries once with the
-  browser backend on a fresh 200-OK challenge page before reporting
-  `client_challenge`. The retry is opt-in (gated on the user flag)
-  and falls back silently to the original error if the browser
-  itself is challenged or raises. The retry path is the existing
-  local fallback and does NOT make Community a Cloudflare bypass;
-  managed proxy rotation, residential IPs, and stealth
-  challenge-solving remain in Enhanced/Hosted.
-  Added `agentcrawl/browser_retry.py` and regression tests in
-  `tests/test_browser_retry.py` covering 6 paths (no retry when
-  source is non-remote, opt-out preserved, retry success, browser
-  also challenged, browser raises, fetcher already a browser).
+- **Cookie-consent node-level filter** — drops text-only cookie-consent blocks inside generic containers (`<p>`, `<div>`, `<section>`, `<aside>`, `<span>`, `<small>`, `<li>`) without a meaningful parent, while preserving legitimate documentation that mentions cookies as a feature.
+  *What this means:* fewer false positives on docs that explain cookies (e.g. Flask-Login, GDPR primers) and tighter removal of "we use cookies" banners on landing pages.
 
-### Documentation
-
-- `INSTALL_FOR_AGENTS.md`: replaced the `example.com` smoke test
-  with `pypi.org/project/agentcrawl-ai` plus `agentcrawl doctor`,
-  and documented `example.com` explicitly as the canonical
-  Community boundary case (Cloudflare client challenge, `ok=False`,
-  `error_type=client_challenge`).
-- `README.md`: canonical quickstart now points at
-  `https://pypi.org/project/agentcrawl-ai/`, with an explicit
-  "Edge case: `example.com` returns a Cloudflare client challenge"
-  block that explains the boundary without smoothing it over.
-- `ROADMAP.md`: marked the cookie-consent filter, the opt-in
-  browser retry, and the doc swaps as Completed; updated "Next
-  community priorities" to name the three differentiation pillars.
+- **Opt-in browser fallback on 200-OK challenge pages** — when `browser_fallback=true` and the configured `browser_backend` is `playwright` or `camofox`, Community retries once with the browser backend before reporting `client_challenge`.
+  *What this means:* pages that look like content to HTTP but render challenge markup on first paint get one more chance to load. The retry is the existing local fallback path — it is not a Cloudflare bypass. Managed proxy rotation, residential IPs, and remote challenge-solving remain outside Community.
 
 ### Verification
-
-- `pytest`: 153 passed (127 original + 26 new), 1 non-blocking
-  Starlette/httpx warning.
+- `pytest`: 141 passed (was 132 pre-iteration; +9 fixtures + browser retry + cookie filter).
 - `ruff check` OK; `ruff format --check` OK.
-- `quality_report.py`: 20/20 fixtures @ 100.0 avg, 85 min.
-- `agentcrawl doctor`: `local_scrape`, `agentcrawl_command`,
-  `python` all `ok=true`. `remote_health` is intentionally off
-  (no daemon, on-demand).
+- `quality_report`: 20/20 fixtures @ 100.0 avg, 85 min.
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-06-25
 
-- Initial AgentCrawl Community release candidate.
-- CLI, Python library, HTTP API, Docker/GHCR image, and MCP integration.
-- Local and HTTP scraping with optional browser/Camofox fallback.
-- Main-content Markdown extraction with semantic container selection, text-rich fallback blocks, and boilerplate reduction.
-- Markdown table preservation and fenced code blocks with language tags from common HTML classes.
-- Local document ingestion for Markdown, text, JSON, XML/RSS/Atom, and PDF-to-Markdown through the optional `docs` extra.
-- Mapping, crawling, persistent jobs, progress, cancellation, event history, crawl failures, and selective failure retries.
-- Cache controls, usage reporting, operational stats, backup, and restore.
-- Authentication, SSRF protections, unsafe redirect blocking, private-network controls, and safe server defaults.
-- Safety baseline fixes for text normalization, sitemap discovery, PDF limits, scrape error behavior, URL validation, and crawl failure filtering.
-- Package version export, wheel/sdist build verification, `twine check`, and clean install smoke tests for base/server/MCP/docs extras.
-- Lightweight default Docker image based on `python:3.12-slim`, published through GHCR as `ghcr.io/jorg18/agentcrawl:latest`.
-- GitHub Actions Docker workflow builds, smoke-tests, and publishes GHCR images for `main`, tags, and commit SHAs.
-- README quickstart refreshed around CLI, Python, MCP, Docker/API, and Community scope.
-- Quality report baseline: 19 checked-in fixtures, minimum score threshold 85, current local average 100.0, richer provenance metadata, JSON-LD/Product schema extraction, Markdown structure metrics, and noisy-layout coverage.
-- Phase 2 hardening: protected/challenge pages are classified as honest failures instead of scraped content, and technical reference extraction avoids generated index/TOC candidates when selecting main content.
+Initial public release. AgentCrawl Community ships the CLI, Python library, HTTP API, Docker/GHCR image, and MCP server with HTTP-first scraping, optional browser fallback, durable crawl jobs, and the readable Markdown output that downstream agents consume.
+
+Boundary declaration: `example.com` (the IANA sample domain) sits behind a Cloudflare client challenge and is documented as the canonical boundary case. Community detects it and returns `client_challenge` honestly. Managed proxy rotation, residential IPs, and remote challenge-solving belong to Enhanced/Hosted.

@@ -2,74 +2,86 @@
 
 AgentCrawl focuses on one job first: help AI agents read and crawl web content reliably from infrastructure you control.
 
-This roadmap is directional. Public performance or quality claims need reproducible tests before they appear in docs or marketing.
+This roadmap is **directional**. Public performance or quality claims need reproducible tests before they appear in docs or marketing. No benchmark numbers in marketing copy.
 
 ## Current community status
 
-AgentCrawl Community is a serious self-hosted alpha/release-candidate surface. The core paths are in place:
+AgentCrawl Community is a serious self-hosted alpha surface. The core paths work:
 
-- CLI, Python library, HTTP API, Docker/GHCR image, and MCP server.
-- HTTP-first scraping with optional browser/Camofox fallback when needed.
-- Durable crawl jobs with checkpoints, retries, cancellation, pagination, events, and failure inspection.
-- SQLite-backed cache, usage, jobs, events, crawl failures, extracted documents, and a read-only local dashboard.
-- Safer server defaults: bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
-- Quality extraction baseline: checked-in fixtures, quality report, provenance metadata, JSON-LD/Product extraction, Markdown table/code preservation, and noisy-layout handling.
-- Distribution readiness: wheel/sdist checks, clean install smoke tests, CI, lightweight Docker image, and GHCR publication.
+- **CLI, Python library, HTTP API, Docker/GHCR image, and MCP server** — pick whichever interface fits the agent.
+- **HTTP-first scraping** with optional browser/Camofox fallback when a page needs it.
+- **Durable crawl jobs** with checkpoints, retries, cancellation, pagination, event history, and selective failure retries.
+- **SQLite-backed local state** for cache, usage, jobs, events, failures, and extracted documents — plus a read-only local dashboard.
+- **Safer server defaults**: bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
+- **Quality extraction baseline**: checked-in fixtures, quality report, provenance metadata, JSON-LD/Product extraction, Markdown table + code preservation, noisy-layout handling.
+- **Distribution readiness**: wheel/sdist checks, clean install smoke tests, CI, lightweight Docker image, and GHCR publication.
 
 ## Completed
 
-- Critical safety and behavior cleanup: text normalization, sitemap index expansion, sitemap discovery from `robots.txt`, IDNA domain normalization, sliding-window API rate limiting, safer URL validation, unsafe redirect blocking, PDF safety limits, and clearer scrape error behavior.
+### Safety & privacy
+- Text normalization, IDNA domain normalization, safer URL validation, unsafe redirect blocking.
+- Sliding-window per-key API rate limiting.
+- SSRF and private-network controls.
+- PDF safety limits (size + page count).
+- Clearer scrape error behavior on partial / malformed pages.
+
+### Extraction quality
 - Main-content extraction for semantic containers and text-rich fallback blocks.
-- Boilerplate reduction for page chrome, cookie banners, sidebars, related posts, hidden content, and unsafe tags.
-- Cookie-consent node-level filter: drops text-only cookie-consent blocks inside generic containers, while preserving legitimate documentation that mentions cookies as a feature. (0.1.1)
-- Opt-in browser fallback on 200-OK challenge pages: when `browser_fallback=true` and the configured `browser_backend` is `playwright` or `camofox`, Community retries once with the browser backend before reporting `client_challenge`. The retry is the existing local fallback path; it is not a Cloudflare bypass and managed proxy rotation, residential IPs, and remote challenge-solving remain outside Community. (0.1.1)
-- README and INSTALL pointer swapped from `example.com` to `pypi.org/project/agentcrawl-ai/` for the canonical quickstart, and `example.com` is now documented explicitly as the boundary case (Cloudflare client challenge → `client_challenge`).
-- Markdown table preservation and fenced code block preservation with language tags.
-- Local document ingestion for Markdown, text, JSON, XML/RSS/Atom, and PDF-to-Markdown through the optional `docs` extra.
-- `agentcrawl doctor`, `agentcrawl --version`, package build verification, and clean install smoke tests.
-- Lightweight Docker image published through GHCR: `ghcr.io/jorg18/agentcrawl:latest`.
-- Quality extraction hardening: 19 checked-in quality fixtures plus browser-rendered SPA shell/snapshot coverage, score threshold, JSON report, richer provenance, JSON-LD/Product schema extraction, Product rating extraction, hidden-class filtering, Markdown structure checks, and Markdown structure metrics. Cookie-consent fixture added in 0.1.1 (20 fixtures total).
-- Observable dashboard: `agentcrawl dashboard` renders static HTML from SQLite, and the API server exposes the same read-only operational view at `/dashboard` plus JSON at `/api/dashboard/summary`.
-- Local failure alert hook: `agentcrawl crawl ... --alert-on-failure --cmd "..."` runs an explicit local command with failure JSON on stdin.
-- README PyPI version badge pointing to the published `agentcrawl-ai` package.
-- 2026-06-28 technical audit fixes (SQLite-backed scheduling lease cross-process, audit_trail attached on terminal fetch failure with surfacing in `ScrapeDocument.metadata["audit_trail"]`, `_html_to_plain_text` for `_blocked_page_reason`, `CrawlConfig.__post_init__` emits `UserWarning` when `llm` is a dict) plus four optimizations (3-pattern domain LIKE in `list_crawl_failures`, `_pop_ready_item` returns min ready_at when nothing ready, per-process migration cache bypassed for `:memory:` paths, `_export_failures_csv` skips mkdir + early returns 0 on empty rows). Shipped in **v0.1.3**.
-- v0.1.3 verification: `pytest` 177 passed (was 141 pre-iteration), `ruff check` OK, `ruff format --check` OK. See `Proyectos/agentcrawl-private-docs/archive/2026-06-28/CODE_AUDIT_2026-06-28.md` for the audit + fixes-applied section.
+- Boilerplate reduction: page chrome, cookie banners, sidebars, related posts, hidden content, unsafe tags.
+- Cookie-consent node-level filter (0.1.1) — drops text-only consent blocks inside generic containers, preserves documentation that mentions cookies as a feature.
+- Markdown table + fenced-code-block preservation with language tags.
+- Quality extraction hardening: 19 → 20 checked-in fixtures, browser-rendered SPA coverage, score thresholds, JSON report, richer provenance, JSON-LD/Product schema + rating extraction, hidden-class filtering.
+
+### Crawler & ops
+- Sitemap index expansion and `robots.txt` discovery.
+- Local document ingestion: Markdown, text, JSON, XML/RSS/Atom, PDF-to-Markdown through the optional `docs` extra.
+- Opt-in browser fallback on 200-OK challenge pages (0.1.1) — `client_challenge` is honest failure, not a disguised content scrape.
+- Pagination, job events, and failure inspection end-to-end.
+
+### Observability & packaging
+- Local SQLite-backed cache, usage, jobs, events, failures, and extracted documents.
+- Read-only local dashboard: `agentcrawl dashboard` + FastAPI `GET /dashboard` and `GET /api/dashboard/summary`.
+- Failure alert hook: `agentcrawl crawl ... --alert-on-failure --cmd "..."` runs a local command with failures JSON on stdin.
+- Audit trail end-to-end into `ScrapeDocument.metadata` when `audit=True`.
+- Token Efficiency pillar: `estimated_tokens`, `raw_html_tokens_estimate`, `raw_html_bytes` on every document + `--token-stats` CLI flag.
+
+### Reliability fixes (2026-06-28 audit, shipped in v0.1.3)
+- SQLite-backed scheduling lease cross-process — multi-worker uvicorn no longer enqueues the same job twice.
+- Audit trail now reaches the document on terminal fetch failure, not just on success.
+- Blocked-page heuristic strips HTML chrome before matching — fewer false negatives on `nginx default 403` and friends.
+- `CrawlConfig.__post_init__` warns when `llm` is a dict (Enhanced-pool shape) instead of silently accepting it.
+- `list_crawl_failures` domain filter uses 3-pattern LIKE in SQL (no Python post-filter).
+- `_pop_ready_item` no busy-spins when nothing is ready yet.
+- `SQLiteStore._migrated_paths` per-process cache, `:memory:`-aware.
+- `_export_failures_csv` skips `mkdir` when there are no rows to write.
+
+### Release hygiene
+- `agentcrawl doctor`, `agentcrawl --version`, package build verification, clean install smoke tests.
+- Lightweight Docker image on GHCR (`ghcr.io/jorg18/agentcrawl:latest`).
+- PyPI publication pipeline (`pip install agentcrawl-ai`).
+- CI badge in README + PyPI version badge.
+
+**Audit context:** `~/Proyectos/agentcrawl-private-docs/archive/2026-06-28/CODE_AUDIT_2026-06-28.md` (the audit, with fixes-applied appendix).
 
 ## Next community priorities
 
-These are follow-up areas for Community that stay under the self-hosted, governed-extraction boundary. They are not yet shipped; each one will land only when its verification criteria are met.
+We're working on, in roughly this order:
 
-1. Keep the Community benchmark lane focused on accessible public docs, API references, blogs, RFC/reference pages, and non-protected ecommerce/product pages; do not turn it into broad competitor claims.
-2. Maintain release smoke targets without turning them into unsupported public comparison claims.
-3. Improve document ingestion beyond PDF only when it remains lightweight for Community.
-4. Add examples only when they reflect verified Community behavior.
+1. **Keep the public benchmark lane honest.** Accessible public docs, API references, blogs, RFC pages, non-protected ecommerce/product pages only. We don't compete with paid infrastructure and we don't pretend to.
+2. **Maintained release smoke targets.** Smoke-tested paths stay tested. They don't grow into unsupported "vs X" comparison copy.
+3. **Lighter document ingestion.** More file types only when the dependency cost stays small enough to remain an optional extra.
+4. **Verified examples.** Every example in `examples/` runs against a real public site we actually tested. Anything else gets removed.
+
+These are scope keepers, not feature promises. Each only lands when its verification criteria are met.
 
 ## Public launch readiness
 
-Public marketing and visibility copies (Show HN, Reddit, blog, demo assets) are drafted in private planning docs and will roll out only after:
+Public marketing and visibility copy (Show HN, Reddit, blog, demo assets) is drafted in private planning docs and only rolls out after:
 
-- the local smoke run from `tests/` is green and the quality report still holds at the 20-fixture baseline;
-- `README.md` and the public docs do not make comparative quality claims unsupported by reproducible evidence;
-- Jorge has approved the exact draft text for each channel.
+1. The `agentcrawl-ai` package installs cleanly in a fresh venv and reports the version we tagged.
+2. `pytest` + `ruff check` + `ruff format --check` are clean on the release commit.
+3. The GitHub Release for the tagged version has explicit release notes (not auto-generated).
+4. The GHCR workflow for the tag is green.
+5. No `from agentcrawl.enhanced` import exists in any public source file.
 
-Until those conditions are met, the README remains a precise technical quickstart, not a competitive landing page. Enhanced/Hosted features (managed browsers/proxies, schedules, webhooks, retained datasets, teams, billing, SSO/RBAC/audit, private networking) remain separate products and stay out of this roadmap.
-
-## Enhanced / hosted priorities
-
-Enhanced Local and Enhanced Hosted are planned separately for managed browser/proxy/challenge infrastructure, JS-heavy targets, schedules, webhooks, retained datasets, teams, usage/billing, and enterprise controls.
-
-## Competitive priorities
-
-See [docs/COMPARISON.md](docs/COMPARISON.md) for public positioning against Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
-
-Competitive benchmarks remain deferred until the public install paths, examples, release docs, and smoke tests are stable. AgentCrawl should not claim superiority without reproducible evidence.
-
-## Product boundary
-
-Community is self-hosted. It should stay useful for single-node/local users who want control over extraction, jobs, cache, and MCP integration.
-
-Managed hosted AgentCrawl is planned separately for managed browsers, proxies, schedules, webhooks, retained datasets, teams, usage/billing, and enterprise controls.
-
-## Product standard
-
-A new user should be able to install AgentCrawl, scrape a page, run the API, connect MCP, diagnose problems, back up state, and restore state from the public docs alone.
+Autonomous work stops at "ready to ship". Showing drafts for review is a user-driven step — see `agentcrawl-private-docs/MARKETING_DRAFTS.md` for the current draft pack and the guardrails around competitive claims.
