@@ -2,6 +2,29 @@
 
 All notable changes to AgentCrawl Community will be documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.1.4 - 2026-06-29
+
+Patch release. Carries the audit-2026-06-28 `OBS#5` follow-up onto the
+public package. No behavior change for callers that do not change their
+default browser environment. Identical runtime semantics to v0.1.3
+for existing users.
+
+### Added
+
+- **`AGENTCRAWL_BROWSER_CONCURRENCY` env var** — replaces the hardcoded
+  `BoundedSemaphore(2)` in `agentcrawl/fetchers.py` with a configurable
+  process-wide semaphore. The limit defaults to `2` (preserving v0.1.3
+  behavior) and is floored to `1` to avoid a zero-value deadlock when
+  misconfigured. Lets parallel-test runners and CI environments tune
+  Playwright concurrency without touching code. Affects
+  `agentcrawl/fetchers.py`, `tests/test_audit_fixes.py`
+  (3 new regression tests: default, override, floor).
+
+### Verification
+
+- `pytest`: 180 passed (was 177 in v0.1.3; +3 env-var regression cases).
+- `ruff check` OK; `ruff format --check` OK.
+
 ## 0.1.3 - 2026-06-28
 
 Patch release driven by the cross-cutting technical audit dated

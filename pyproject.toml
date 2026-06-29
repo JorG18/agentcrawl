@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentcrawl-ai"
-version = "0.1.3"
+version = "0.1.4"
 description = "Self-hosted web scraping and Markdown extraction for AI agents."
 readme = "README.md"
 requires-python = ">=3.10"
