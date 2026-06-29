@@ -166,9 +166,7 @@ class SQLiteStore:
                 if "schedule_lock" not in columns:
                     conn.execute("alter table jobs add column schedule_lock text")
                 if "schedule_lock_expires_at" not in columns:
-                    conn.execute(
-                        "alter table jobs add column schedule_lock_expires_at real"
-                    )
+                    conn.execute("alter table jobs add column schedule_lock_expires_at real")
                 conn.execute(
                     """
                     create unique index if not exists idx_jobs_idempotency
@@ -354,9 +352,7 @@ class SQLiteStore:
         naturally, so a crashed server eventually loses its grip and a
         future recover pass picks the job back up.
         """
-        ttl = float(
-            lease_seconds if lease_seconds is not None else DEFAULT_SCHEDULE_LEASE_SECONDS
-        )
+        ttl = float(lease_seconds if lease_seconds is not None else DEFAULT_SCHEDULE_LEASE_SECONDS)
         deadline = time.time() + max(1.0, ttl)
         with self._connect() as conn:
             cursor = conn.execute(

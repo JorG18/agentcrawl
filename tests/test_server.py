@@ -589,9 +589,7 @@ def test_job_scheduler_preserves_fifo_order(monkeypatch, tmp_path) -> None:
         server._job_threads = {}
         store = SQLiteStore(tmp_path / "fifo.db")
         server.store = store
-        monkeypatch.setattr(
-            SQLiteStore, "acquire_schedule_lease", lambda self, *a, **kw: True
-        )
+        monkeypatch.setattr(SQLiteStore, "acquire_schedule_lease", lambda self, *a, **kw: True)
         store.create_job("crawl", {"url": "https://one.example"})
         store.create_job("crawl", {"url": "https://two.example"})
 

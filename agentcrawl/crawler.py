@@ -536,9 +536,7 @@ def _blocked_page_reason(html: str) -> str:
     return ""
 
 
-_HTML_SCRIPT_STYLE_RE = re.compile(
-    r"<(script|style)[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
-)
+_HTML_SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _HTML_WHITESPACE_RE = re.compile(r"\s+")
 

@@ -30,9 +30,7 @@ def test_extract_one_normalizes_agentcrawl(monkeypatch):
     monkeypatch.setenv("AGENTCRAWL_API_KEY", "secret")
     monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: _Response())
 
-    result = AgentCrawlWebProvider()._extract_one(
-        "https://example.com", ["markdown", "metadata"]
-    )
+    result = AgentCrawlWebProvider()._extract_one("https://example.com", ["markdown", "metadata"])
 
     assert result["content"] == "# Example"
     assert result["title"] == "Example"

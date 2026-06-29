@@ -48,9 +48,9 @@ class AgentCrawlWebProvider(WebSearchProvider):
         if not base_url or not api_key:
             return self._error(url, "AgentCrawl URL or API key is not configured")
 
-        payload = json.dumps(
-            {"url": url, "formats": formats, "only_main_content": True}
-        ).encode("utf-8")
+        payload = json.dumps({"url": url, "formats": formats, "only_main_content": True}).encode(
+            "utf-8"
+        )
         request = urllib.request.Request(
             base_url + "/v1/scrape",
             data=payload,

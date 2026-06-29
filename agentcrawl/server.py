@@ -78,12 +78,9 @@ class AgentCrawlServer:
         # generate it once so that even if the server instantiates itself
         # multiple times the lease records belong to the same logical owner.
         self.instance_id = (
-            os.getenv("AGENTCRAWL_INSTANCE_ID")
-            or f"pid-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+            os.getenv("AGENTCRAWL_INSTANCE_ID") or f"pid-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         )
-        self.schedule_lease_seconds = float(
-            os.getenv("AGENTCRAWL_SCHEDULE_LEASE_SECONDS", "300")
-        )
+        self.schedule_lease_seconds = float(os.getenv("AGENTCRAWL_SCHEDULE_LEASE_SECONDS", "300"))
         self.job_workers = int(os.getenv("AGENTCRAWL_WORKERS", "4"))
         self._job_semaphore = threading.BoundedSemaphore(self.job_workers)
         self._job_threads_lock = threading.Lock()
