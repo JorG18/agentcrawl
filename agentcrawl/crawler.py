@@ -14,11 +14,17 @@ from .config import CrawlConfig
 from .documents import markdown_from_fetched_content
 from .errors import classify_error
 from .exceptions import FetchError
-from .fetchers import fetch_source
+from .fetchers import _read_bounded, _SafeRedirectHandler, fetch_source
 from .html_tools import extract_html_facts, normalize_url, same_domain, url_allowed
 from .models import CrawlRun, MapResult, ScrapeDocument
-from .parsing import html_to_markdown, extraction_provenance, markdown_structure_metrics
+from .parsing import (
+    apply_output_budget,
+    extraction_provenance,
+    html_to_markdown,
+    markdown_structure_metrics,
+)
 from .security import validate_remote_url
+from .utils import estimate_tokens
 
 
 _HEADING_MARKER_RE = re.compile(r"^#{1,6}\s+")
@@ -42,6 +48,45 @@ _BLOCKED_PAGE_PATTERNS = (
     re.compile(r"required part of this site (?:couldn[’']t|could not) load", re.IGNORECASE),
     re.compile(r"disable any ad blockers", re.IGNORECASE),
 )
+
+# Sitemap discovery limits. ``_read_sitemap`` recurses into sitemap-index
+# entries; without a depth cap a self-referencing (or mutually-referencing)
+# index blows the Python recursion stack, and without an entry budget a
+# large index materializes an unbounded URL list in memory. When a limit
+# hits, discovery keeps whatever was collected so far ("cap and continue")
+# so oversized-but-legitimate sitemaps still contribute a capped URL set.
+_SITEMAP_MAX_DEPTH = 4
+_SITEMAP_MAX_URLS = 100_000
+# Discovery bodies get their own ceiling instead of ``max_response_bytes``:
+# the sitemap protocol allows a 50 MB uncompressed file, so the page cap would
+# reject legitimate large sitemaps, while an unbounded read would let a hostile
+# one exhaust memory. This is the protocol's own number.
+_DISCOVERY_MAX_BYTES = 50 * 1024 * 1024
+
+
+def _guarded_urlopen(url: str, config: CrawlConfig, *, allow_private: bool | None = None):
+    """Open ``url`` with the same SSRF guard rails as page fetches.
+
+    Applies ``validate_remote_url`` to the target and installs
+    ``_SafeRedirectHandler`` so redirect hops are re-validated. Without
+    this, ``robots.txt`` / sitemap discovery fetched attacker-chosen URLs
+    (robots ``Sitemap:`` lines, sitemap-index ``<loc>`` entries) with zero
+    validation — an SSRF hole reachable through ``AgentCrawl.map()`` on
+    any network-exposed deployment.
+    """
+    validate_remote_url(
+        url,
+        allow_private_network=config.allow_private_network
+        if allow_private is None
+        else allow_private,
+    )
+    request = urllib.request.Request(
+        url, headers={"user-agent": config.user_agent or "AgentCrawl/0.1"}
+    )
+    opener = urllib.request.build_opener(
+        _SafeRedirectHandler(allow_private_network=config.allow_private_network)
+    )
+    return opener.open(request, timeout=config.timeout_ms / 1000)
 
 
 class AgentCrawl:
@@ -121,6 +166,10 @@ class AgentCrawl:
                     "extraction_strategy": "document_passthrough",
                     "selected_content_hint": str(fetch_metadata.get("document_type") or "document"),
                 }
+            # The output budget is applied here, not in the parser, so the loss
+            # is recorded on the document instead of disappearing silently.
+            markdown_chars_full = len(markdown)
+            markdown, chars_omitted = apply_output_budget(markdown, self.config.max_input_chars)
             text = _markdown_to_text(markdown)
             structure_metrics = markdown_structure_metrics(markdown)
             source_url = str(metadata.get("source_url") or source)
@@ -140,11 +189,14 @@ class AgentCrawl:
                     "only_main_content": main_content,
                     "content_format": "markdown",
                     "markdown_chars": len(markdown),
+                    "markdown_chars_full": markdown_chars_full,
+                    "markdown_truncated": chars_omitted > 0,
+                    "chars_omitted": chars_omitted,
                     "text_chars": len(text),
                     "link_count": len(links),
-                    "estimated_tokens": _estimate_tokens(text),
+                    "estimated_tokens": estimate_tokens(text),
                     "raw_html_bytes": len(html.encode("utf-8", errors="replace")),
-                    "raw_html_tokens_estimate": _estimate_tokens(html),
+                    "raw_html_tokens_estimate": estimate_tokens(html),
                 },
             )
             if formats is None:
@@ -163,6 +215,12 @@ class AgentCrawl:
             failed_audit = getattr(exc, "audit_trail", None)
             if failed_audit is not None:
                 error_metadata.update(failed_audit.to_metadata())
+            # When the browser fallback was attempted and also failed, say so:
+            # the reported error stays the honest HTTP one, and the reason the
+            # rescue did not work is still visible to the operator.
+            fallback_error = getattr(exc, "browser_fallback_error", None)
+            if fallback_error:
+                error_metadata["browser_fallback_error"] = str(fallback_error)
             document = ScrapeDocument(
                 url=source,
                 markdown="",
@@ -336,7 +394,7 @@ class AgentCrawl:
             if not url_allowed(url, include_patterns, exclude_patterns):
                 report(checkpoint=True)
                 continue
-            if robots is not None and not robots.can_fetch("*", url):
+            if robots is not None and not robots.can_fetch(_robots_user_agent(self.config), url):
                 visited.add(url)
                 failed_urls.append(url)
                 message = "blocked by robots.txt"
@@ -539,23 +597,33 @@ def _blocked_page_reason(html: str) -> str:
 _HTML_SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _HTML_WHITESPACE_RE = re.compile(r"\s+")
+# Block-level tags become line breaks. ``_blocked_page_reason`` is line-oriented
+# on purpose (it skips cookie-consent lines first), but the old implementation
+# collapsed every newline before splitting lines, so that loop saw a single line:
+# the skip was dead code and the challenge patterns matched anywhere in the page.
+_HTML_BLOCK_TAG_RE = re.compile(
+    r"</?(?:p|div|section|article|main|aside|header|footer|nav|ul|ol|li|table|tr|td|th|"
+    r"h[1-6]|br|hr|form|figure|figcaption|blockquote|pre|dl|dt|dd)\b[^>]*>",
+    re.IGNORECASE,
+)
 
 
 def _html_to_plain_text(html: str) -> str:
     """Best-effort HTML -> plain-text for blocked-page detection.
 
-    Drops ``<script>`` / ``<style>`` contents entirely (they're noise for
-    a Cloudflare / interstitial heuristic), strips remaining tags, then
-    collapses whitespace so the regex patterns see contiguous tokens.
-    Not intended for general markdown extraction; ``parsing.py`` owns
-    that path.
+    Drops ``<script>`` / ``<style>`` contents entirely (they're noise for a
+    Cloudflare / interstitial heuristic), turns block-level tags into line
+    breaks, strips the rest, and collapses intra-line whitespace so the regex
+    patterns see contiguous tokens on the line they came from. Not intended for
+    general markdown extraction; ``parsing.py`` owns that path.
     """
     if not html:
         return ""
-    cleaned = _HTML_SCRIPT_STYLE_RE.sub(" ", html)
+    cleaned = _HTML_SCRIPT_STYLE_RE.sub("\n", html)
+    cleaned = _HTML_BLOCK_TAG_RE.sub("\n", cleaned)
     cleaned = _HTML_TAG_RE.sub(" ", cleaned)
-    cleaned = _HTML_WHITESPACE_RE.sub(" ", cleaned)
-    return cleaned.strip()
+    lines = (_HTML_WHITESPACE_RE.sub(" ", part).strip() for part in cleaned.splitlines())
+    return "\n".join(line for line in lines if line)
 
 
 def _format_document(document: ScrapeDocument, formats: list[str]) -> dict[str, Any]:
@@ -609,42 +677,79 @@ def _sitemaps_from_robots(root_url: str, config: CrawlConfig) -> list[str]:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return []
     robots_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/robots.txt", "", ""))
-    request = urllib.request.Request(
-        robots_url,
-        headers={"user-agent": config.user_agent or "AgentCrawl/0.1"},
-    )
     try:
-        with urllib.request.urlopen(request, timeout=config.timeout_ms / 1000) as response:
-            content = response.read().decode("utf-8", errors="replace")
+        with _guarded_urlopen(robots_url, config) as response:
+            # Bounded read: a hostile robots.txt could otherwise stream without
+            # limit and take the process down during discovery.
+            content = _read_bounded(response, _DISCOVERY_MAX_BYTES, url=robots_url).decode(
+                "utf-8", errors="replace"
+            )
     except Exception:
         return []
     sitemaps: list[str] = []
     for line in content.splitlines():
         key, separator, value = line.partition(":")
         if separator and key.strip().lower() == "sitemap" and value.strip():
-            sitemaps.append(normalize_url(value.strip(), robots_url))
+            candidate = normalize_url(value.strip(), robots_url)
+            # A robots.txt ``Sitemap:`` entry is site-chosen input; treat it
+            # like any other discovered URL and re-validate before fetching.
+            try:
+                validate_remote_url(candidate, allow_private_network=config.allow_private_network)
+            except Exception:
+                continue
+            sitemaps.append(candidate)
     return sitemaps
 
 
-def _read_sitemap(sitemap_url: str, config: CrawlConfig) -> list[str]:
-    validate_remote_url(sitemap_url, allow_private_network=config.allow_private_network)
-    request = urllib.request.Request(
-        sitemap_url, headers={"user-agent": config.user_agent or "AgentCrawl/0.1"}
-    )
-    with urllib.request.urlopen(request, timeout=config.timeout_ms / 1000) as response:
-        validate_remote_url(response.geturl(), allow_private_network=config.allow_private_network)
-        xml_text = response.read().decode("utf-8", errors="replace")
+def _read_sitemap(
+    sitemap_url: str,
+    config: CrawlConfig,
+    *,
+    _depth: int = 0,
+    _budget: list[int] | None = None,
+) -> list[str]:
+    # ``_guarded_urlopen`` validates the initial URL and every redirect hop
+    # (via ``_SafeRedirectHandler``), so the final response URL is already
+    # covered — no extra validation pass, no extra DNS lookups.
+    with _guarded_urlopen(sitemap_url, config) as response:
+        xml_text = _read_bounded(response, _DISCOVERY_MAX_BYTES, url=sitemap_url).decode(
+            "utf-8", errors="replace"
+        )
     root = ET.fromstring(xml_text)
     urls: list[str] = []
     is_sitemap_index = root.tag.endswith("sitemapindex")
+    if _budget is None:
+        _budget = [_SITEMAP_MAX_URLS]
     for element in root.iter():
-        if element.tag.endswith("loc") and element.text:
-            url = normalize_url(element.text.strip(), sitemap_url)
-            if is_sitemap_index:
-                urls.extend(_read_sitemap(url, config))
-            else:
-                urls.append(url)
+        if not element.tag.endswith("loc") or not element.text:
+            continue
+        if _budget[0] <= 0:
+            # Entry budget exhausted: stop consuming this file and return
+            # the capped URL set instead of failing the whole discovery.
+            break
+        _budget[0] -= 1
+        url = normalize_url(element.text.strip(), sitemap_url)
+        if not is_sitemap_index:
+            urls.append(url)
+            continue
+        if _depth >= _SITEMAP_MAX_DEPTH:
+            # Deeper nesting than we trust: skip this entry. Bounded depth
+            # is also what terminates cyclic sitemap-index references.
+            continue
+        urls.extend(_read_sitemap(url, config, _depth=_depth + 1, _budget=_budget))
     return urls
+
+
+def _robots_user_agent(config: CrawlConfig) -> str:
+    """Product token claimed when matching ``robots.txt`` rules.
+
+    ``RobotFileParser`` splits the agent string on ``/`` and keeps the first
+    part, so handing it the browser-like ``user_agent`` (``Mozilla/5.0
+    (compatible; AgentCrawl/0.1; ...)``) would match as ``mozilla`` and silently
+    ignore every ``User-agent: AgentCrawl`` rule. Claim the product token.
+    """
+    match = re.search(r"(AgentCrawl(?:/[\d.]+)?)", config.user_agent or "")
+    return match.group(1) if match else "AgentCrawl"
 
 
 def _load_robots(root_url: str, config: CrawlConfig) -> urllib.robotparser.RobotFileParser | None:
@@ -652,13 +757,11 @@ def _load_robots(root_url: str, config: CrawlConfig) -> urllib.robotparser.Robot
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return None
     robots_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/robots.txt", "", ""))
-    request = urllib.request.Request(
-        robots_url,
-        headers={"user-agent": config.user_agent or "AgentCrawl/0.1"},
-    )
     try:
-        with urllib.request.urlopen(request, timeout=config.timeout_ms / 1000) as response:
-            content = response.read().decode("utf-8", errors="replace")
+        with _guarded_urlopen(robots_url, config) as response:
+            content = _read_bounded(response, _DISCOVERY_MAX_BYTES, url=robots_url).decode(
+                "utf-8", errors="replace"
+            )
     except Exception:
         return None
     parser = urllib.robotparser.RobotFileParser()
@@ -676,9 +779,11 @@ def _load_robots(root_url: str, config: CrawlConfig) -> urllib.robotparser.Robot
 # raw_html_tokens_estimate to see how much noise the extraction removed.
 # We deliberately avoid tiktoken at scrape time: keeping Community
 # dependency-light is more important than 5% accuracy on this metric.
+#
+# The implementation moved to ``utils.estimate_tokens`` so the browser-retry
+# document builder can report the same fields; this alias keeps the historical
+# import path working.
 
 
 def _estimate_tokens(text: str) -> int:
-    if not text:
-        return 0
-    return max(1, len(text) // 4)
+    return estimate_tokens(text)

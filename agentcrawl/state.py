@@ -11,6 +11,8 @@ class CrawlState(TypedDict, total=False):
     html: str
     markdown: str
     chunks: list[str]
+    chunk_stats: dict[str, Any]
+    truncation: dict[str, Any]
     answer: Any
     validation_error: str | None
     reasoning: str | None

@@ -4,8 +4,34 @@ import types
 
 import pytest
 
-from agentcrawl.documents import _read_pdf
+import agentcrawl.documents as documents_module
+from agentcrawl.documents import _read_pdf, read_local_document
 from agentcrawl.exceptions import FetchError
+
+
+def test_local_text_document_over_the_size_limit_is_rejected(tmp_path: Path, monkeypatch) -> None:
+    """Regression (2026-09 audit, second pass): PDFs had a 50 MB cap but every
+    other local document type (txt/md/json/xml/html) was read whole, so a
+    multi-GB file was materialized before ``max_input_chars`` could discard
+    almost all of it. A 60 MB ``.txt`` read back in full with no error."""
+    document = tmp_path / "big.txt"
+    document.write_text("y" * 4096, encoding="utf-8")
+    monkeypatch.setattr(documents_module, "_MAX_DOCUMENT_BYTES", 1024)
+
+    with pytest.raises(FetchError) as excinfo:
+        read_local_document(document)
+
+    assert "size limit" in str(excinfo.value)
+
+
+def test_local_document_within_the_size_limit_still_reads(tmp_path: Path) -> None:
+    document = tmp_path / "notes.txt"
+    document.write_text("Plain document text.", encoding="utf-8")
+
+    content, metadata = read_local_document(document)
+
+    assert content == "Plain document text."
+    assert metadata["document_type"] == "text"
 
 
 class FakePage:

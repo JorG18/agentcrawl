@@ -327,8 +327,13 @@ def _print_token_stats(metadata: dict[str, Any]) -> None:
 
 
 def _doctor() -> dict[str, Any]:
+    # The distribution is ``agentcrawl-ai`` (the import package is
+    # ``agentcrawl``). Looking up the wrong name made ``doctor`` report a
+    # stale, unrelated version — or "source checkout" on a perfectly
+    # installed wheel. ``__init__`` was fixed in v0.1.2; this call site was
+    # missed.
     try:
-        installed_version = version("agentcrawl")
+        installed_version = version("agentcrawl-ai")
     except PackageNotFoundError:
         installed_version = "source checkout"
     optional_modules = {

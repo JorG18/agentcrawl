@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import codecs
+import importlib.util
 import json
 import os
 import pathlib
@@ -68,10 +70,28 @@ def _safe_urlopen(
                 allowlist=allowlist_domains,
                 audit=audit_for_handler,
                 target_host=target_host,
+                # Observation must not become enforcement: `enforce` follows
+                # `airgap` alone, never the presence of an audit trail.
+                enforce=airgap,
             )
         )
     opener = urllib.request.build_opener(*handlers)
     return opener.open(request, timeout=timeout)
+
+
+def _browser_backend_available(backend: str) -> bool:
+    """Whether ``backend`` could plausibly run on this machine right now.
+
+    ``playwright`` needs its optional dependency installed; ``camofox`` is a
+    local service reached over HTTP, so availability is decided when the
+    request is made. Callers use this to avoid replacing a real HTTP failure
+    with an "install the extra" message.
+    """
+    if backend == "camofox":
+        return True
+    if backend == "playwright":
+        return importlib.util.find_spec("playwright") is not None
+    return False
 
 
 def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
@@ -82,15 +102,31 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
         try:
             return _fetch_http(source, config)
         except FetchError as exc:
-            if config.browser_fallback and _should_browser_fallback(str(exc), config):
-                backend = config.browser_backend
+            if not (config.browser_fallback and _should_browser_fallback(str(exc), config)):
+                raise
+            backend = config.browser_backend
+            # The browser is a *fallback*, so a fallback that cannot run must
+            # never replace the real error. Without this check a default
+            # install (no ``[browser]`` extra) reported "Playwright is not
+            # installed" for every 403 instead of the honest ``blocked``
+            # status — and ``browser_error`` is a retryable class, so crawls
+            # then burned their whole retry budget on pages that were never
+            # going to work.
+            if not _browser_backend_available(backend):
+                raise
+            try:
                 html = _fetch_browser(source, config)
-                return html, {
-                    "fetcher": backend,
-                    "fallback_from": "http",
-                    "final_url": source,
-                }
-            raise
+            except FetchError as browser_exc:
+                # Keep the original HTTP failure (the honest one) and attach
+                # the fallback reason so the caller can still see why the
+                # browser attempt did not rescue the page.
+                exc.browser_fallback_error = str(browser_exc)
+                raise exc from browser_exc
+            return html, {
+                "fetcher": backend,
+                "fallback_from": "http",
+                "final_url": source,
+            }
     if config.fetcher in {"playwright", "camofox"}:
         backend = config.fetcher
         html = _fetch_browser(source, config, backend=backend)
@@ -161,7 +197,7 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     final_url,
                     allow_private_network=config.allow_private_network,
                 )
-                html_bytes = response.read()
+                html_bytes = _read_bounded(response, config.max_response_bytes, url=url)
                 try:
                     len_bytes = len(html_bytes)
                 except Exception:  # pragma: no cover - extremely defensive
@@ -170,6 +206,7 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     "fetcher": "http",
                     "final_url": final_url,
                 }
+                charset = _response_charset(response.headers)
                 if audit_trail is not None:
                     audit_trail.record(
                         "GET",
@@ -180,7 +217,7 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                         target_host=target_host,
                     )
                     fetch_metadata.update(audit_trail.to_metadata())
-                return html_bytes.decode("utf-8", errors="replace"), fetch_metadata
+                return _decode_http_body(html_bytes, charset), fetch_metadata
         except urllib.error.HTTPError as exc:
             last_exc = exc
             if audit_trail is not None:
@@ -199,7 +236,21 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
             time.sleep(delay)
         except Exception as exc:
             last_exc = exc
-            if attempt >= config.http_retries:
+            # A failed attempt is still a request that was made, so the trail
+            # has to show it. The airgap handler already recorded its own
+            # refusal, so skip that case to avoid a duplicate entry.
+            from .airgap import AirgapViolation
+
+            if audit_trail is not None and not isinstance(exc, AirgapViolation):
+                audit_trail.record(
+                    "GET",
+                    url,
+                    final_url=url,
+                    status=None,
+                    bytes_count=0,
+                    target_host=target_host,
+                )
+            if _is_policy_denial(exc) or attempt >= config.http_retries:
                 break
             time.sleep(_retry_delay(config, attempt, None))
     err = FetchError(f"HTTP fetch failed for {url}: {last_exc}")
@@ -215,10 +266,110 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     raise err from last_exc
 
 
+def _is_policy_denial(exc: BaseException) -> bool:
+    """Whether ``exc`` is a deterministic refusal rather than a transient fault.
+
+    ``validate_remote_url`` (SSRF guard) and ``_AirgapHandler`` reject a
+    request for policy reasons that cannot change between attempts. Retrying
+    them only spends the retry budget and the backoff before reporting the
+    failure wrapped as a generic transport error, which buries the real
+    reason. Everything else (timeouts, DNS, TLS, connection resets) stays
+    retryable.
+    """
+    from .airgap import AirgapViolation
+
+    return isinstance(exc, (AirgapViolation, FetchError))
+
+
+_READ_CHUNK_BYTES = 65536
+
+
+def _read_bounded(response: Any, limit: int, *, url: str = "") -> bytes:
+    """Read a response body, refusing anything past ``limit`` bytes.
+
+    Reads in chunks so an oversized body is rejected *while* it arrives rather
+    than after it has been materialized in memory. The limit still holds for
+    readers that only implement ``read()`` (test doubles, third-party
+    adapters): those lose the streaming protection but not the cap.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        try:
+            chunk = response.read(_READ_CHUNK_BYTES)
+        except TypeError:
+            # Reader without an ``amt`` parameter (test doubles, third-party
+            # adapters): one call returns the whole body, so stop after it.
+            chunk = response.read()
+            last = True
+        else:
+            last = False
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise FetchError(
+                f"Response body exceeds the {limit} byte limit"
+                + (f" for {url}" if url else "")
+                + ". Raise max_response_bytes to accept larger pages."
+            )
+        chunks.append(chunk)
+        if last:
+            break
+    return b"".join(chunks)
+
+
+def _response_charset(headers: Any) -> str | None:
+    """Read the charset declared by the response (Content-Type header).
+
+    Defensive on purpose: tests and third-party callers can hand us a plain
+    dict instead of ``http.client.HTTPMessage``, and plain dicts do not
+    carry ``get_content_charset``.
+    """
+    get_charset = getattr(headers, "get_content_charset", None)
+    if not callable(get_charset):
+        return None
+    try:
+        return get_charset()
+    except Exception:  # pragma: no cover - malformed header values
+        return None
+
+
+def _decode_http_body(data: bytes, charset: str | None) -> str:
+    """Decode an HTTP body honoring the declared charset, with safe fallbacks.
+
+    Order of preference:
+    1. The charset declared in Content-Type (e.g. ``text/html; charset=iso-8859-1``).
+    2. A BOM sniff (UTF-8 / UTF-16 LE/BE), which overrides a bogus declaration.
+    3. UTF-8 (web default).
+    4. latin-1, which never fails and preserves the byte -> char mapping.
+
+    The previous behavior (always ``utf-8`` with ``errors="replace"``)
+    silently mojibake'd latin-1 / windows-1252 pages, and the corrupted
+    text was then cached and stored as extracted content.
+    """
+    if data.startswith(codecs.BOM_UTF8):
+        return data.decode("utf-8-sig", errors="replace")
+    if data.startswith(codecs.BOM_UTF16_LE) or data.startswith(codecs.BOM_UTF16_BE):
+        return data.decode("utf-16", errors="replace")
+    if charset:
+        try:
+            return data.decode(charset, errors="replace")
+        except (LookupError, UnicodeDecodeError, TypeError, ValueError):
+            pass  # unknown or lying charset declaration
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("latin-1", errors="replace")
+
+
 def _retry_delay(config: CrawlConfig, attempt: int, retry_after: str | None) -> float:
     if retry_after:
         try:
-            return min(float(retry_after), 30.0)
+            # Clamp from both sides: a hostile/misconfigured ``Retry-After``
+            # must not stall the crawl (huge values) or crash ``time.sleep``
+            # (negative values raise ValueError).
+            return max(0.0, min(float(retry_after), 30.0))
         except ValueError:
             pass
     return min(config.http_retry_delay * (2**attempt), 10.0)
@@ -308,44 +459,50 @@ def _fetch_playwright(url: str, config: CrawlConfig) -> str:
     acquired = _get_browser_semaphore().acquire(timeout=max(1, config.timeout_ms / 1000))
     if not acquired:
         raise FetchError(f"Playwright fetch failed for {url}: browser concurrency limit reached")
-    browser = None
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
                 headless=config.headless, proxy={"server": config.proxy} if config.proxy else None
             )
-            context = browser.new_context(user_agent=config.user_agent or "AgentCrawl/0.1")
-            page = context.new_page()
-            if config.browser_init_script:
-                page.add_init_script(config.browser_init_script)
-            if config.browser_block_resources:
-                blocked = set(config.browser_block_resources)
+            # Cleanup has to happen *inside* the Playwright session: once the
+            # ``with`` block exits the driver is already stopped, so a close
+            # in the outer ``finally`` failed silently and leaked browser
+            # processes on error paths.
+            context = None
+            try:
+                context = browser.new_context(user_agent=config.user_agent or "AgentCrawl/0.1")
+                page = context.new_page()
+                if config.browser_init_script:
+                    page.add_init_script(config.browser_init_script)
+                if config.browser_block_resources:
+                    blocked = set(config.browser_block_resources)
 
-                def block_selected_resources(route):
-                    request = route.request
-                    if request.resource_type in blocked:
-                        route.abort()
-                    else:
-                        route.continue_()
+                    def block_selected_resources(route):
+                        request = route.request
+                        if request.resource_type in blocked:
+                            route.abort()
+                        else:
+                            route.continue_()
 
-                page.route("**/*", block_selected_resources)
-            page.goto(url, wait_until=config.wait_until, timeout=config.timeout_ms)
-            if config.browser_wait_for_selector:
-                page.wait_for_selector(config.browser_wait_for_selector, timeout=config.timeout_ms)
-            if config.browser_wait_ms > 0:
-                page.wait_for_timeout(config.browser_wait_ms)
-            if config.network_idle:
-                page.wait_for_load_state("networkidle", timeout=config.timeout_ms)
-            validate_remote_url(page.url, allow_private_network=config.allow_private_network)
-            html = page.content()
-            browser.close()
-            return html
+                    page.route("**/*", block_selected_resources)
+                page.goto(url, wait_until=config.wait_until, timeout=config.timeout_ms)
+                if config.browser_wait_for_selector:
+                    page.wait_for_selector(
+                        config.browser_wait_for_selector, timeout=config.timeout_ms
+                    )
+                if config.browser_wait_ms > 0:
+                    page.wait_for_timeout(config.browser_wait_ms)
+                if config.network_idle:
+                    page.wait_for_load_state("networkidle", timeout=config.timeout_ms)
+                validate_remote_url(page.url, allow_private_network=config.allow_private_network)
+                return page.content()
+            finally:
+                for resource in (context, browser):
+                    try:
+                        resource.close()
+                    except Exception:
+                        pass
     except Exception as exc:
         raise FetchError(f"Playwright fetch failed for {url}: {exc}") from exc
     finally:
-        try:
-            if browser is not None:
-                browser.close()
-        except Exception:
-            pass
         _get_browser_semaphore().release()

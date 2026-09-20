@@ -21,7 +21,13 @@ from typing import TYPE_CHECKING, Any
 from .fetchers import FetchError, fetch_source
 from .html_tools import extract_html_facts
 from .models import ScrapeDocument
-from .parsing import html_to_markdown, markdown_structure_metrics, extraction_provenance
+from .parsing import (
+    apply_output_budget,
+    extraction_provenance,
+    html_to_markdown,
+    markdown_structure_metrics,
+)
+from .utils import estimate_tokens
 
 if TYPE_CHECKING:
     from .config import CrawlConfig
@@ -76,6 +82,8 @@ def attempt_browser_retry(
         links, metadata = extract_html_facts(html, source)
         main_content = True if only_main_content is None else only_main_content
         markdown = html_to_markdown(html, browser_config, only_main_content=main_content)
+        markdown_chars_full = len(markdown)
+        markdown, chars_omitted = apply_output_budget(markdown, browser_config.max_input_chars)
         provenance = extraction_provenance(html, only_main_content=main_content)
         from .crawler import _markdown_to_text
 
@@ -98,8 +106,17 @@ def attempt_browser_retry(
                 "only_main_content": main_content,
                 "content_format": "markdown",
                 "markdown_chars": len(markdown),
+                "markdown_chars_full": markdown_chars_full,
+                "markdown_truncated": chars_omitted > 0,
+                "chars_omitted": chars_omitted,
                 "text_chars": len(text),
                 "link_count": len(links),
+                # Same Token Efficiency fields the HTTP path reports: the
+                # documented contract is that they ride on every document,
+                # and rescuing a page through the browser is no exception.
+                "estimated_tokens": estimate_tokens(text),
+                "raw_html_bytes": len(html.encode("utf-8", errors="replace")),
+                "raw_html_tokens_estimate": estimate_tokens(html),
                 "browser_retry": True,
                 "browser_retry_reason": blocked_reason,
             },

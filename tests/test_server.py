@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+import os
 import queue
 import sqlite3
 import threading
@@ -146,6 +148,39 @@ def test_authentication_fails_closed_and_returns_key_fingerprint(tmp_path: Path)
 
     assert invalid.status_code == 403
     assert valid.status_code == 200
+
+
+def test_local_file_scrape_confined_to_configured_root(tmp_path: Path) -> None:
+    """With AGENTCRAWL_LOCAL_FILES_ROOT set, local-file scrapes must stay
+    inside the jail, including ``..`` traversal attempts."""
+    inside = tmp_path / "jail"
+    inside.mkdir()
+    (inside / "page.html").write_text("<main><h1>Jailed page</h1></main>", encoding="utf-8")
+    outside = tmp_path / "secret.html"
+    outside.write_text("<main><h1>Secret</h1></main>", encoding="utf-8")
+
+    server.store = SQLiteStore(tmp_path / "jail.db")
+    server.allow_local_files = True
+    server.local_files_root = os.path.realpath(inside)
+    client = TestClient(app)
+
+    ok = client.post("/v1/scrape", json={"url": str(inside / "page.html"), "cache": False})
+    assert ok.status_code == 200
+    assert "Jailed page" in ok.json()["data"]["markdown"]
+
+    sibling = client.post("/v1/scrape", json={"url": str(outside), "cache": False})
+    assert sibling.status_code == 400
+
+    traversal = client.post(
+        "/v1/scrape",
+        json={"url": str(inside / ".." / "secret.html"), "cache": False},
+    )
+    assert traversal.status_code == 400
+
+    # No root configured -> old behavior (allowed anywhere) for back-compat.
+    server.local_files_root = None
+    escaped = client.post("/v1/scrape", json={"url": str(outside), "cache": False})
+    assert escaped.status_code == 200
 
 
 def test_per_key_rate_limit(tmp_path: Path) -> None:
@@ -641,3 +676,212 @@ def test_domain_slot_limits_same_domain_concurrency() -> None:
         server.domain_min_delay = original_delay
         server._domain_semaphores = original_semaphores
         server._domain_last_seen = original_seen
+
+
+# ---------------------------------------------------------------------------
+# 2026-09 audit: job access scoping, dashboard auth, config override rejection
+# ---------------------------------------------------------------------------
+
+
+def _bearer(key: str) -> dict[str, str]:
+    return {"authorization": f"Bearer {key}"}
+
+
+def _seed_job(store: SQLiteStore, api_key: str) -> str:
+    fingerprint = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+    job_id, _created = store.create_or_get_job(
+        "crawl", {"url": "https://example.com/"}, owner_key=fingerprint
+    )
+    return job_id
+
+
+def test_per_domain_bookkeeping_stays_bounded(monkeypatch) -> None:
+    """Regression (2026-09 audit, second pass): ``_domain_last_seen`` and
+    ``_domain_semaphores`` kept one entry per domain for the lifetime of the
+    process, so a long-running server that scraped many domains grew without
+    limit. Trimmed entries must never loosen an in-flight limit."""
+    monkeypatch.setattr("agentcrawl.server._MAX_TRACKED_DOMAINS", 4)
+    original_delay = server.domain_min_delay
+    original_concurrency = server.domain_max_concurrency
+    server.domain_min_delay = 0.0
+    server.domain_max_concurrency = 1
+    server._domain_last_seen = {}
+    server._domain_semaphores = {}
+    server._domain_active = {}
+    try:
+        for index in range(12):
+            with server.domain_slot(f"https://domain-{index}.example.com/page"):
+                pass
+        assert len(server._domain_last_seen) <= 4
+        assert len(server._domain_semaphores) <= 4
+
+        # A domain held open by another request is not trimmed away with its
+        # semaphore, so the per-domain limit keeps applying.
+        with server.domain_slot("https://held.example.com/page"):
+            assert server._domain_active["held.example.com"] == 1
+            for index in range(12):
+                with server.domain_slot(f"https://noise-{index}.example.com/page"):
+                    pass
+            held = server._domain_semaphores.get("held.example.com")
+            assert held is not None
+            # The outer ``domain_slot`` already holds the only permit, so a
+            # fresh acquire must fail: the limit survived the trimming pass.
+            assert held.acquire(blocking=False) is False
+    finally:
+        server.domain_min_delay = original_delay
+        server.domain_max_concurrency = original_concurrency
+        server._domain_last_seen = {}
+        server._domain_semaphores = {}
+        server._domain_active = {}
+
+
+def test_jobs_are_scoped_to_the_owning_api_key(tmp_path: Path, monkeypatch) -> None:
+    """Any valid key could read, cancel, and retry any other key's job."""
+    server.store = SQLiteStore(tmp_path / "scope.db")
+    server.auth_enabled = True
+    server.api_keys = {"key-a", "key-b", "owner-key"}
+    monkeypatch.setattr(server, "owner_api_keys", {"owner-key"})
+    client = TestClient(app)
+    job_id = _seed_job(server.store, "key-a")
+
+    assert client.get(f"/v1/jobs/{job_id}", headers=_bearer("key-a")).status_code == 200
+    assert client.get(f"/v1/jobs/{job_id}/events", headers=_bearer("key-a")).status_code == 200
+    assert client.get(f"/v1/jobs/{job_id}/failures", headers=_bearer("key-a")).status_code == 200
+
+    # A foreign key gets 404 (not 403) everywhere, so it cannot probe which
+    # job ids exist either.
+    assert client.get(f"/v1/jobs/{job_id}", headers=_bearer("key-b")).status_code == 404
+    assert client.get(f"/v1/jobs/{job_id}/events", headers=_bearer("key-b")).status_code == 404
+    assert client.get(f"/v1/jobs/{job_id}/failures", headers=_bearer("key-b")).status_code == 404
+    assert client.delete(f"/v1/jobs/{job_id}", headers=_bearer("key-b")).status_code == 404
+    assert (
+        client.post(
+            f"/v1/jobs/{job_id}/failures/retry",
+            json={"retry_all": True},
+            headers=_bearer("key-b"),
+        ).status_code
+        == 404
+    )
+
+    # Owner keys are the elevated set (they already bypass rate limiting).
+    assert client.get(f"/v1/jobs/{job_id}", headers=_bearer("owner-key")).status_code == 200
+
+
+def test_job_response_does_not_leak_the_owner_fingerprint(tmp_path: Path) -> None:
+    server.store = SQLiteStore(tmp_path / "scope-leak.db")
+    server.auth_enabled = True
+    server.api_keys = {"key-a"}
+    client = TestClient(app)
+    job_id = _seed_job(server.store, "key-a")
+
+    payload = client.get(f"/v1/jobs/{job_id}", headers=_bearer("key-a")).json()
+
+    assert payload["data"]["request"] == {"url": "https://example.com/"}
+    assert "owner_key" not in payload["data"]
+
+
+def test_global_failure_listing_is_filtered_by_owner(tmp_path: Path, monkeypatch) -> None:
+    server.store = SQLiteStore(tmp_path / "scope-failures.db")
+    server.auth_enabled = True
+    server.api_keys = {"key-a", "key-b", "owner-key"}
+    monkeypatch.setattr(server, "owner_api_keys", {"owner-key"})
+    client = TestClient(app)
+    job_id = _seed_job(server.store, "key-a")
+    with server.store._connect() as conn:
+        SQLiteStore._record_crawl_failures(
+            conn,
+            job_id,
+            [
+                {
+                    "url": "https://example.com/broken",
+                    "attempts": 1,
+                    "error_type": "timeout",
+                    "message": "timed out",
+                    "retryable": True,
+                }
+            ],
+            now=1.0,
+        )
+
+    assert client.get("/v1/failures", headers=_bearer("key-b")).json()["data"]["returned"] == 0
+    assert client.get("/v1/failures", headers=_bearer("key-a")).json()["data"]["returned"] == 1
+    assert client.get("/v1/failures", headers=_bearer("owner-key")).json()["data"]["returned"] == 1
+
+
+def test_dashboard_endpoints_follow_the_api_auth_setting(tmp_path: Path, monkeypatch) -> None:
+    """The dashboard exposed the same operational data as /v1/stats without
+    requiring a key on an authenticated server."""
+    server.store = SQLiteStore(tmp_path / "dash-auth.db")
+    server.auth_enabled = True
+    server.api_keys = {"dash-key"}
+    monkeypatch.setattr(server, "dashboard_public", False)
+    client = TestClient(app)
+
+    assert client.get("/api/dashboard/summary").status_code == 401
+    assert client.get("/dashboard").status_code == 401
+    assert client.get("/v1/stats").status_code == 401
+    assert client.get("/api/dashboard/summary", headers=_bearer("dash-key")).status_code == 200
+    assert client.get("/dashboard", headers=_bearer("dash-key")).status_code == 200
+
+
+def test_dashboard_public_opt_out_restores_the_open_view(tmp_path: Path, monkeypatch) -> None:
+    server.store = SQLiteStore(tmp_path / "dash-public.db")
+    server.auth_enabled = True
+    server.api_keys = {"dash-key"}
+    monkeypatch.setattr(server, "dashboard_public", True)
+
+    response = TestClient(app).get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+
+def test_dashboard_stays_open_when_auth_is_disabled(tmp_path: Path, monkeypatch) -> None:
+    server.store = SQLiteStore(tmp_path / "dash-local.db")
+    server.auth_enabled = False
+    monkeypatch.setattr(server, "dashboard_public", False)
+
+    assert TestClient(app).get("/api/dashboard/summary").status_code == 200
+
+
+def test_unsupported_config_overrides_are_rejected(tmp_path: Path) -> None:
+    """A caller asking for ``airgap`` (or mistyping a key) used to get a
+    silent no-op, which is worse than an error: it looked like it applied."""
+    server.store = SQLiteStore(tmp_path / "override.db")
+    server.allow_local_files = True
+    page = tmp_path / "page.html"
+    page.write_text("<main><h1>override</h1></main>", encoding="utf-8")
+    client = TestClient(app)
+
+    unsupported = client.post("/v1/scrape", json={"url": str(page), "config": {"airgap": True}})
+    typo = client.post("/v1/scrape", json={"url": str(page), "config": {"fetchr": "http"}})
+    accepted = client.post(
+        "/v1/scrape", json={"url": str(page), "config": {"respect_robots_txt": False}}
+    )
+
+    assert unsupported.status_code == 400
+    assert "airgap" in unsupported.json()["detail"]
+    assert typo.status_code == 400
+    assert "fetchr" in typo.json()["detail"]
+    assert accepted.status_code == 200
+
+
+def test_async_crawl_rejects_bad_config_before_creating_the_job(tmp_path: Path) -> None:
+    server.store = SQLiteStore(tmp_path / "override-job.db")
+    server.allow_local_files = True
+    page = tmp_path / "page.html"
+    page.write_text("<main><h1>override</h1></main>", encoding="utf-8")
+    before = len(server.store.recoverable_jobs())
+
+    response = TestClient(app).post("/v1/crawl", json={"url": str(page), "config": {"audit": True}})
+
+    assert response.status_code == 400
+    assert len(server.store.recoverable_jobs()) == before
+
+
+def test_openapi_version_matches_the_package_version() -> None:
+    """``app.version`` was hardcoded to 0.1.0 while pyproject had moved on."""
+    from agentcrawl import __version__
+
+    assert app.version == __version__
+    assert app.version != "0.1.0" or __version__ == "0.1.0"

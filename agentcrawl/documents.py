@@ -14,12 +14,18 @@ _XML_SUFFIXES = {".xml", ".rss", ".atom"}
 _PDF_SUFFIXES = {".pdf"}
 _MAX_PDF_BYTES = 50 * 1024 * 1024
 _MAX_PDF_PAGES = 500
+# Local text-like documents were read whole with no ceiling, so a multi-GB
+# ``.txt``/``.json``/``.xml`` (or one pointed at by an API caller with local
+# files enabled) was materialized in full before ``max_input_chars`` could
+# discard almost all of it. Same ceiling as PDFs for consistency.
+_MAX_DOCUMENT_BYTES = 50 * 1024 * 1024
 
 
 def read_local_document(path: Path) -> tuple[str, dict[str, Any]]:
     suffix = path.suffix.lower()
     if suffix in _PDF_SUFFIXES:
         return _read_pdf(path)
+    _reject_oversized_document(path)
     if suffix in _MARKDOWN_SUFFIXES:
         return path.read_text(encoding="utf-8", errors="replace"), {
             "content_format": "markdown",
@@ -53,6 +59,18 @@ def markdown_from_fetched_content(content: str, metadata: dict[str, Any]) -> str
     if content_format in {"markdown", "text"}:
         return content.strip()
     return None
+
+
+def _reject_oversized_document(path: Path) -> None:
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise FetchError(f"Cannot read local document {path}: {exc}") from exc
+    if size > _MAX_DOCUMENT_BYTES:
+        raise FetchError(
+            f"Local document exceeds the {_MAX_DOCUMENT_BYTES // (1024 * 1024)} MB "
+            f"size limit: {path}"
+        )
 
 
 def _read_pdf(path: Path) -> tuple[str, dict[str, Any]]:

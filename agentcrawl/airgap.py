@@ -48,6 +48,9 @@ class AuditRecord:
     status: int | None = None
     bytes: int = 0
     third_party: bool = False
+    # True when the airgap refused the request: it was never sent, so it must
+    # not be counted as a request performed.
+    blocked: bool = False
 
 
 @dataclass(slots=True)
@@ -63,6 +66,7 @@ class AuditTrail:
         status: int | None = None,
         bytes_count: int = 0,
         target_host: str | None = None,
+        blocked: bool = False,
     ) -> None:
         try:
             host = urlparse(final_url or url).hostname or ""
@@ -77,16 +81,27 @@ class AuditTrail:
                 status=status,
                 bytes=bytes_count,
                 third_party=third_party,
+                blocked=blocked,
             )
         )
 
     def to_metadata(self) -> dict[str, Any]:
-        third_party_count = sum(1 for r in self.records if r.third_party)
-        total_bytes = sum(r.bytes for r in self.records)
+        """Audit metadata for the document.
+
+        The counts describe what actually happened on the network. A request
+        the airgap refused was never sent, so it is reported separately in
+        ``audit_blocked_request_count`` instead of inflating the request and
+        third-party counts — a caller proving "zero third-party requests"
+        must not be contradicted by a request that never left the machine.
+        Every attempt still appears in ``audit_records`` with its ``blocked``
+        flag, so nothing is hidden from a human reading the trail.
+        """
+        sent = [record for record in self.records if not record.blocked]
         return {
-            "audit_request_count": len(self.records),
-            "audit_third_party_request_count": third_party_count,
-            "audit_total_bytes": total_bytes,
+            "audit_request_count": len(sent),
+            "audit_third_party_request_count": sum(1 for r in sent if r.third_party),
+            "audit_blocked_request_count": len(self.records) - len(sent),
+            "audit_total_bytes": sum(r.bytes for r in self.records),
             "audit_records": [
                 {
                     "method": r.method,
@@ -95,6 +110,7 @@ class AuditTrail:
                     "status": r.status,
                     "bytes": r.bytes,
                     "third_party": r.third_party,
+                    "blocked": r.blocked,
                 }
                 for r in self.records
             ],
@@ -154,11 +170,26 @@ class _AirgapHandler(urllib.request.BaseHandler):
         allowlist: Iterable[str],
         audit: AuditTrail | None,
         target_host: str | None = None,
+        *,
+        enforce: bool = True,
     ) -> None:
         allowlist_items = list(allowlist) or ([target_host] if target_host else [])
         self._allowlist = allowlist_items
         self._audit = audit
-        self._target_host = (target_host or urlparse(target).hostname or "").lower()
+        # ``target_host=None`` means "derive the trusted host from the URL"; an
+        # explicit empty string means "no implicitly trusted host", which is
+        # what a search request needs: the search engine is a host the caller
+        # never asked for, so airgap has to see it in the allowlist.
+        self._target_host = (
+            (urlparse(target).hostname or "").lower()
+            if target_host is None
+            else target_host.lower()
+        )
+        # An audit trail observes; it must never enforce. Attaching one used to
+        # arm the allowlist, so `audit=True` silently refused cross-host
+        # redirects (apex -> www is the common case) that the same config
+        # followed happily with `audit=False`. Only `airgap=True` blocks.
+        self._enforce = enforce
 
     def _allowed(self, url: str) -> bool:
         host = (urlparse(url).hostname or "").lower()
@@ -173,6 +204,7 @@ class _AirgapHandler(urllib.request.BaseHandler):
         *,
         status: int | None = None,
         bytes_count: int = 0,
+        blocked: bool = False,
     ) -> None:
         if self._audit is not None:
             self._audit.record(
@@ -182,17 +214,20 @@ class _AirgapHandler(urllib.request.BaseHandler):
                 status=status,
                 bytes_count=bytes_count,
                 target_host=self._target_host,
+                blocked=blocked,
             )
 
     def http_request(self, request):  # type: ignore[override]
         url = request.full_url
-        if not self._allowed(url):
-            self._record(request.get_method(), url, status=0, bytes_count=0)
+        if self._enforce and not self._allowed(url):
+            self._record(request.get_method(), url, status=0, blocked=True)
             raise AirgapViolation(
                 f"airgap blocked request to {url} (target={self._target_host}, "
                 f"allowlist={self._allowlist})"
             )
-        self._record(request.get_method(), url)
+        # Allowed requests are recorded by the fetch layer: it is the only
+        # place that knows the final URL, status and byte count. Recording here
+        # as well put two entries in the trail for every single request.
         return request
 
     https_request = http_request  # type: ignore[assignment]
@@ -221,6 +256,7 @@ def build_airgap_opener(
                 allowlist=allowlist,
                 audit=audit,
                 target_host=target_host or urlparse(target).hostname,
+                enforce=True,
             )
         )
     return urllib.request.build_opener(*handlers)

@@ -12,7 +12,7 @@ AgentCrawl Community is a serious self-hosted alpha surface. The core paths work
 - **HTTP-first scraping** with optional browser/Camofox fallback when a page needs it.
 - **Durable crawl jobs** with checkpoints, retries, cancellation, pagination, event history, and selective failure retries.
 - **SQLite-backed local state** for cache, usage, jobs, events, failures, and extracted documents — plus a read-only local dashboard.
-- **Safer server defaults**: bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
+- **Safer server defaults**: bearer auth, per-key job isolation, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
 - **Quality extraction baseline**: checked-in fixtures, quality report, provenance metadata, JSON-LD/Product extraction, Markdown table + code preservation, noisy-layout handling.
 - **Distribution readiness**: wheel/sdist checks, clean install smoke tests, CI, lightweight Docker image, and GHCR publication.
 
@@ -61,7 +61,17 @@ AgentCrawl Community is a serious self-hosted alpha surface. The core paths work
 - PyPI publication pipeline (`pip install agentcrawl-ai`).
 - CI badge in README + PyPI version badge.
 
-**Audit context:** `~/Proyectos/agentcrawl-private-docs/archive/2026-06-28/CODE_AUDIT_2026-06-28.md` (the audit, with fixes-applied appendix).
+### Security & correctness fixes (2026-09 audit, unreleased)
+- SSRF guard rails extended to `robots.txt` and sitemap discovery; sitemap-index recursion bounded (depth + entry budget).
+- Optional local-file jail (`AGENTCRAWL_LOCAL_FILES_ROOT`) for servers with `ALLOW_LOCAL_FILES=true`.
+- Crawl jobs scoped to the creating API key; owner keys are the only ones that see every job. Foreign jobs answer `404`.
+- The HTTP dashboard follows `AGENTCRAWL_AUTH_ENABLED` instead of leaking job/cache/usage state unauthenticated (`AGENTCRAWL_DASHBOARD_PUBLIC` restores the open local view).
+- A missing browser backend no longer masks the honest HTTP error; deterministic refusals (SSRF, airgap) are not retried.
+- Unsupported `config` overrides are rejected with `400` instead of being silently dropped.
+- `doctor` and the OpenAPI schema report the real package version; the source-checkout version fallback reads `pyproject.toml` instead of a hardcoded literal.
+- Playwright sessions close their context and browser exactly once, including on navigation failure.
+
+**Audit context:** `~/Proyectos/agentcrawl-private-docs/archive/2026-06-28/CODE_AUDIT_2026-06-28.md` (2026-06 audit, with fixes-applied appendix); the 2026-09 passes are recorded in the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md).
 
 ## Next community priorities
 

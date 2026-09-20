@@ -136,10 +136,10 @@ def test_read_sitemap_expands_sitemap_index(tmp_path: Path, monkeypatch) -> None
         def read(self) -> bytes:
             return xml_by_url[self.url].encode("utf-8")
 
-    def fake_urlopen(request, timeout):
-        return FakeResponse(request.full_url)
+    def fake_guarded_urlopen(url, config, **kwargs):
+        return FakeResponse(url)
 
-    monkeypatch.setattr(crawler_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(crawler_module, "_guarded_urlopen", fake_guarded_urlopen)
 
     assert _read_sitemap(sitemap_index, CrawlConfig()) == [
         "https://example.com/a",
@@ -173,11 +173,11 @@ def test_map_discovers_sitemap_declared_in_robots_txt(monkeypatch) -> None:
                 return f"User-agent: *\nAllow: /\nSitemap: {sitemap_url}\n".encode()
             raise AssertionError(f"unexpected urlopen for {self.url}")
 
-    def fake_urlopen(request, timeout):
-        seen_requests.append(request.full_url)
-        return FakeResponse(request.full_url)
+    def fake_guarded_urlopen(url, config, **kwargs):
+        seen_requests.append(url)
+        return FakeResponse(url)
 
-    monkeypatch.setattr(crawler_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(crawler_module, "_guarded_urlopen", fake_guarded_urlopen)
     monkeypatch.setattr(
         crawler_module, "_read_sitemap", lambda _url, _config: [f"{root}from-sitemap"]
     )
@@ -587,3 +587,125 @@ def test_scrape_marks_client_challenge_pages_as_blocked(monkeypatch) -> None:
     assert doc.text == ""
     assert doc.metadata["error_type"] == "client_challenge"
     assert "client challenge" in doc.errors[0].lower()
+
+
+def test_sitemap_index_recursion_is_bounded(monkeypatch) -> None:
+    """A self-referencing sitemap index must not recurse forever."""
+    import agentcrawl.crawler as crawler_module
+
+    sitemap = "https://example.com/sitemap.xml"
+
+    class FakeResponse:
+        def __init__(self, url: str):
+            self.url = url
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def geturl(self) -> str:
+            return self.url
+
+        def read(self) -> bytes:
+            return (
+                '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+                f"<sitemap><loc>{sitemap}</loc></sitemap>"
+                "</sitemapindex>"
+            ).encode("utf-8")
+
+    calls: list[str] = []
+
+    def fake_guarded_urlopen(url, config, **kwargs):
+        calls.append(url)
+        return FakeResponse(url)
+
+    monkeypatch.setattr(crawler_module, "_guarded_urlopen", fake_guarded_urlopen)
+
+    urls = _read_sitemap(sitemap, CrawlConfig())
+
+    # Bounded depth terminates the cycle; each level contributes nothing.
+    assert urls == []
+    assert len(calls) <= crawler_module._SITEMAP_MAX_DEPTH + 1
+
+
+def test_sitemap_entry_budget_caps_result_size(monkeypatch) -> None:
+    import agentcrawl.crawler as crawler_module
+
+    sitemap = "https://example.com/sitemap.xml"
+    entries = "".join(f"<url><loc>https://example.com/p{i}</loc></url>" for i in range(500))
+
+    class FakeResponse:
+        url = sitemap
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def geturl(self) -> str:
+            return self.url
+
+        def read(self) -> bytes:
+            return f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{entries}</urlset>'.encode()
+
+    monkeypatch.setattr(
+        crawler_module,
+        "_guarded_urlopen",
+        lambda url, config, **kwargs: FakeResponse(),
+    )
+    real_budget = crawler_module._SITEMAP_MAX_URLS
+    monkeypatch.setattr(crawler_module, "_SITEMAP_MAX_URLS", 10)
+    try:
+        urls = _read_sitemap(sitemap, CrawlConfig())
+    finally:
+        crawler_module._SITEMAP_MAX_URLS = real_budget
+
+    assert len(urls) == 10  # capped, not 500
+
+
+def test_sitemap_discovery_rejects_private_redirect_targets(monkeypatch) -> None:
+    """A robots ``Sitemap:`` entry pointing at a private network must be
+    dropped, not fetched."""
+    import agentcrawl.crawler as crawler_module
+
+    root = "https://example.com/"
+    robots_url = "https://example.com/robots.txt"
+
+    class FakeResponse:
+        url = robots_url
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def geturl(self) -> str:
+            return self.url
+
+        def read(self) -> bytes:
+            return b"User-agent: *\nAllow: /\nSitemap: http://169.254.169.254/latest/meta-data/\n"
+
+    fetched: list[str] = []
+
+    def fake_guarded_urlopen(url, config, **kwargs):
+        fetched.append(url)
+        return FakeResponse()
+
+    monkeypatch.setattr(crawler_module, "_guarded_urlopen", fake_guarded_urlopen)
+
+    sitemaps = crawler_module._sitemaps_from_robots(root, CrawlConfig())
+
+    assert sitemaps == []
+    assert fetched == [robots_url]  # the private sitemap URL was never opened
+
+
+def test_guarded_urlopen_blocks_private_targets(monkeypatch) -> None:
+    """The discovery helper itself must refuse private-network targets."""
+    import agentcrawl.crawler as crawler_module
+
+    with pytest.raises(FetchError, match="Private or non-global"):
+        crawler_module._guarded_urlopen("http://127.0.0.1:9200/", CrawlConfig())

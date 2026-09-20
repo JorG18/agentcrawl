@@ -12,7 +12,7 @@ from .documents import markdown_from_fetched_content
 from .extraction import extract_answer
 from .fetchers import fetch_source
 from .models import CrawlResult
-from .parsing import chunk_text, html_to_markdown
+from .parsing import apply_output_budget, chunk_text_stats, html_to_markdown
 from .state import CrawlState
 from .utils import is_empty_answer, log
 
@@ -50,7 +50,11 @@ class CrawlGraph:
             markdown=state.get("markdown", ""),
             raw_html=state.get("html", ""),
             chunks=state.get("chunks", []),
-            metadata=state.get("metadata", {}),
+            metadata={
+                **state.get("metadata", {}),
+                "chunking": state.get("chunk_stats", {}),
+                "truncation": state.get("truncation", {}),
+            },
             errors=state.get("errors", []),
         )
 
@@ -62,11 +66,25 @@ class CrawlGraph:
 
     def parse(self, state: CrawlState) -> CrawlState:
         markdown = markdown_from_fetched_content(state.get("html", ""), state.get("metadata", {}))
-        state["markdown"] = markdown or html_to_markdown(state.get("html", ""), self.config)
+        markdown = markdown or html_to_markdown(state.get("html", ""), self.config)
+        # Apply the output budget here and record it: the extraction prompt
+        # claims to answer from "the page text", so a silent cut would make an
+        # incomplete answer look like a model failure.
+        markdown_chars_full = len(markdown)
+        markdown, chars_omitted = apply_output_budget(markdown, self.config.max_input_chars)
+        state["markdown"] = markdown
+        state["truncation"] = {
+            "markdown_chars": len(markdown),
+            "markdown_chars_full": markdown_chars_full,
+            "markdown_truncated": chars_omitted > 0,
+            "chars_omitted": chars_omitted,
+        }
         return state
 
     def chunk(self, state: CrawlState) -> CrawlState:
-        state["chunks"] = chunk_text(state.get("markdown", ""), self.config)
+        chunks, stats = chunk_text_stats(state.get("markdown", ""), self.config)
+        state["chunks"] = chunks
+        state["chunk_stats"] = stats
         return state
 
     def extract(self, state: CrawlState) -> CrawlState:

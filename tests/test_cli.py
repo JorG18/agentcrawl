@@ -151,3 +151,40 @@ def test_restore_copies_integrity_checked_backup_with_force(tmp_path: Path, caps
     assert payload["integrity_check"] == "ok"
     with sqlite3.connect(target) as conn:
         assert conn.execute("select value from sample").fetchone()[0] == "restored"
+
+
+def test_doctor_reads_the_installed_distribution(capsys, monkeypatch) -> None:
+    """Regression (2026-09 audit): ``doctor`` looked up the ``agentcrawl``
+    distribution instead of ``agentcrawl-ai``, so it reported a stale,
+    unrelated version (or "source checkout" on an installed wheel).
+    ``__init__`` was fixed in v0.1.2; this call site was missed."""
+    requested: list[str] = []
+
+    def fake_version(name: str) -> str:
+        requested.append(name)
+        return "9.9.9"
+
+    monkeypatch.delenv("AGENTCRAWL_BASE_URL", raising=False)
+    monkeypatch.delenv("AGENTCRAWL_API_KEY", raising=False)
+    monkeypatch.setattr("agentcrawl.cli.version", fake_version)
+
+    assert main(["doctor"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert requested == ["agentcrawl-ai"]
+    assert payload["agentcrawl"] == "9.9.9"
+
+
+def test_version_fallback_stays_in_sync_with_pyproject() -> None:
+    """The source-checkout fallback used to be a hardcoded literal that had
+    already drifted several releases behind ``pyproject.toml``."""
+    import re
+
+    import agentcrawl
+
+    pyproject = Path(agentcrawl.__file__).resolve().parent.parent / "pyproject.toml"
+    expected = re.search(
+        r'(?m)^version\s*=\s*"([^"]+)"', pyproject.read_text(encoding="utf-8")
+    ).group(1)
+
+    assert agentcrawl._pyproject_version() == expected

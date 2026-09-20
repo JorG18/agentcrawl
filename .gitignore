@@ -13,3 +13,10 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+
+# Graphify local workspace (graph.json mirrors the full tree)
+graphify-out/
+
+# Local agent tooling (graphify skill copies — keep out of the public repo)
+.agents/
+.claude/

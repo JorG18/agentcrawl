@@ -99,6 +99,13 @@ def html_to_markdown(
     *,
     only_main_content: bool = True,
 ) -> str:
+    """Convert HTML to Markdown **without** applying any output budget.
+
+    The parser deliberately does not truncate: only the caller can record a
+    truncation in the document metadata, and a silent cap here made the
+    primary product output lose content with nothing to show for it. Callers
+    apply :func:`apply_output_budget` and report what it dropped.
+    """
     html = extract_content_html(html, only_main_content=only_main_content)
     # Extract language tags from <pre><code class="language-python"> before conversion
     code_lang_map = _extract_code_language_tags(html)
@@ -115,12 +122,36 @@ def html_to_markdown(
         markdown = converter.handle(html)
     except Exception:
         markdown = _fallback_text(html)
-    return _clean_markdown(markdown, code_lang_map)[: config.max_input_chars]
+    return _clean_markdown(markdown, code_lang_map)
 
 
-def chunk_text(text: str, config: CrawlConfig) -> list[str]:
+def apply_output_budget(text: str, limit: int) -> tuple[str, int]:
+    """Cut ``text`` to ``limit`` characters and report how much was dropped.
+
+    Returns ``(text, chars_omitted)``. Truncation is a decision the caller has
+    to own: only it knows where to record the fact, and losing content without
+    saying so is what this helper exists to prevent.
+    """
+    if limit <= 0 or len(text) <= limit:
+        return text, 0
+    return text[:limit], len(text) - limit
+
+
+def chunk_text_stats(text: str, config: CrawlConfig) -> tuple[list[str], dict[str, Any]]:
+    """Split ``text`` into chunks and report what the ``max_chunks`` cap dropped.
+
+    The old behaviour returned the first ``max_chunks`` chunks and threw the
+    rest away silently, so a long page answered questions about its first
+    half only — while the extraction prompt still claimed to use "the page
+    text". The caller now gets the counts and can surface them.
+    """
     if not text.strip():
-        return []
+        return [], {
+            "chunks_total": 0,
+            "chunks_used": 0,
+            "chunks_omitted": 0,
+            "chunk_chars_omitted": 0,
+        }
     try:
         import semchunk
 
@@ -131,7 +162,21 @@ def chunk_text(text: str, config: CrawlConfig) -> list[str]:
             text[index : index + config.chunk_size]
             for index in range(0, len(text), config.chunk_size)
         ]
-    return [chunk.strip() for chunk in chunks if chunk.strip()][: config.max_chunks]
+    cleaned = [chunk.strip() for chunk in chunks if chunk.strip()]
+    used = cleaned[: config.max_chunks]
+    omitted = cleaned[config.max_chunks :]
+    stats: dict[str, Any] = {
+        "chunks_total": len(cleaned),
+        "chunks_used": len(used),
+        "chunks_omitted": len(omitted),
+        "chunk_chars_omitted": sum(len(chunk) for chunk in omitted),
+    }
+    return used, stats
+
+
+def chunk_text(text: str, config: CrawlConfig) -> list[str]:
+    """Chunks for extraction. See :func:`chunk_text_stats` for the omission counts."""
+    return chunk_text_stats(text, config)[0]
 
 
 def extract_content_html(html: str, *, only_main_content: bool = True) -> str:

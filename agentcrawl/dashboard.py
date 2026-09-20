@@ -17,14 +17,18 @@ _STATUS_LABELS = {
 }
 
 
-def dashboard_summary(store: SQLiteStore) -> dict[str, Any]:
-    """Return a read-only operational snapshot backed by SQLite."""
+def dashboard_summary(store: SQLiteStore, *, owner_key: str | None = None) -> dict[str, Any]:
+    """Return a read-only operational snapshot backed by SQLite.
+
+    ``owner_key=None`` is the operator view (every key); a key fingerprint
+    scopes the snapshot to that key's own jobs, failures, usage and cache.
+    """
     store.cleanup_cache()
-    jobs = store.job_counts()
-    failures = store.crawl_failure_metrics()
-    usage_by_endpoint = store.usage_by_endpoint()
-    cache_by_domain = store.cache_by_domain()
-    cache_entries = store.cache_count()
+    jobs = store.job_counts(owner_key=owner_key)
+    failures = store.crawl_failure_metrics(owner_key=owner_key)
+    usage_by_endpoint = store.usage_by_endpoint(api_key=owner_key)
+    cache_by_domain = store.cache_by_domain(owner_key=owner_key)
+    cache_entries = store.cache_count(owner_key=owner_key)
 
     return {
         "jobs": jobs,

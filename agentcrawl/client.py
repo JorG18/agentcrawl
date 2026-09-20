@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from typing import Any, Iterable
 
+from .airgap import AuditTrail
 from .config import CrawlConfig
 from .graph import CrawlGraph
 from .models import CrawlResult, SearchResult
@@ -55,8 +56,9 @@ class AgentCrawler:
                     )
         return [results_by_index[index] for index in range(len(source_list))]
 
-    def search(self, query: str) -> list[SearchResult]:
-        return search_web(query, self.config)
+    def search(self, query: str, audit_trail: AuditTrail | None = None) -> list[SearchResult]:
+        """Search the web. Pass ``audit_trail`` to record the request."""
+        return search_web(query, self.config, audit_trail)
 
     def search_then_scrape(
         self,
@@ -65,13 +67,20 @@ class AgentCrawler:
         schema: Any | None = None,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        results = self.search(query)
+        # With ``audit=True`` the search request must show up in the trail like
+        # any other request; it used to be invisible because search bypassed
+        # the guarded opener entirely.
+        trail = AuditTrail() if self.config.audit else None
+        results = self.search(query, trail)
         if limit is not None:
             results = results[:limit]
         crawls = self.scrape_many([result.url for result in results], prompt, schema)
-        return {
+        payload: dict[str, Any] = {
             "query": query,
             "search_results": results,
             "results": crawls,
             "answers": [crawl.answer for crawl in crawls if crawl.ok],
         }
+        if trail is not None:
+            payload["audit"] = trail.to_metadata()
+        return payload

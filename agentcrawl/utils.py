@@ -10,6 +10,18 @@ def log(enabled: bool, message: str) -> None:
         print(message)
 
 
+def estimate_tokens(text: str) -> int:
+    """Cheap, deterministic token estimate (~4 chars per token).
+
+    Lives here rather than in ``crawler`` so every document-construction site
+    (the HTTP path and the browser-retry path) can report the same Token
+    Efficiency fields without importing the crawler.
+    """
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+
 def is_probably_url(value: str) -> bool:
     return value.startswith(("http://", "https://"))
 

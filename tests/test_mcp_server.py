@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agentcrawl.mcp_server import (
+    _crawler,
     cache_stats,
     crawl_site,
     get_job,
@@ -11,6 +12,48 @@ from agentcrawl.mcp_server import (
     retry_failures,
     scrape_url,
 )
+
+
+def test_local_engine_reads_the_documented_env_vars(monkeypatch) -> None:
+    """MCP is the agent-facing entrance, so airgap/audit must be reachable there.
+
+    Only ``fetcher`` used to be read, which made the privacy switches
+    impossible to enable from an agent.
+    """
+    monkeypatch.setenv("AGENTCRAWL_AIRGAP", "true")
+    monkeypatch.setenv("AGENTCRAWL_AIRGAP_ALLOWLIST", "cdn.example.com")
+    monkeypatch.setenv("AGENTCRAWL_AUDIT", "1")
+    monkeypatch.setenv("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", "true")
+    monkeypatch.setenv("AGENTCRAWL_RESPECT_ROBOTS_TXT", "false")
+    monkeypatch.setenv("AGENTCRAWL_BROWSER_FALLBACK", "false")
+    monkeypatch.setenv("AGENTCRAWL_TIMEOUT_MS", "15000")
+
+    config = _crawler().config
+
+    assert config.airgap is True
+    assert config.allowlist_domains == ("cdn.example.com",)
+    assert config.audit is True
+    assert config.allow_private_network is True
+    assert config.respect_robots_txt is False
+    assert config.browser_fallback is False
+    assert config.timeout_ms == 15_000
+
+
+def test_local_engine_defaults_keep_privacy_switches_off(monkeypatch) -> None:
+    for name in (
+        "AGENTCRAWL_AIRGAP",
+        "AGENTCRAWL_AUDIT",
+        "AGENTCRAWL_ALLOW_PRIVATE_NETWORK",
+        "AGENTCRAWL_TIMEOUT_MS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    config = _crawler().config
+
+    assert config.airgap is False
+    assert config.audit is False
+    assert config.allow_private_network is False
+    assert config.respect_robots_txt is True
 
 
 def test_mcp_uses_local_engine_without_base_url(tmp_path: Path, monkeypatch) -> None:

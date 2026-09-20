@@ -71,9 +71,11 @@ docker run --rm -p 8000:8000 \
   ghcr.io/jorg18/agentcrawl:latest
 
 curl http://127.0.0.1:8000/health
-# Read-only local dashboard:
-# open http://127.0.0.1:8000/dashboard
-# curl http://127.0.0.1:8000/api/dashboard/summary
+# Read-only local dashboard. It follows the API auth setting, so send the key:
+# curl -H "authorization: Bearer replace-with-a-long-random-key" \
+#   http://127.0.0.1:8000/api/dashboard/summary
+# Header-less browser view (single-operator hosts only):
+#   -e AGENTCRAWL_DASHBOARD_PUBLIC=true  →  open http://127.0.0.1:8000/dashboard
 ```
 
 Or with Compose:
@@ -97,7 +99,7 @@ What works today:
 - ⚡ HTTP first: fast default extraction without starting a browser.
 - 🧱 Durable crawls: SQLite jobs with checkpoints, pagination, cancellation, events, retries, and failure inspection.
 - 📦 Local state: cache, usage, jobs, events, crawl failures, and extracted documents stay with you.
-- 📊 Read-only dashboard: generate static HTML from SQLite with `agentcrawl dashboard` or open `/dashboard` on the API server.
+- 📊 Read-only dashboard: generate static HTML from SQLite with `agentcrawl dashboard` or open `/dashboard` on the API server (it follows the API auth setting).
 - 🔒 Safer API defaults: bearer auth, `robots.txt` support, SSRF protections, unsafe redirect blocking, and private-network controls.
 - 🤖 Agent-facing interfaces: CLI, Python, HTTP API, Docker, and MCP.
 
@@ -113,7 +115,7 @@ AgentCrawl Community is the self-hosted trust layer:
 | MCP | Standards-based stdio MCP server for agent clients. |
 | Docker / GHCR | Public image built and smoke-tested by GitHub Actions. |
 | Durable crawls | SQLite jobs, events, checkpoints, retries, and failure records. |
-| Local dashboard | Read-only static HTML over SQLite via `agentcrawl dashboard` and `/dashboard`. |
+| Local dashboard | Read-only static HTML over SQLite via `agentcrawl dashboard` and `/dashboard`; the HTTP view follows the API auth setting. |
 | Quality extraction | Markdown, links, metadata, JSON-LD/provenance, tables, code blocks. |
 | Basic browser fallback | Optional local browser/Camofox path, not required for the default image. |
 | Lightweight docs | Install, examples, operations, release, quality notes. |
@@ -168,12 +170,12 @@ curl http://127.0.0.1:8000/v1/scrape \
   -d '{"url":"https://example.com","formats":["markdown","links","metadata"]}'
 ```
 
-Main endpoints:
+Main endpoints (everything except `/health` requires the bearer key; the dashboard follows the same setting unless `AGENTCRAWL_DASHBOARD_PUBLIC=true`):
 
 ```text
-GET    /health
-GET    /dashboard
-GET    /api/dashboard/summary
+GET    /health                     (unauthenticated)
+GET    /dashboard                  (see AGENTCRAWL_DASHBOARD_PUBLIC)
+GET    /api/dashboard/summary      (see AGENTCRAWL_DASHBOARD_PUBLIC)
 POST   /v1/scrape
 POST   /v1/map
 POST   /v1/crawl
@@ -199,7 +201,13 @@ Generate a dependency-free static HTML snapshot from any AgentCrawl SQLite datab
 agentcrawl dashboard --db agentcrawl.db --output dashboard.html
 ```
 
-When the API server is running, open the same read-only view at `/dashboard` or fetch JSON at `/api/dashboard/summary`. The dashboard reports job status, crawl queue, open failures, cache domains, and usage units without sending data to any hosted service.
+When the API server is running, the same read-only view is available at `/dashboard` (HTML) and `/api/dashboard/summary` (JSON). The dashboard reports job status, crawl queue, open failures, cache domains, and usage units without sending data to any hosted service.
+
+Because that is the same operational data `GET /v1/stats` protects, the HTTP dashboard follows `AGENTCRAWL_AUTH_ENABLED`: with auth on it needs the bearer key, and with auth off (local/dev) it stays open. A browser cannot send a bearer header, so a single-operator host that wants the header-less view sets `AGENTCRAWL_DASHBOARD_PUBLIC=true`. The offline path needs no server at all:
+
+```bash
+agentcrawl dashboard --db agentcrawl.db --output dashboard.html
+```
 
 ## Crawl jobs 🧭
 

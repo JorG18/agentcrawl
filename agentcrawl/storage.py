@@ -20,6 +20,25 @@ from .html_tools import normalize_url
 DEFAULT_SCHEDULE_LEASE_SECONDS = 300
 
 
+def _apply_owner_filter(
+    clauses: list[str],
+    params: list[Any],
+    owner_key: str | None,
+    *,
+    column: str = "owner_key",
+) -> None:
+    """Append an owner filter to a WHERE clause list.
+
+    ``owner_key=None`` means "every key" — the operator view, used when auth is
+    disabled or when the caller is one of the owner keys. ``owner_key=""``
+    matches rows written before per-key scoping existed.
+    """
+    if owner_key is None:
+        return
+    clauses.append(f"{column} = ?")
+    params.append(owner_key)
+
+
 def _cache_domain(value: str) -> str:
     candidate = value.strip().lower()
     if "://" not in candidate:
@@ -141,7 +160,8 @@ class SQLiteStore:
                         url text not null,
                         response_json text not null,
                         created_at real not null,
-                        expires_at real not null
+                        expires_at real not null,
+                        owner_key text not null default ''
                     );
                     create index if not exists idx_scrape_cache_expires_at on scrape_cache(expires_at);
                     """
@@ -174,13 +194,46 @@ class SQLiteStore:
                     where idempotency_key is not null
                     """
                 )
+                # Cache rows are scoped to the key that created them, like jobs:
+                # before this column any valid key could list every cached
+                # domain and wipe the whole cache. Rows written by older builds
+                # keep ``owner_key = ''`` and stay invisible to every key until
+                # they expire.
+                cache_columns = {
+                    str(row["name"])
+                    for row in conn.execute("pragma table_info(scrape_cache)").fetchall()
+                }
+                if "owner_key" not in cache_columns:
+                    conn.execute(
+                        "alter table scrape_cache add column owner_key text not null default ''"
+                    )
+                # Created after the ALTER: on a legacy database the column does
+                # not exist yet, so an index on it inside the schema script
+                # would fail before the migration had a chance to run.
+                conn.execute(
+                    "create index if not exists idx_scrape_cache_owner on scrape_cache(owner_key)"
+                )
             if not ephemeral:
                 SQLiteStore._migrated_paths.add(path_key)
 
     def prepare_restart_recovery(self) -> int:
         now = time.time()
         with self._connect() as conn:
-            running = conn.execute(
+            # Capture the ids BEFORE the status updates so the cleanup below
+            # only touches jobs this pass actually transitioned. Sweeping
+            # every ``cancelled`` job in history would silently erase crawl
+            # documents the operator had not paginated out yet.
+            recovered_ids = [
+                str(row["id"])
+                for row in conn.execute("select id from jobs where status = 'running'").fetchall()
+            ]
+            finalized_ids = [
+                str(row["id"])
+                for row in conn.execute(
+                    "select id from jobs where status = 'cancelling'"
+                ).fetchall()
+            ]
+            conn.execute(
                 """
                 update jobs
                 set status = 'queued',
@@ -189,7 +242,7 @@ class SQLiteStore:
                 where status = 'running'
                 """,
                 (now,),
-            ).rowcount
+            )
             conn.execute(
                 """
                 update jobs
@@ -201,10 +254,19 @@ class SQLiteStore:
                 """,
                 (now,),
             )
-            conn.execute(
-                "delete from crawl_documents where job_id in (select id from jobs where status = 'cancelled')"
-            )
-        return int(running or 0)
+            # Same cleanup contract as ``update_job(..., 'cancelled')``:
+            # a job that ends cancelled loses its documents; recovered jobs
+            # keep theirs so the resumed run does not duplicate pages.
+            if finalized_ids:
+                placeholders = ", ".join("?" for _ in finalized_ids)
+                conn.execute(
+                    f"""
+                    delete from crawl_documents
+                    where job_id in ({placeholders})
+                    """,
+                    tuple(finalized_ids),
+                )
+        return len(recovered_ids)
 
     @staticmethod
     def _insert_job_event(
@@ -347,10 +409,17 @@ class SQLiteStore:
         ``schedule_lock_expires_at`` on the row only when no other owner
         currently holds a live lease.
 
-        Returns ``True`` when the caller won the race; ``False`` when
-        another process already holds a valid lease. Leases expire
-        naturally, so a crashed server eventually loses its grip and a
-        future recover pass picks the job back up.
+        Re-entrant for the same owner: an instance renewing its own lease
+        succeeds, which is what the delayed-retry path needs — the worker
+        that requeued the job re-schedules it seconds later while the
+        300s lease it took at claim time is still live. Without the
+        re-entrant clause the renewal silently failed and delayed retries
+        sat in ``queued`` until process restart.
+
+        Returns ``True`` when the caller won the race (or renewed its own
+        lease); ``False`` when a different owner holds a valid lease.
+        Leases expire naturally, so a crashed server eventually loses its
+        grip and a future recover pass picks the job back up.
         """
         ttl = float(lease_seconds if lease_seconds is not None else DEFAULT_SCHEDULE_LEASE_SECONDS)
         deadline = time.time() + max(1.0, ttl)
@@ -364,9 +433,21 @@ class SQLiteStore:
                 where id = ?
                   and status = ?
                   and cancel_requested = 0
-                  and (schedule_lock is null or schedule_lock_expires_at < ?)
+                  and (
+                      schedule_lock is null
+                      or schedule_lock_expires_at < ?
+                      or schedule_lock = ?
+                  )
                 """,
-                (owner, deadline, time.time(), job_id, "queued", time.time()),
+                (
+                    owner,
+                    deadline,
+                    time.time(),
+                    job_id,
+                    "queued",
+                    time.time(),
+                    owner,
+                ),
             )
         return bool(cursor.rowcount)
 
@@ -653,6 +734,16 @@ class SQLiteStore:
             for row in rows
         ]
 
+    def job_owner_key(self, job_id: str) -> str | None:
+        """Owner fingerprint recorded for ``job_id``, or None when it does not exist.
+
+        Kept separate from :meth:`get_job` so the API can authorize a caller
+        without shipping the owner fingerprint in the response body.
+        """
+        with self._connect() as conn:
+            row = conn.execute("select owner_key from jobs where id = ?", (job_id,)).fetchone()
+        return None if row is None else str(row["owner_key"])
+
     def request_job_cancel(self, job_id: str) -> bool:
         now = time.time()
         with self._connect() as conn:
@@ -745,6 +836,7 @@ class SQLiteStore:
         retryable: bool | None = None,
         error_type: str | None = None,
         domain: str | None = None,
+        owner_key: str | None = None,
         offset: int = 0,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
@@ -753,6 +845,13 @@ class SQLiteStore:
         if job_id:
             clauses.append("job_id = ?")
             params.append(job_id)
+        if owner_key is not None:
+            # Failures carry the job id, not the owner, so resolve ownership
+            # with a subquery: a non-owner key may only list its own jobs'
+            # failures. Filtering here (not in Python) keeps ``limit``/``offset``
+            # meaningful for the filtered set.
+            clauses.append("job_id in (select id from jobs where owner_key = ?)")
+            params.append(owner_key)
         if status:
             clauses.append("status = ?")
             params.append(status)
@@ -960,22 +1059,34 @@ class SQLiteStore:
                 ).fetchone()
         return int(row["total"])
 
-    def get_cache(self, cache_key: str) -> dict[str, Any] | None:
+    def get_cache(self, cache_key: str, *, owner_key: str | None = None) -> dict[str, Any] | None:
+        query = "select response_json from scrape_cache where cache_key = ? and expires_at > ?"
+        params: list[Any] = [cache_key, time.time()]
+        if owner_key is not None:
+            query += " and owner_key = ?"
+            params.append(owner_key)
         with self._connect() as conn:
-            row = conn.execute(
-                "select response_json from scrape_cache where cache_key = ? and expires_at > ?",
-                (cache_key, time.time()),
-            ).fetchone()
+            row = conn.execute(query, params).fetchone()
         return json.loads(row["response_json"]) if row else None
 
     def set_cache(
-        self, cache_key: str, url: str, response: dict[str, Any], ttl_seconds: int
+        self,
+        cache_key: str,
+        url: str,
+        response: dict[str, Any],
+        ttl_seconds: int,
+        *,
+        owner_key: str = "",
     ) -> None:
         now = time.time()
         with self._connect() as conn:
             conn.execute(
-                "replace into scrape_cache values (?, ?, ?, ?, ?)",
-                (cache_key, url, json.dumps(response), now, now + ttl_seconds),
+                """
+                replace into scrape_cache
+                    (cache_key, url, response_json, created_at, expires_at, owner_key)
+                values (?, ?, ?, ?, ?, ?)
+                """,
+                (cache_key, url, json.dumps(response), now, now + ttl_seconds, owner_key),
             )
 
     def cleanup_cache(self) -> int:
@@ -991,23 +1102,46 @@ class SQLiteStore:
         with self._connect() as conn:
             conn.execute(f"pragma wal_checkpoint({mode})")
 
-    def cache_count(self) -> int:
+    def cache_count(self, *, owner_key: str | None = None) -> int:
+        clauses = ["expires_at > ?"]
+        params: list[Any] = [time.time()]
+        _apply_owner_filter(clauses, params, owner_key)
         with self._connect() as conn:
             row = conn.execute(
-                "select count(*) as total from scrape_cache where expires_at > ?", (time.time(),)
+                "select count(*) as total from scrape_cache where " + " and ".join(clauses),
+                params,
             ).fetchone()
         return int(row["total"])
 
-    def clear_cache(self, domain: str | None = None, url: str | None = None) -> int:
+    def clear_cache(
+        self,
+        domain: str | None = None,
+        url: str | None = None,
+        *,
+        owner_key: str | None = None,
+    ) -> int:
+        """Delete cache rows. ``owner_key=None`` means every key (operator view)."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if url:
+            clauses.append("url = ?")
+            params.append(url)
+        _apply_owner_filter(clauses, params, owner_key)
+        where = " where " + " and ".join(clauses) if clauses else ""
         with self._connect() as conn:
             if url:
-                cursor = conn.execute("delete from scrape_cache where url = ?", (url,))
+                cursor = conn.execute("delete from scrape_cache" + where, params)
                 return int(cursor.rowcount or 0)
             if not domain:
-                cursor = conn.execute("delete from scrape_cache")
+                cursor = conn.execute("delete from scrape_cache" + where, params)
                 return int(cursor.rowcount or 0)
             normalized_domain = _cache_domain(domain)
-            rows = conn.execute("select cache_key, url from scrape_cache").fetchall()
+            select_clauses = list(clauses)
+            select_params = list(params)
+            select_where = " where " + " and ".join(select_clauses) if select_clauses else ""
+            rows = conn.execute(
+                "select cache_key, url from scrape_cache" + select_where, select_params
+            ).fetchall()
             keys = [
                 str(row["cache_key"])
                 for row in rows
@@ -1018,12 +1152,15 @@ class SQLiteStore:
             )
             return len(keys)
 
-    def cache_by_domain(self) -> dict[str, int]:
+    def cache_by_domain(self, *, owner_key: str | None = None) -> dict[str, int]:
+        clauses = ["expires_at > ?"]
+        params: list[Any] = [time.time()]
+        _apply_owner_filter(clauses, params, owner_key)
         counts: dict[str, int] = {}
         with self._connect() as conn:
             rows = conn.execute(
-                "select url from scrape_cache where expires_at > ?",
-                (time.time(),),
+                "select url from scrape_cache where " + " and ".join(clauses),
+                params,
             ).fetchall()
         for row in rows:
             parsed = urllib.parse.urlsplit(str(row["url"]))
@@ -1031,15 +1168,24 @@ class SQLiteStore:
             counts[domain] = counts.get(domain, 0) + 1
         return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
 
-    def job_counts(self) -> dict[str, int]:
+    def job_counts(self, *, owner_key: str | None = None) -> dict[str, int]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        _apply_owner_filter(clauses, params, owner_key)
+        where = " where " + " and ".join(clauses) if clauses else ""
         with self._connect() as conn:
             rows = conn.execute(
-                "select status, count(*) as total from jobs group by status"
+                "select status, count(*) as total from jobs" + where + " group by status",
+                params,
             ).fetchall()
         return {str(row["status"]): int(row["total"]) for row in rows}
 
-    def crawl_queue_metrics(self) -> dict[str, int]:
+    def crawl_queue_metrics(self, *, owner_key: str | None = None) -> dict[str, int]:
         now = time.time()
+        clauses = ["type = 'crawl'"]
+        params: list[Any] = [now, now]
+        _apply_owner_filter(clauses, params, owner_key)
+        where = " and ".join(clauses)
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -1049,9 +1195,9 @@ class SQLiteStore:
                     sum(case when status = 'running' then 1 else 0 end) as running,
                     sum(case when status = 'cancelling' then 1 else 0 end) as cancelling
                 from jobs
-                where type = 'crawl'
-                """,
-                (now, now),
+                where """
+                + where,
+                params,
             ).fetchone()
         return {
             "ready": int(row["ready"] or 0),
@@ -1060,24 +1206,38 @@ class SQLiteStore:
             "cancelling": int(row["cancelling"] or 0),
         }
 
-    def crawl_failure_metrics(self) -> dict[str, Any]:
+    def crawl_failure_metrics(self, *, owner_key: str | None = None) -> dict[str, Any]:
+        # Failures carry the job id, not the owner, so a non-owner key is scoped
+        # through the owning job (same subquery as ``list_crawl_failures``).
+        owner_clause = ""
+        owner_params: list[Any] = []
+        if owner_key is not None:
+            owner_clause = " and job_id in (select id from jobs where owner_key = ?)"
+            owner_params = [owner_key]
         with self._connect() as conn:
             status_rows = conn.execute(
-                "select status, count(*) as total from crawl_failures group by status"
+                "select status, count(*) as total from crawl_failures where 1=1"
+                + owner_clause
+                + " group by status",
+                owner_params,
             ).fetchall()
             type_rows = conn.execute(
                 """
                 select error_type, count(*) as total
                 from crawl_failures
                 where status = 'open'
-                group by error_type
                 """
+                + owner_clause
+                + "\n                group by error_type",
+                owner_params,
             ).fetchall()
             retryable_open = conn.execute(
                 """
                 select count(*) as total from crawl_failures
                 where status = 'open' and retryable = 1
                 """
+                + owner_clause,
+                owner_params,
             ).fetchone()
         by_status = {str(row["status"]): int(row["total"]) for row in status_rows}
         return {
@@ -1086,9 +1246,17 @@ class SQLiteStore:
             "open_by_error_type": {str(row["error_type"]): int(row["total"]) for row in type_rows},
         }
 
-    def usage_by_endpoint(self) -> dict[str, int]:
+    def usage_by_endpoint(self, *, api_key: str | None = None) -> dict[str, int]:
+        query = (
+            "select endpoint, coalesce(sum(units), 0) as total from usage_events group by endpoint"
+        )
+        params: list[Any] = []
+        if api_key is not None:
+            query = (
+                "select endpoint, coalesce(sum(units), 0) as total from usage_events "
+                "where api_key = ? group by endpoint"
+            )
+            params.append(api_key)
         with self._connect() as conn:
-            rows = conn.execute(
-                "select endpoint, coalesce(sum(units), 0) as total from usage_events group by endpoint"
-            ).fetchall()
+            rows = conn.execute(query, params).fetchall()
         return {str(row["endpoint"]): int(row["total"]) for row in rows}

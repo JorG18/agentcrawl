@@ -43,11 +43,16 @@ Run AgentCrawl from a dedicated virtual environment with an environment file:
 
 ```text
 AGENTCRAWL_AUTH_ENABLED=true
-AGENTCRAWL_API_KEYS=<server-key>
+AGENTCRAWL_API_KEYS=<server-key>,<owner-key>
+# Owner keys are an elevation of a key that is already accepted by
+# AGENTCRAWL_API_KEYS: authentication runs first, so a key listed only here is
+# rejected with 403. List every owner key in both variables.
 AGENTCRAWL_OWNER_API_KEYS=<owner-key>
 AGENTCRAWL_DB=/var/lib/agentcrawl/agentcrawl.db
 AGENTCRAWL_ALLOW_LOCAL_FILES=false
 AGENTCRAWL_ALLOW_PRIVATE_NETWORK=false
+# Keep the dashboard behind auth on an exposed host.
+AGENTCRAWL_DASHBOARD_PUBLIC=false
 ```
 
 Run Uvicorn behind Tailscale or a TLS reverse proxy with network request limits.
@@ -100,10 +105,12 @@ export AGENTCRAWL_API_KEY=<client-key>
 agentcrawl mcp
 ```
 
-Main endpoints:
+Main endpoints. `/health` is unauthenticated; the dashboard endpoints follow `AGENTCRAWL_AUTH_ENABLED` unless `AGENTCRAWL_DASHBOARD_PUBLIC=true`; everything else requires `authorization: Bearer <key>`.
 
 ```text
 GET    /health
+GET    /dashboard
+GET    /api/dashboard/summary
 POST   /v1/scrape
 POST   /v1/map
 POST   /v1/crawl
@@ -119,6 +126,8 @@ DELETE /v1/cache
 ```
 
 Large crawls should use a stable `Idempotency-Key`, retain the returned job ID, and poll the same job. Read completed documents with `offset` and `limit`.
+
+Job state, the scrape cache, and the aggregate stats are scoped per key: a regular key can only read, cancel, or retry its own jobs, only lists its own crawl failures, and only sees (and clears) its own cache rows. Keys listed in `AGENTCRAWL_OWNER_API_KEYS` are the operator keys — they bypass rate limiting and can read every job and the global aggregates, so issue them deliberately. An owner key must **also** appear in `AGENTCRAWL_API_KEYS`: authentication runs before the owner check, so a key listed only under the owner variable is refused with `403`.
 
 ## MCP
 

@@ -47,6 +47,20 @@ def test_acquire_schedule_lease_is_atomic_across_stores(tmp_path: Path) -> None:
     assert store_b.acquire_schedule_lease(job_id, "instance-b", lease_seconds=60) is True
 
 
+def test_acquire_schedule_lease_is_reentrant_for_same_owner(tmp_path: Path) -> None:
+    """Delayed-retry rescheduling: the worker that requeued a job must be
+    able to renew its own live lease, otherwise the reschedule silently
+    fails and the job sits queued until process restart."""
+    store = SQLiteStore(tmp_path / "lease-reentrant.db")
+    job_id = store.create_job("crawl", {"url": "https://example.com"})
+
+    assert store.acquire_schedule_lease(job_id, "instance-a", lease_seconds=300) is True
+    # Same owner re-acquires while its lease is still live.
+    assert store.acquire_schedule_lease(job_id, "instance-a", lease_seconds=300) is True
+    # A different owner still cannot steal it.
+    assert store.acquire_schedule_lease(job_id, "instance-b", lease_seconds=60) is False
+
+
 def test_acquire_schedule_lease_skips_cancelled_or_running(tmp_path: Path) -> None:
     database = tmp_path / "lease-status.db"
     store = SQLiteStore(database)

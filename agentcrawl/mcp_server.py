@@ -27,8 +27,38 @@ def _client() -> AgentCrawlClient | None:
     )
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _crawler() -> AgentCrawl:
-    return AgentCrawl({"fetcher": os.getenv("AGENTCRAWL_FETCHER", "http")})
+    """Local-mode engine, configured from the documented ``AGENTCRAWL_*`` vars.
+
+    MCP is the agent-facing entrance, so the privacy switches must be reachable
+    here. Previously only ``fetcher`` was read, which made ``airgap`` and
+    ``audit`` impossible to turn on from an agent even though they are
+    Community's headline guarantees. ``airgap_from_env`` / ``AGENTCRAWL_AUDIT``
+    are the same inputs the CLI uses.
+    """
+    from .airgap import airgap_from_env
+
+    airgap, allowlist = airgap_from_env()
+    config: dict[str, Any] = {
+        "fetcher": os.getenv("AGENTCRAWL_FETCHER", "http"),
+        "airgap": airgap,
+        "allowlist_domains": list(allowlist),
+        "audit": _env_flag("AGENTCRAWL_AUDIT", False),
+        "allow_private_network": _env_flag("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", False),
+        "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
+        "browser_fallback": _env_flag("AGENTCRAWL_BROWSER_FALLBACK", True),
+    }
+    timeout_ms = os.getenv("AGENTCRAWL_TIMEOUT_MS", "").strip()
+    if timeout_ms.isdigit():
+        config["timeout_ms"] = int(timeout_ms)
+    return AgentCrawl(config)
 
 
 @mcp.tool()
@@ -40,11 +70,15 @@ def scrape_url(
     ] = None,
     use_cache: Annotated[
         bool,
-        Field(description="Use server cache; keep true unless fresh content is required."),
+        Field(
+            description="Server mode only: use the server's scrape cache. Ignored by the local engine, which keeps no cache. Keep true unless fresh content is required."
+        ),
     ] = True,
     cache_ttl_seconds: Annotated[
         int | None,
-        Field(description="Optional cache lifetime from 1 to 2592000 seconds."),
+        Field(
+            description="Server mode only: optional cache lifetime from 1 to 2592000 seconds. Ignored by the local engine."
+        ),
     ] = None,
     only_main_content: Annotated[
         bool | None,
@@ -59,6 +93,10 @@ def scrape_url(
     HTTP fetching when the user provides a URL or asks what a page says. Returns
     clean main-content Markdown plus requested links and metadata. The server
     retries transient failures and falls back to a browser for blocked pages.
+
+    Runs locally when AGENTCRAWL_BASE_URL is unset. The local engine has no
+    cache and no durable jobs, so use_cache and cache_ttl_seconds only apply in
+    server mode.
     """
     client = _client()
     if client is not None:
@@ -110,17 +148,23 @@ def crawl_site(
     ] = None,
     wait: Annotated[
         bool,
-        Field(description="For small crawls wait for results; otherwise poll get_job."),
+        Field(
+            description="Server mode only: for small crawls wait for results; otherwise poll get_job. The local engine always runs inline and returns documents, and there is no job to poll."
+        ),
     ] = False,
     idempotency_key: Annotated[
         str | None,
-        Field(description="Stable key that prevents duplicate asynchronous crawl jobs."),
+        Field(
+            description="Server mode only: stable key that prevents duplicate asynchronous crawl jobs. Ignored by the local engine, which starts no jobs."
+        ),
     ] = None,
 ) -> dict[str, Any]:
     """Scrape multiple same-site pages with bounded depth and page count.
 
-    Prefer wait=true for small crawls. With wait=false save the returned job_id
-    and poll get_job; do not start duplicate crawl jobs while it is active.
+    In server mode (AGENTCRAWL_BASE_URL set) prefer wait=true for small crawls and
+    otherwise save the returned job_id and poll get_job. In local mode the crawl
+    runs inline and returns documents directly: there is no job_id, and wait and
+    idempotency_key do not apply.
     """
     client = _client()
     if client is not None:

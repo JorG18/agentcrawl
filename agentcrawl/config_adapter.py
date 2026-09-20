@@ -34,8 +34,24 @@ def normalize_graph_config(config: dict[str, Any] | None) -> dict[str, Any]:
 
     if "loader_kwargs" in normalized:
         loader_kwargs = normalized.pop("loader_kwargs") or {}
-        if "timeout" in loader_kwargs:
-            normalized["timeout_ms"] = int(loader_kwargs["timeout"])
+        timeout = loader_kwargs.get("timeout")
+        # Loader semantics are *seconds* (ScrapeGraphAI / LangChain loaders);
+        # CrawlConfig speaks milliseconds. Passing the value straight through
+        # turned a 30 s timeout into 30 ms, so every fetch failed instantly,
+        # and int(0.5) became 0. An explicit ``timeout_ms`` wins: the caller
+        # asked for it in the unit the rest of the config uses.
+        if timeout is not None and "timeout_ms" not in normalized:
+            try:
+                seconds = float(timeout)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"loader_kwargs['timeout'] must be a number, got {timeout!r}"
+                ) from exc
+            if seconds <= 0:
+                raise ValueError(
+                    f"loader_kwargs['timeout'] must be greater than 0, got {timeout!r}"
+                )
+            normalized["timeout_ms"] = int(round(seconds * 1000))
 
     return normalized
 

@@ -5,16 +5,20 @@ from contextlib import asynccontextmanager, contextmanager
 from collections import deque
 import json
 import os
+import pathlib
 import queue
 import secrets
 import threading
 import time
 import urllib.parse
-from typing import Any
+from typing import Any, NamedTuple
 
+from . import __version__
+from .config import CrawlConfig
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
 from .crawler import AgentCrawl
+from .html_tools import validate_url_patterns
 from .serializers import to_jsonable
 from .security import validate_remote_url
 from .utils import is_probably_url
@@ -24,9 +28,66 @@ import uuid
 try:
     from fastapi import Depends, FastAPI, Header, HTTPException, Query
     from fastapi.responses import HTMLResponse
-    from pydantic import BaseModel, Field, ConfigDict
+    from pydantic import BaseModel, Field, ConfigDict, field_validator
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError("Install agentcrawl[server] to run the API server.") from exc
+
+
+# Engine options an API caller may override. Everything else in CrawlConfig
+# is either server-controlled (``allow_private_network``, ``proxy``,
+# ``camofox_*``) or an operator privacy decision (``airgap``, ``audit``,
+# ``allowlist_domains``), so a request cannot set it. Requests naming a key
+# outside this set are rejected outright rather than silently ignored — a
+# caller that asked for ``airgap`` and quietly did not get it would otherwise
+# believe its requests were constrained.
+_ALLOWED_CONFIG_OVERRIDES = frozenset(
+    {
+        "fetcher",
+        "browser_backend",
+        "headless",
+        "timeout_ms",
+        "http_retries",
+        "http_retry_delay",
+        "browser_fallback",
+        "browser_fallback_statuses",
+        "wait_until",
+        "user_agent",
+        "include_links",
+        "include_images",
+        "max_input_chars",
+        "max_response_bytes",
+        "crawl_depth",
+        "crawl_max_pages",
+        "crawl_same_domain",
+        "crawl_url_retries",
+        "crawl_retry_delay",
+        "crawl_retry_max_delay",
+        "crawl_retry_error_types",
+        "crawl_include",
+        "crawl_exclude",
+        "respect_robots_txt",
+    }
+)
+
+
+# Ceiling on the per-domain bookkeeping the server keeps in memory. A crawl
+# worker touches one domain type at a time and the state is only a pacing hint,
+# so trimming is safe; without it, a long-running server accumulated one entry
+# per domain ever scraped for the lifetime of the process.
+_MAX_TRACKED_DOMAINS = 1024
+
+
+class JobScope(NamedTuple):
+    """Caller identity for job-scoped endpoints.
+
+    ``key_id`` is the fingerprint returned by :meth:`AgentCrawlServer.require_key`;
+    ``is_owner`` marks keys listed in ``AGENTCRAWL_OWNER_API_KEYS``. Owner keys are
+    already the elevated set (they bypass rate limiting) and are the only ones
+    allowed to see jobs they do not own.
+    """
+
+    key_id: str | None
+    is_owner: bool
 
 
 class ScrapeRequest(BaseModel):
@@ -40,10 +101,18 @@ class ScrapeRequest(BaseModel):
 
 class MapRequest(BaseModel):
     url: str = Field(min_length=1, max_length=8192)
-    max_urls: int | None = None
+    # Bounded like CrawlRequest.max_pages: an unbounded value let a caller ask
+    # for every URL a sitemap can hold (up to the 100k discovery cap) in one
+    # response body, and a negative one silently returned an empty map.
+    max_urls: int | None = Field(default=None, ge=1, le=10_000)
     include: list[str] | None = None
     exclude: list[str] | None = None
     config: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("include", "exclude")
+    @classmethod
+    def _patterns(cls, value: list[str] | None) -> list[str] | None:
+        return validate_url_patterns(value)
 
 
 class CrawlRequest(BaseModel):
@@ -54,6 +123,11 @@ class CrawlRequest(BaseModel):
     exclude: list[str] | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     wait: bool = False
+
+    @field_validator("include", "exclude")
+    @classmethod
+    def _patterns(cls, value: list[str] | None) -> list[str] | None:
+        return validate_url_patterns(value)
 
 
 class ExtractRequest(BaseModel):
@@ -125,12 +199,35 @@ class AgentCrawlServer:
             "yes",
             "on",
         }
+        # Optional jail for local-file ingestion: when set, /v1/scrape with a
+        # local path can only read inside this directory tree. Without it,
+        # enabling AGENTCRAWL_ALLOW_LOCAL_FILES on a network service let any
+        # API key read world-readable files as the server user (/etc/passwd,
+        # config volumes, other containers' mounts...).
+        self.local_files_root = (
+            os.path.realpath(os.getenv("AGENTCRAWL_LOCAL_FILES_ROOT", ""))
+            if os.getenv("AGENTCRAWL_LOCAL_FILES_ROOT", "")
+            else None
+        )
+        # The dashboard reports job counts, cache domains, open failures, and
+        # usage units — the same operational data ``GET /v1/stats`` protects.
+        # Leaving it open while ``/v1/stats`` required a key was an
+        # unauthenticated information disclosure on any network-exposed
+        # deployment, so it now follows the API auth setting. Operators who
+        # want the header-less browser view opt out explicitly here.
+        self.dashboard_public = os.getenv("AGENTCRAWL_DASHBOARD_PUBLIC", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         self.allow_private_network = os.getenv(
             "AGENTCRAWL_ALLOW_PRIVATE_NETWORK", "false"
         ).lower() in {"1", "true", "yes", "on"}
         self._domain_lock = threading.Lock()
         self._domain_last_seen: dict[str, float] = {}
         self._domain_semaphores: dict[str, threading.BoundedSemaphore] = {}
+        self._domain_active: dict[str, int] = {}
         self._recover_lock = threading.Lock()
         self.default_config = {
             "fetcher": os.getenv("AGENTCRAWL_FETCHER", "http"),
@@ -173,9 +270,81 @@ class AgentCrawlServer:
         if not any(secrets.compare_digest(api_key, expected) for expected in self.api_keys):
             raise HTTPException(status_code=403, detail="Invalid API key.")
         key_id = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
-        if not any(secrets.compare_digest(api_key, owner) for owner in self.owner_api_keys):
+        if not self.is_owner_key(authorization):
             self.check_rate_limit(key_id)
         return key_id
+
+    def is_owner_key(self, authorization: str | None) -> bool:
+        """Whether the presented credential is one of the elevated owner keys.
+
+        Owner keys already bypass rate limiting; they are also the only keys
+        allowed to see jobs owned by another key.
+        """
+        if not authorization or not authorization.lower().startswith("bearer "):
+            return False
+        api_key = authorization.split(" ", 1)[1].strip()
+        return any(secrets.compare_digest(api_key, owner) for owner in self.owner_api_keys)
+
+    def job_scope(self, authorization: str | None = Header(default=None)) -> JobScope:
+        """Dependency for job-scoped endpoints: authenticate and classify the caller."""
+        return JobScope(
+            key_id=self.require_key(authorization),
+            is_owner=self.is_owner_key(authorization),
+        )
+
+    def can_access_job(self, job_id: str, scope: JobScope) -> bool:
+        """Whether ``scope`` may read or mutate the job with this id.
+
+        Jobs record the fingerprint of the key that created them, so a key can
+        only reach its own jobs unless it is an owner key. Before this check
+        any valid key could read, cancel, and retry any other key's job.
+        """
+        owner_key = self.store.job_owner_key(job_id)
+        if owner_key is None:
+            return False
+        if not self.auth_enabled or scope.is_owner:
+            return True
+        return owner_key == (scope.key_id or "")
+
+    def owner_filter(self, scope: JobScope) -> str | None:
+        """Owner key to filter shared state by, or None for the operator view.
+
+        ``None`` means "every key" and applies when auth is disabled (one
+        implicit user) or when the caller is an owner key. Any other key only
+        ever sees its own rows. Used by every endpoint that reports over jobs,
+        failures, usage or the cache — job-scoped endpoints got this treatment
+        in the 2026-09 pass; the aggregates were still leaking until now.
+        """
+        if not self.auth_enabled or scope.is_owner:
+            return None
+        return scope.key_id or ""
+
+    def dashboard_scope(self, authorization: str | None = Header(default=None)) -> JobScope:
+        """Dashboard access plus caller identity, in a single dependency.
+
+        Reuses ``require_key`` once (so the rate limiter sees one request, not
+        two). When auth is off, or ``AGENTCRAWL_DASHBOARD_PUBLIC=true`` gives an
+        unauthenticated browser view, the caller is the operator: an anonymous
+        dashboard cannot be scoped to anyone, and showing everyone's data is the
+        explicit purpose of that opt-out.
+        """
+        if self.dashboard_public or not self.auth_enabled:
+            return JobScope(key_id=None, is_owner=True)
+        return JobScope(
+            key_id=self.require_key(authorization),
+            is_owner=self.is_owner_key(authorization),
+        )
+
+    def require_dashboard_access(self, authorization: str | None = Header(default=None)) -> None:
+        """Gate the operational dashboard behind the API auth setting.
+
+        A disabled ``auth_enabled`` (local/dev) keeps the historic open
+        behaviour; ``AGENTCRAWL_DASHBOARD_PUBLIC=true`` restores it on an
+        authenticated server for operators who need a header-less browser view.
+        """
+        if self.dashboard_public or not self.auth_enabled:
+            return
+        self.require_key(authorization)
 
     def check_rate_limit(self, key_id: str) -> None:
         if self.rate_limit_per_minute <= 0:
@@ -190,36 +359,41 @@ class AgentCrawlServer:
                 raise HTTPException(status_code=429, detail="API key rate limit exceeded.")
             requests.append(now)
 
+    def validate_config_override(self, override: dict[str, Any]) -> None:
+        """Reject config overrides this server does not accept.
+
+        Two layers, both raising ``400`` instead of dropping or misapplying:
+
+        1. **Keys** — a caller cannot be left believing a security-relevant
+           setting (``airgap``, ``audit``, ``allowlist_domains``) or a typo
+           took effect.
+        2. **Values** — types and ranges come from ``CrawlConfig.from_dict``.
+           Without this, ``max_input_chars="x"`` and ``http_retries="2"`` were
+           HTTP 500s, ``timeout_ms="abc"`` produced a 200 whose error blamed
+           the *network*, and ``headless="false"`` was truthy (the opposite of
+           what it says). Validating here also covers the durable path, so a
+           bad value fails the request instead of a job minutes later.
+        """
+        unknown = sorted(set(override) - _ALLOWED_CONFIG_OVERRIDES)
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Unsupported config keys: "
+                    + ", ".join(unknown)
+                    + ". Those are server-controlled or unavailable over the API."
+                ),
+            )
+        try:
+            CrawlConfig.from_dict(override)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     def merged_config(self, override: dict[str, Any]) -> dict[str, Any]:
-        allowed = {
-            "fetcher",
-            "browser_backend",
-            "headless",
-            "timeout_ms",
-            "http_retries",
-            "http_retry_delay",
-            "browser_fallback",
-            "browser_fallback_statuses",
-            "wait_until",
-            "user_agent",
-            "include_links",
-            "include_images",
-            "max_input_chars",
-            "crawl_depth",
-            "crawl_max_pages",
-            "crawl_same_domain",
-            "crawl_url_retries",
-            "crawl_retry_delay",
-            "crawl_retry_max_delay",
-            "crawl_retry_error_types",
-            "crawl_include",
-            "crawl_exclude",
-            "respect_robots_txt",
-        }
-        safe_override = {key: value for key, value in override.items() if key in allowed}
+        self.validate_config_override(override)
         return {
             **self.default_config,
-            **safe_override,
+            **override,
             "allow_private_network": self.allow_private_network,
         }
 
@@ -229,11 +403,43 @@ class AgentCrawlServer:
                 raise HTTPException(
                     status_code=400, detail="Local file sources are disabled on this server."
                 )
+            if self.local_files_root is not None:
+                candidate = pathlib.Path(source).expanduser()
+                if not candidate.is_absolute():
+                    candidate = pathlib.Path.cwd() / candidate
+                resolved = os.path.realpath(candidate)
+                root = self.local_files_root
+                if resolved != root and not resolved.startswith(root + os.sep):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Local file sources must stay inside AGENTCRAWL_LOCAL_FILES_ROOT.",
+                    )
             return
         try:
             validate_remote_url(source, allow_private_network=self.allow_private_network)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def _prune_domain_state(self) -> None:
+        """Bound the per-domain dictionaries. Caller must hold ``_domain_lock``.
+
+        Pacing timestamps are dropped oldest-first; a domain semaphore is only
+        dropped while no request is holding it, so trimming can never loosen an
+        in-flight per-domain limit.
+        """
+        if len(self._domain_last_seen) > _MAX_TRACKED_DOMAINS:
+            stale = sorted(self._domain_last_seen.items(), key=lambda item: item[1])
+            for tracked_domain, _last_seen in stale[: len(stale) // 2]:
+                self._domain_last_seen.pop(tracked_domain, None)
+        if len(self._domain_semaphores) > _MAX_TRACKED_DOMAINS:
+            idle = [
+                tracked_domain
+                for tracked_domain in self._domain_semaphores
+                if self._domain_active.get(tracked_domain, 0) == 0
+            ]
+            for tracked_domain in idle[: len(idle) // 2 or 1]:
+                self._domain_semaphores.pop(tracked_domain, None)
+                self._domain_active.pop(tracked_domain, None)
 
     def throttle_url(self, url: str) -> None:
         if self.domain_min_delay <= 0:
@@ -246,6 +452,7 @@ class AgentCrawlServer:
             now = time.monotonic()
             available_at = max(now, self._domain_last_seen.get(domain, now))
             self._domain_last_seen[domain] = available_at + self.domain_min_delay
+            self._prune_domain_state()
         wait_for = available_at - now
         if wait_for > 0:
             time.sleep(wait_for)
@@ -260,6 +467,8 @@ class AgentCrawlServer:
                 if semaphore is None:
                     semaphore = threading.BoundedSemaphore(self.domain_max_concurrency)
                     self._domain_semaphores[domain] = semaphore
+                self._domain_active[domain] = self._domain_active.get(domain, 0) + 1
+                self._prune_domain_state()
             semaphore.acquire()
         try:
             self.throttle_url(url)
@@ -267,6 +476,12 @@ class AgentCrawlServer:
         finally:
             if semaphore is not None:
                 semaphore.release()
+                with self._domain_lock:
+                    remaining = self._domain_active.get(domain, 1) - 1
+                    if remaining > 0:
+                        self._domain_active[domain] = remaining
+                    else:
+                        self._domain_active.pop(domain, None)
 
     def _ensure_job_workers(self) -> None:
         with self._job_threads_lock:
@@ -384,7 +599,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="AgentCrawl", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="AgentCrawl", version=__version__, lifespan=lifespan)
 
 
 @app.get("/health")
@@ -393,13 +608,18 @@ def health() -> dict[str, Any]:
 
 
 @app.get("/api/dashboard/summary")
-def dashboard_summary_endpoint() -> dict[str, Any]:
-    return {"success": True, "data": dashboard_summary(server.store)}
+def dashboard_summary_endpoint(
+    scope: JobScope = Depends(server.dashboard_scope),
+) -> dict[str, Any]:
+    return {
+        "success": True,
+        "data": dashboard_summary(server.store, owner_key=server.owner_filter(scope)),
+    }
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard() -> HTMLResponse:
-    summary = dashboard_summary(server.store)
+def dashboard(scope: JobScope = Depends(server.dashboard_scope)) -> HTMLResponse:
+    summary = dashboard_summary(server.store, owner_key=server.owner_filter(scope))
     return HTMLResponse(render_dashboard_html(summary))
 
 
@@ -408,10 +628,13 @@ def scrape(
     request: ScrapeRequest, api_key: str | None = Depends(server.require_key)
 ) -> dict[str, Any]:
     server.validate_source(request.url)
-    cache_key = _scrape_cache_key(request)
+    # The cache is scoped to the key that filled it: the key already includes
+    # the owner, so another key neither reads this entry nor overwrites it.
+    owner_key = api_key or ""
+    cache_key = _scrape_cache_key(request, owner_key)
     use_cache = server.cache_enabled and request.cache
     if use_cache:
-        cached = server.store.get_cache(cache_key)
+        cached = server.store.get_cache(cache_key, owner_key=owner_key)
         if cached is not None:
             cached.setdefault("data", {}).setdefault("metadata", {})["cache_hit"] = True
             server.store.record_usage(api_key, "/v1/scrape.cache_hit")
@@ -429,7 +652,7 @@ def scrape(
     response = {"success": not bool(payload.get("errors")), "data": payload}
     if use_cache and response["success"]:
         ttl_seconds = request.cache_ttl_seconds or server.cache_ttl_seconds
-        server.store.set_cache(cache_key, request.url, response, ttl_seconds)
+        server.store.set_cache(cache_key, request.url, response, ttl_seconds, owner_key=owner_key)
     server.store.record_usage(api_key, "/v1/scrape")
     return response
 
@@ -458,6 +681,9 @@ def crawl(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     server.validate_source(request.url)
+    # Validate before creating the job so a bad override fails the request
+    # instead of failing a durable job minutes later inside a worker.
+    server.validate_config_override(request.config)
     payload = request.model_dump()
     if request.wait:
         result = _run_crawl(payload)
@@ -495,15 +721,17 @@ def get_job(
     job_id: str,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
-    api_key: str | None = Depends(server.require_key),
+    scope: JobScope = Depends(server.job_scope),
 ) -> dict[str, Any]:
+    # 404 rather than 403 for a foreign job: a key that cannot see a job should
+    # not be able to probe which job ids exist either.
+    if not server.can_access_job(job_id, scope):
+        raise HTTPException(status_code=404, detail="Job not found.")
     job = server.store.get_job(
         job_id,
         document_offset=offset,
         document_limit=limit,
     )
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
     return {"success": True, "data": job}
 
 
@@ -513,9 +741,9 @@ def get_job_events(
     event_type: str | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
-    api_key: str | None = Depends(server.require_key),
+    scope: JobScope = Depends(server.job_scope),
 ) -> dict[str, Any]:
-    if server.store.get_job(job_id) is None:
+    if not server.can_access_job(job_id, scope):
         raise HTTPException(status_code=404, detail="Job not found.")
     events = server.store.list_job_events(
         job_id,
@@ -523,15 +751,17 @@ def get_job_events(
         offset=offset,
         limit=limit,
     )
-    server.store.record_usage(api_key, "/v1/jobs.events")
+    server.store.record_usage(scope.key_id, "/v1/jobs.events")
     return {"success": True, "data": {"job_id": job_id, "events": events, "returned": len(events)}}
 
 
 @app.delete("/v1/jobs/{job_id}")
 def cancel_job(
     job_id: str,
-    api_key: str | None = Depends(server.require_key),
+    scope: JobScope = Depends(server.job_scope),
 ) -> dict[str, Any]:
+    if not server.can_access_job(job_id, scope):
+        raise HTTPException(status_code=404, detail="Job not found.")
     job = server.store.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
@@ -540,7 +770,7 @@ def cancel_job(
             status_code=409,
             detail=f"Job cannot be cancelled from status {job['status']}.",
         )
-    server.store.record_usage(api_key, "/v1/jobs.cancel")
+    server.store.record_usage(scope.key_id, "/v1/jobs.cancel")
     return {"success": True, "data": {"job_id": job_id, "status": "cancelling"}}
 
 
@@ -553,7 +783,7 @@ def list_failures(
     domain: str | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
-    api_key: str | None = Depends(server.require_key),
+    scope: JobScope = Depends(server.job_scope),
 ) -> dict[str, Any]:
     failures = server.store.list_crawl_failures(
         job_id=job_id,
@@ -561,10 +791,12 @@ def list_failures(
         retryable=retryable,
         error_type=error_type,
         domain=domain,
+        # A non-owner key only sees failures belonging to its own jobs.
+        owner_key=server.owner_filter(scope),
         offset=offset,
         limit=limit,
     )
-    server.store.record_usage(api_key, "/v1/failures")
+    server.store.record_usage(scope.key_id, "/v1/failures")
     return {"success": True, "data": {"failures": failures, "returned": len(failures)}}
 
 
@@ -576,9 +808,9 @@ def list_job_failures(
     error_type: str | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
-    api_key: str | None = Depends(server.require_key),
+    scope: JobScope = Depends(server.job_scope),
 ) -> dict[str, Any]:
-    if server.store.get_job(job_id) is None:
+    if not server.can_access_job(job_id, scope):
         raise HTTPException(status_code=404, detail="Job not found.")
     failures = server.store.list_crawl_failures(
         job_id=job_id,
@@ -588,7 +820,7 @@ def list_job_failures(
         offset=offset,
         limit=limit,
     )
-    server.store.record_usage(api_key, "/v1/jobs.failures")
+    server.store.record_usage(scope.key_id, "/v1/jobs.failures")
     return {
         "success": True,
         "data": {"job_id": job_id, "failures": failures, "returned": len(failures)},
@@ -599,8 +831,10 @@ def list_job_failures(
 def retry_job_failures(
     job_id: str,
     request: RetryFailuresRequest,
-    api_key: str | None = Depends(server.require_key),
+    scope: JobScope = Depends(server.job_scope),
 ) -> dict[str, Any]:
+    if not server.can_access_job(job_id, scope):
+        raise HTTPException(status_code=404, detail="Job not found.")
     try:
         failures = server.store.retry_crawl_failures(
             job_id,
@@ -615,8 +849,8 @@ def retry_job_failures(
     if failures:
         job = server.store.get_job(job_id)
         if job is not None:
-            server.schedule_job(job_id, job["request"], api_key)
-    server.store.record_usage(api_key, "/v1/jobs.failures.retry")
+            server.schedule_job(job_id, job["request"], scope.key_id)
+    server.store.record_usage(scope.key_id, "/v1/jobs.failures.retry")
     return {
         "success": True,
         "data": {"job_id": job_id, "retried": len(failures), "failures": failures},
@@ -641,19 +875,22 @@ def usage(api_key: str | None = Depends(server.require_key)) -> dict[str, Any]:
 
 
 @app.get("/v1/stats")
-def stats(api_key: str | None = Depends(server.require_key)) -> dict[str, Any]:
+def stats(scope: JobScope = Depends(server.job_scope)) -> dict[str, Any]:
     server.store.cleanup_cache()
+    # Every aggregate below was global while ``usage_total`` was already
+    # per-key: a regular key could read which domains another key had cached.
+    owner_key = server.owner_filter(scope)
     return {
         "success": True,
         "data": {
-            "usage_total": server.store.usage_count(api_key),
-            "usage_by_endpoint": server.store.usage_by_endpoint(),
-            "jobs": server.store.job_counts(),
+            "usage_total": server.store.usage_count(scope.key_id),
+            "usage_by_endpoint": server.store.usage_by_endpoint(api_key=scope.key_id),
+            "jobs": server.store.job_counts(owner_key=owner_key),
             "job_events": server.store.job_event_counts(),
-            "crawl_queue": server.store.crawl_queue_metrics(),
-            "crawl_failures": server.store.crawl_failure_metrics(),
-            "cache_entries": server.store.cache_count(),
-            "cache_by_domain": server.store.cache_by_domain(),
+            "crawl_queue": server.store.crawl_queue_metrics(owner_key=owner_key),
+            "crawl_failures": server.store.crawl_failure_metrics(owner_key=owner_key),
+            "cache_entries": server.store.cache_count(owner_key=owner_key),
+            "cache_by_domain": server.store.cache_by_domain(owner_key=owner_key),
             "cache_enabled": server.cache_enabled,
             "cache_ttl_seconds": server.cache_ttl_seconds,
             "domain_min_delay": server.domain_min_delay,
@@ -669,12 +906,15 @@ def stats(api_key: str | None = Depends(server.require_key)) -> dict[str, Any]:
 def clear_cache(
     domain: str | None = None,
     url: str | None = None,
-    api_key: str | None = Depends(server.require_key),
+    scope: JobScope = Depends(server.job_scope),
 ) -> dict[str, Any]:
     if domain and url:
         raise HTTPException(status_code=400, detail="Use either domain or url, not both.")
-    deleted = server.store.clear_cache(domain=domain, url=url)
-    server.store.record_usage(api_key, "/v1/cache.delete")
+    # Without a filter this deleted every cached row on the server, so any
+    # regular key could wipe another key's cache. Non-owner keys now clear
+    # their own entries only; owner keys keep the whole-server behaviour.
+    deleted = server.store.clear_cache(domain=domain, url=url, owner_key=server.owner_filter(scope))
+    server.store.record_usage(scope.key_id, "/v1/cache.delete")
     return {
         "success": True,
         "data": {"deleted": deleted, "domain": domain, "url": url},
@@ -781,9 +1021,12 @@ def _run_crawl(
     return to_jsonable(result)
 
 
-def _scrape_cache_key(request: ScrapeRequest) -> str:
+def _scrape_cache_key(request: ScrapeRequest, owner_key: str = "") -> str:
     payload = {
-        "pipeline_version": 2,
+        # Bumped to 3 with per-key cache scoping: entries written by earlier
+        # builds carry ``owner_key = ''`` and must not be served to anyone.
+        "pipeline_version": 3,
+        "owner": owner_key,
         "url": request.url,
         "formats": sorted(request.formats),
         "only_main_content": request.only_main_content,

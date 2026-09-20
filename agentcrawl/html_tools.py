@@ -208,9 +208,39 @@ def same_domain(url: str, root_url: str) -> bool:
 
 
 def url_allowed(url: str, include: list[str], exclude: list[str]) -> bool:
-    if include and not any(re.search(pattern, url) for pattern in include):
+    if include and not any(_pattern_matches(pattern, url) for pattern in include):
         return False
-    return not any(re.search(pattern, url) for pattern in exclude)
+    return not any(_pattern_matches(pattern, url) for pattern in exclude)
+
+
+def _pattern_matches(pattern: str, url: str) -> bool:
+    """``re.search`` that a caller's typo can never turn into an exception.
+
+    ``include`` / ``exclude`` are user input (the CLI flags and the API's
+    ``include`` / ``exclude`` bodies), and an uncompilable pattern used to
+    raise ``re.error`` from inside the crawl loop — which surfaced as an HTTP
+    500 on ``POST /v1/map``. The API rejects bad patterns up front; this
+    guarantees the library cannot crash mid-crawl either: an unusable pattern
+    simply matches nothing.
+    """
+    try:
+        return re.search(pattern, url) is not None
+    except re.error:
+        return False
+
+
+def validate_url_patterns(patterns: list[str] | None) -> list[str] | None:
+    """Raise ``ValueError`` for a pattern that cannot compile, naming it."""
+    if patterns is None:
+        return None
+    for pattern in patterns:
+        if not isinstance(pattern, str):
+            raise ValueError(f"Patterns must be strings, got {type(pattern).__name__}")
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(f"Invalid regular expression {pattern!r}: {exc}") from exc
+    return patterns
 
 
 def _stable_query(query: str) -> str:

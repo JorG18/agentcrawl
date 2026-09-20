@@ -13,10 +13,13 @@ def classify_error(message: str | None) -> str | None:
         return "not_found"
     if "timed out" in text or "timeout" in text:
         return "timeout"
-    if "playwright" in text or "browser" in text or "chromium" in text:
-        return "browser_error"
+    # Transport-level classes come before the browser bucket. "browser" is a
+    # broad substring, so a certificate failure or a DNS failure inside a
+    # browser fetch was classified as ``browser_error`` and lost its real cause.
     if "ssl" in text or "certificate" in text:
         return "tls_error"
     if "name or service not known" in text or "temporary failure" in text or "connection" in text:
         return "network_error"
+    if "playwright" in text or "browser" in text or "chromium" in text:
+        return "browser_error"
     return "fetch_error"

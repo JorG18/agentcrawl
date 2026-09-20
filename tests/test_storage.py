@@ -1,6 +1,48 @@
 from agentcrawl.storage import SQLiteStore
 
 
+def test_prepare_restart_recovery_only_sweeps_jobs_it_finalizes(tmp_path) -> None:
+    """Recovering a crashed 'running' job must not delete documents that
+    belong to unrelated cancelled jobs from earlier runs."""
+    store = SQLiteStore(tmp_path / "recovery.db")
+
+    crashed = store.create_job("crawl", {"url": "https://a.example"})
+    store.claim_job(crashed)  # status = running
+    store.save_job_checkpoint(
+        crashed,
+        {"version": 2, "root": "https://a.example", "queue": []},
+        {"visited": 1},
+        document={"url": "https://a.example/page", "markdown": "# Kept"},
+    )
+
+    old_cancelled = store.create_job("crawl", {"url": "https://b.example"})
+    store.update_job(
+        old_cancelled,
+        "completed",
+        result={"documents": [{"url": "https://b.example/page", "markdown": "# Old"}]},
+    )
+    store.update_job(old_cancelled, "cancelled")
+    assert store.get_job_documents(old_cancelled) == []  # normal cancel clears docs
+
+    # Give the old cancelled job documents again, as an operator-visible
+    # artifact from a restore or earlier version.
+    store.save_job_checkpoint(
+        old_cancelled,
+        {"version": 2, "root": "https://b.example", "queue": []},
+        {"visited": 1},
+        document={"url": "https://b.example/page", "markdown": "# Historical"},
+    )
+    assert store.get_job_documents(old_cancelled)
+
+    assert store.prepare_restart_recovery() == 1
+
+    # The recovered job keeps its documents for the resumed run.
+    assert store.get_job(crashed)["status"] == "queued"
+    assert store.get_job_documents(crashed)
+    # The historical cancelled job's documents are untouched.
+    assert store.get_job_documents(old_cancelled)
+
+
 def test_cleanup_cache_checkpoints_wal(tmp_path, monkeypatch) -> None:
     calls: list[str] = []
     original_connect = SQLiteStore._connect
