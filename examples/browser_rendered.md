@@ -14,12 +14,14 @@ playwright install chromium
 ```python
 from agentcrawl import AgentCrawl, ScrapeDocument
 
-crawler = AgentCrawl({
-    "fetcher": "playwright",
-    "headless": True,
-    "wait_for_selector": "main",
-    "block_resources": ["image", "font", "media"],
-})
+crawler = AgentCrawl(
+    {
+        "fetcher": "playwright",
+        "headless": True,
+        "browser_wait_for_selector": "main",
+        "browser_block_resources": ["image", "font", "media"],
+    }
+)
 
 document = crawler.scrape("https://pypi.org/project/agentcrawl-ai/")
 assert isinstance(document, ScrapeDocument)

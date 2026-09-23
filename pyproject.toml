@@ -71,7 +71,7 @@ mcp = [
   "mcp>=1.27.1,<2.0.0",
   "pydantic>=2.13.4,<3.0.0",
 ]
-dev = ["httpx>=0.28.0,<1.0.0", "pytest>=8.0.0", "ruff>=0.13.0"]
+dev = ["httpx>=0.28.0,<1.0.0", "pytest>=8.0.0", "ruff>=0.13.0,<0.17"]
 
 [project.scripts]
 agentcrawl = "agentcrawl.cli:main"
@@ -109,3 +109,9 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+# Pinned explicitly: Ruff 0.16 widened its default rule set, which turned a
+# green tree red in CI without a single code change. Widen on purpose, not by
+# upgrading.
+select = ["E4", "E7", "E9", "F"]
