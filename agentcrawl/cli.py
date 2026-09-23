@@ -17,6 +17,7 @@ from typing import Any
 
 from . import __version__
 from .crawler import AgentCrawl
+from .config import config_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
 from .remote_client import AgentCrawlClient
 from .serializers import to_jsonable
@@ -39,23 +40,74 @@ def main(argv: list[str] | None = None) -> int:
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    scrape = sub.add_parser("scrape")
+    # Engine switches for local mode. Unset flags keep the AGENTCRAWL_* env
+    # value (``config.config_from_env``), so a flag always wins over env.
+    engine = argparse.ArgumentParser(add_help=False)
+    engine_group = engine.add_argument_group("local engine (ignored with --remote)")
+    engine_group.add_argument(
+        "--allow-private-network",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Allow localhost/127.x/private targets (e.g. a local dev server).",
+    )
+    engine_group.add_argument("--airgap", action="store_const", const=True, default=None)
+    engine_group.add_argument(
+        "--allowlist", default=None, help="Comma-separated hosts allowed under --airgap."
+    )
+    engine_group.add_argument("--audit", action="store_const", const=True, default=None)
+    engine_group.add_argument("--timeout-ms", type=int, default=None)
+    engine_group.add_argument(
+        "--no-robots", dest="respect_robots_txt", action="store_const", const=False, default=None
+    )
+    engine_group.add_argument(
+        "--no-browser-fallback",
+        dest="browser_fallback",
+        action="store_const",
+        const=False,
+        default=None,
+    )
+
+    scrape = sub.add_parser("scrape", parents=[engine])
     scrape.add_argument("url")
     scrape.add_argument("--format", action="append", dest="formats", default=None)
     scrape.add_argument("--no-cache", action="store_true")
     scrape.add_argument("--cache-ttl", type=int, default=None)
     scrape.add_argument("--full-page", action="store_true")
     scrape.add_argument(
+        "--query", help="Keep the passages most relevant to this query when the page is long."
+    )
+    scrape.add_argument(
         "--token-stats",
         action="store_true",
         help="Print a Token Efficiency Report after a successful scrape (community feature).",
     )
 
-    map_cmd = sub.add_parser("map")
+    scrape_many = sub.add_parser(
+        "scrape-many", help="Scrape several URLs in one call.", parents=[engine]
+    )
+    scrape_many.add_argument("urls", nargs="*")
+    scrape_many.add_argument(
+        "--file", help="Read URLs from a file, one per line ('-' for stdin); '#' starts a comment."
+    )
+    scrape_many.add_argument("--format", action="append", dest="formats", default=None)
+    scrape_many.add_argument("--no-cache", action="store_true")
+    scrape_many.add_argument("--full-page", action="store_true")
+    scrape_many.add_argument("--query")
+
+    extract_css = sub.add_parser(
+        "extract-css",
+        parents=[engine],
+        help="Deterministic structured extraction with a CSS schema (no LLM).",
+    )
+    extract_css.add_argument("url")
+    extract_css.add_argument("--schema", required=True, help="Path to the JSON schema file.")
+
+    map_cmd = sub.add_parser("map", parents=[engine])
     map_cmd.add_argument("url")
     map_cmd.add_argument("--max-urls", type=int, default=None)
 
-    crawl = sub.add_parser("crawl")
+    crawl = sub.add_parser("crawl", parents=[engine])
     crawl.add_argument("url")
     crawl.add_argument("--max-pages", type=int, default=None)
     crawl.add_argument("--max-depth", type=int, default=None)
@@ -148,6 +200,20 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    if args.command == "extract-css":
+        try:
+            args.css_schema = json.loads(Path(args.schema).expanduser().read_text("utf-8"))
+            from .css_extract import validate_css_schema
+
+            validate_css_schema(args.css_schema)
+        except (OSError, ValueError) as exc:
+            parser.error(f"--schema: {exc}")
+
+    if args.command == "scrape-many":
+        args.urls = _collect_urls(args.urls, args.file)
+        if not args.urls:
+            parser.error("scrape-many needs URLs as arguments or via --file")
+
     if args.command == "crawl" and args.alert_on_failure and not args.cmd:
         parser.error("crawl --alert-on-failure requires --cmd")
 
@@ -227,7 +293,27 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    # Scripts and CI need to know a scrape failed without parsing the JSON: the
+    # command used to exit 0 whatever happened. Usage errors exit 2 (argparse).
+    return 1 if args.command in _RESULT_COMMANDS and _result_failed(result) else 0
+
+
+_RESULT_COMMANDS = frozenset({"scrape", "scrape-many", "extract-css", "map", "crawl"})
+
+
+def _result_failed(result: Any) -> bool:
+    if isinstance(result, list):
+        return any(_result_failed(item) for item in result)
+    if not isinstance(result, dict):
+        return False
+    if result.get("success") is False or result.get("ok") is False:
+        return True
+    if result.get("errors"):
+        return True
+    data = result.get("data")
+    if isinstance(data, (dict, list)) and "success" not in result:
+        return _result_failed(data)
+    return False
 
 
 def _run_failure_alert(result: dict[str, Any], cmd: str) -> bool:
@@ -389,9 +475,7 @@ def _check_local_scrape() -> dict[str, Any]:
         with tempfile.TemporaryDirectory() as directory:
             page = Path(directory) / "doctor.html"
             page.write_text("<main><h1>AgentCrawl Doctor</h1></main>", encoding="utf-8")
-            document = AgentCrawl({"fetcher": os.getenv("AGENTCRAWL_FETCHER", "http")}).scrape(
-                str(page)
-            )
+            document = AgentCrawl(config_from_env()).scrape(str(page))
         markdown = getattr(document, "markdown", "")
         return _check_bool("AgentCrawl Doctor" in markdown)
     except Exception as exc:
@@ -488,14 +572,63 @@ def _restore(backup_db: str, db_path: str, *, force: bool = False) -> dict[str, 
     }
 
 
+def _collect_urls(urls: list[str], file: str | None) -> list[str]:
+    collected = list(urls)
+    if file:
+        handle = sys.stdin if file == "-" else Path(file).expanduser().open(encoding="utf-8")
+        try:
+            for line in handle:
+                line = line.split("#", 1)[0].strip()
+                if line:
+                    collected.append(line)
+        finally:
+            if handle is not sys.stdin:
+                handle.close()
+    return collected
+
+
+def _local_config(args: argparse.Namespace) -> dict[str, Any]:
+    config = config_from_env()
+    config["fetcher"] = args.fetcher
+    overrides = {
+        "allow_private_network": getattr(args, "allow_private_network", None),
+        "airgap": getattr(args, "airgap", None),
+        "audit": getattr(args, "audit", None),
+        "timeout_ms": getattr(args, "timeout_ms", None),
+        "respect_robots_txt": getattr(args, "respect_robots_txt", None),
+        "browser_fallback": getattr(args, "browser_fallback", None),
+    }
+    config.update({key: value for key, value in overrides.items() if value is not None})
+    allowlist = getattr(args, "allowlist", None)
+    if allowlist is not None:
+        config["allowlist_domains"] = [
+            item.strip() for item in allowlist.split(",") if item.strip()
+        ]
+    return config
+
+
 def _run_local(args: argparse.Namespace) -> Any:
-    crawler = AgentCrawl({"fetcher": args.fetcher})
+    crawler = AgentCrawl(_local_config(args))
+    if args.command == "extract-css":
+        return crawler.extract_css(args.url, args.css_schema)
+    if args.command == "scrape-many":
+        documents = crawler.scrape_many(
+            args.urls,
+            formats=args.formats or ["markdown", "links", "metadata"],
+            only_main_content=False if args.full_page else None,
+            query=args.query,
+        )
+        return [
+            {"url": url, "success": not document.get("errors"), "data": document}
+            for url, document in zip(args.urls, (to_jsonable(doc) for doc in documents))
+        ]
     if args.command == "scrape":
         return to_jsonable(
             crawler.scrape(
                 args.url,
                 formats=args.formats or ["markdown", "links", "metadata"],
                 only_main_content=False if args.full_page else None,
+                query=args.query,
             )
         )
     if args.command == "map":
@@ -516,6 +649,17 @@ def _run_remote(args: argparse.Namespace) -> Any:
             only_main_content=False if args.full_page else None,
             cache=not args.no_cache,
             cache_ttl_seconds=args.cache_ttl,
+            query=args.query,
+        )
+    if args.command == "extract-css":
+        return client.extract_css(args.url, args.css_schema)
+    if args.command == "scrape-many":
+        return client.scrape_many(
+            args.urls,
+            formats=args.formats,
+            only_main_content=False if args.full_page else None,
+            cache=not args.no_cache,
+            query=args.query,
         )
     if args.command == "map":
         return client.map(args.url, max_urls=args.max_urls)

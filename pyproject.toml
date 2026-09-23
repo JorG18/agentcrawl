@@ -80,6 +80,28 @@ agentcrawl-mcp = "agentcrawl.mcp_server:main"
 [tool.hatch.build.targets.wheel]
 packages = ["agentcrawl"]
 
+# Explicit allowlist: without it hatch packs every file not excluded by the
+# repo's own .gitignore, so locally ignored working files (agent plans, notes)
+# ended up in the published sdist.
+[tool.hatch.build.targets.sdist]
+include = [
+  "/agentcrawl",
+  "/tests",
+  "/benchmarks",
+  "/docs",
+  "/examples",
+  "/integrations",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/ROADMAP.md",
+  "/SECURITY.md",
+  "/CONTRIBUTING.md",
+  "/INSTALL_FOR_AGENTS.md",
+  "/LICENSE",
+  "/.env.example",
+]
+exclude = ["__pycache__", "*.pyc"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

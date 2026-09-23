@@ -19,6 +19,11 @@ Include affected versions, reproduction steps, impact, and any suggested mitigat
 - Treat browser execution as untrusted workload and constrain CPU, memory, and concurrency.
 - Update the base image and Python dependencies regularly.
 
-The built-in URL checks reduce SSRF risk but are not a replacement for egress firewall rules. Refusals from those checks (SSRF guard, `airgap=True` allowlist) are deterministic and fail immediately rather than being retried.
+The built-in URL checks reduce SSRF risk but are not a replacement for egress firewall rules. What they cover:
+
+- **HTTP fetcher, search and robots/sitemap discovery:** every hop is validated and, unless `allow_private_network` is on, the connection is DNS-pinned (resolved once, validated, connected to that address) so DNS rebinding cannot swap in a private address between check and connect.
+- **Playwright fetcher:** every browser request — redirect hops, iframes, sub-resources, `fetch()`/XHR, WebSockets — is checked against the SSRF guard and the airgap allowlist before it is sent; service workers are blocked. The browser resolves DNS itself, so this path has **no DNS pinning**.
+- **Camofox backend:** its browser runs in a separate service and **cannot** be guarded from AgentCrawl. It refuses to run under `airgap=True`, and the API only uses it when the operator configured it. Run it on an isolated network if pages are untrusted.
+- **Caller-supplied regexes** (`include`/`exclude`, CSS-schema `regex` fields) run on Python's `re`, which has no match timeout: validation rejects invalid patterns but cannot rule out a pathological one. Refusals from those checks (SSRF guard, `airgap=True` allowlist) are deterministic and fail immediately rather than being retried.
 
 Request bodies cannot override server-controlled or privacy-relevant engine settings. A `config` override naming a key the server does not accept (`airgap`, `audit`, `allowlist_domains`, `allow_private_network`, …) is rejected with `400` instead of being silently ignored.

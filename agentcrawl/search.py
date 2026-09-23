@@ -9,7 +9,7 @@ from html import unescape
 from typing import Any
 
 from .config import CrawlConfig
-from .fetchers import _read_bounded, _safe_urlopen
+from .fetchers import _read_bounded, _safe_urlopen, read_deadline_seconds
 from .models import SearchResult
 
 
@@ -88,7 +88,12 @@ def _fetch_search_body(
     while scraping a page.
     """
     with _open_search_request(request, config, audit_trail) as response:
-        body = _read_bounded(response, config.max_response_bytes, url=request.full_url)
+        body = _read_bounded(
+            response,
+            config.max_response_bytes,
+            url=request.full_url,
+            deadline_seconds=read_deadline_seconds(config),
+        )
         status = getattr(response, "status", None) or 200
         get_url = getattr(response, "geturl", None)
         final_url = get_url() if callable(get_url) else request.full_url

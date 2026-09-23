@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from dataclasses import dataclass, field
 import warnings
 from typing import Any
@@ -53,6 +55,10 @@ class CrawlConfig:
     include_links: bool = True
     include_images: bool = False
     max_input_chars: int = 64_000
+    # With a query (the extraction prompt, or ``scrape(query=...)``), spend the
+    # chunk/char budget on the most relevant passages (BM25) instead of the
+    # head of the document. No effect when the document fits the budget.
+    relevance_chunking: bool = True
 
     reasoning: bool = False
     auto_reattempt: bool = True
@@ -146,6 +152,7 @@ _BOOL_FIELDS = frozenset(
         "reasoning",
         "auto_reattempt",
         "verbose",
+        "relevance_chunking",
     }
 )
 
@@ -292,3 +299,42 @@ def _validate_str_sequence(key: str, value: Any) -> list[str] | tuple[str, ...]:
     # Preserve the container kind so a list stays a list (callers append to it)
     # while the tuple-typed fields keep their convention.
     return checked if isinstance(value, list) else tuple(checked)
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def config_from_env() -> dict[str, Any]:
+    """Engine config from the documented ``AGENTCRAWL_*`` variables.
+
+    One mapping for every local entrance (MCP local mode, CLI local mode,
+    ``doctor``). The CLI used to read only ``AGENTCRAWL_FETCHER``, so
+    ``AGENTCRAWL_ALLOW_PRIVATE_NETWORK=true agentcrawl scrape http://127.0.0.1:…``
+    still refused the target while the MCP server honoured the same variable.
+    """
+    from .airgap import airgap_from_env
+
+    airgap, allowlist = airgap_from_env()
+    config: dict[str, Any] = {
+        "fetcher": os.getenv("AGENTCRAWL_FETCHER", "http"),
+        "airgap": airgap,
+        "allowlist_domains": list(allowlist),
+        "audit": _env_flag("AGENTCRAWL_AUDIT", False),
+        "allow_private_network": _env_flag("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", False),
+        "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
+        "browser_fallback": _env_flag("AGENTCRAWL_BROWSER_FALLBACK", True),
+    }
+    backend = os.getenv("AGENTCRAWL_BROWSER_BACKEND", "").strip()
+    if backend:
+        config["browser_backend"] = backend
+    user_agent = os.getenv("AGENTCRAWL_USER_AGENT", "").strip()
+    if user_agent:
+        config["user_agent"] = user_agent
+    timeout_ms = os.getenv("AGENTCRAWL_TIMEOUT_MS", "").strip()
+    if timeout_ms.isdigit():
+        config["timeout_ms"] = int(timeout_ms)
+    return config

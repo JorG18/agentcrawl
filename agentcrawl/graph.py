@@ -54,6 +54,9 @@ class CrawlGraph:
                 **state.get("metadata", {}),
                 "chunking": state.get("chunk_stats", {}),
                 "truncation": state.get("truncation", {}),
+                # What this run cost in model requests (auto-reattempts
+                # included); the API meters it separately from the page.
+                "llm_calls": int(state.get("llm_calls", 0)),
             },
             errors=state.get("errors", []),
         )
@@ -82,12 +85,18 @@ class CrawlGraph:
         return state
 
     def chunk(self, state: CrawlState) -> CrawlState:
-        chunks, stats = chunk_text_stats(state.get("markdown", ""), self.config)
+        # The prompt is the query: when the page exceeds the chunk budget, the
+        # model sees the passages that answer it, not just the first ones.
+        chunks, stats = chunk_text_stats(
+            state.get("markdown", ""), self.config, query=state.get("prompt")
+        )
         state["chunks"] = chunks
         state["chunk_stats"] = stats
         return state
 
     def extract(self, state: CrawlState) -> CrawlState:
+        # Counted before the call: a provider error still cost a request.
+        state["llm_calls"] = int(state.get("llm_calls", 0)) + 1
         answer, validation_error, reasoning = extract_answer(
             state["prompt"],
             state.get("chunks", []),

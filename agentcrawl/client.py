@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict
+from dataclasses import replace
 from typing import Any, Iterable
 
 from .airgap import AuditTrail
@@ -23,7 +23,9 @@ class AgentCrawler:
     def markdown(
         self, source: str, prompt: str = "Extract the main content as clean markdown."
     ) -> CrawlResult:
-        config = CrawlConfig.from_dict({**asdict(self.config), "output_format": "markdown"})
+        # ``replace`` copies fields shallowly; ``asdict`` deep-copied the
+        # caller's ``llm`` client, which fails for any client holding a lock.
+        config = replace(self.config, output_format="markdown")
         return CrawlGraph(config).run(source, prompt, None)
 
     def scrape_many(
@@ -72,6 +74,18 @@ class AgentCrawler:
         # the guarded opener entirely.
         trail = AuditTrail() if self.config.audit else None
         results = self.search(query, trail)
+        airgap_skipped: list[str] = []
+        if self.config.airgap:
+            # Each scrape trusts its own target host, so without this filter a
+            # search engine — not the caller — chose which hosts an airgapped
+            # run contacted. Under airgap only allowlisted result hosts run.
+            allowed = []
+            for result in results:
+                if _allowlisted(result.url, self.config.allowlist_domains):
+                    allowed.append(result)
+                else:
+                    airgap_skipped.append(result.url)
+            results = allowed
         if limit is not None:
             results = results[:limit]
         crawls = self.scrape_many([result.url for result in results], prompt, schema)
@@ -81,6 +95,17 @@ class AgentCrawler:
             "results": crawls,
             "answers": [crawl.answer for crawl in crawls if crawl.ok],
         }
+        if airgap_skipped:
+            payload["airgap_skipped"] = airgap_skipped
         if trail is not None:
             payload["audit"] = trail.to_metadata()
         return payload
+
+
+def _allowlisted(url: str, allowlist: Iterable[str]) -> bool:
+    from urllib.parse import urlsplit
+
+    from .airgap import _match
+
+    host = (urlsplit(url).hostname or "").lower()
+    return bool(host) and any(_match(host, entry) for entry in allowlist)

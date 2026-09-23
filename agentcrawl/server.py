@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from contextlib import asynccontextmanager, contextmanager
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import pathlib
@@ -18,6 +19,7 @@ from .config import CrawlConfig
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
 from .crawler import AgentCrawl
+from .css_extract import validate_css_schema
 from .html_tools import validate_url_patterns
 from .serializers import to_jsonable
 from .security import validate_remote_url
@@ -94,9 +96,33 @@ class ScrapeRequest(BaseModel):
     url: str = Field(min_length=1, max_length=8192)
     formats: list[str] = Field(default_factory=lambda: ["markdown", "links", "metadata"])
     only_main_content: bool | None = None
+    # Relevance query: when the page exceeds max_input_chars, keep the blocks
+    # that best match it (BM25) instead of the head of the page.
+    query: str | None = Field(default=None, max_length=1_000)
     cache: bool = True
     cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+_MAX_BATCH_URLS = 100
+
+
+class ScrapeManyRequest(BaseModel):
+    urls: list[str] = Field(min_length=1, max_length=_MAX_BATCH_URLS)
+    formats: list[str] = Field(default_factory=lambda: ["markdown", "links", "metadata"])
+    only_main_content: bool | None = None
+    query: str | None = Field(default=None, max_length=1_000)
+    cache: bool = True
+    cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("urls")
+    @classmethod
+    def _url_lengths(cls, value: list[str]) -> list[str]:
+        for url in value:
+            if not url or len(url) > 8192:
+                raise ValueError("each url must be 1-8192 characters")
+        return value
 
 
 class MapRequest(BaseModel):
@@ -130,13 +156,42 @@ class CrawlRequest(BaseModel):
         return validate_url_patterns(value)
 
 
+# Bounds on caller-supplied extraction input. Both end up inside an LLM prompt
+# the operator pays for, so an unbounded value was a cost amplifier.
+_MAX_PROMPT_CHARS = 8_000
+_MAX_SCHEMA_BYTES = 64 * 1024
+
+
 class ExtractRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     url: str = Field(min_length=1, max_length=8192)
-    prompt: str
+    prompt: str = Field(min_length=1, max_length=_MAX_PROMPT_CHARS)
     output_schema: dict[str, Any] | None = Field(default=None, alias="schema")
     config: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("output_schema")
+    @classmethod
+    def _schema_size(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None and len(json.dumps(value)) > _MAX_SCHEMA_BYTES:
+            raise ValueError(f"schema exceeds {_MAX_SCHEMA_BYTES} bytes")
+        return value
+
+
+class ExtractCssRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=8192)
+    css_schema: dict[str, Any] = Field(alias="schema")
+    config: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("css_schema")
+    @classmethod
+    def _schema_ok(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if len(json.dumps(value)) > _MAX_SCHEMA_BYTES:
+            raise ValueError(f"schema exceeds {_MAX_SCHEMA_BYTES} bytes")
+        validate_css_schema(value)
+        return value
 
 
 class RetryFailuresRequest(BaseModel):
@@ -186,6 +241,12 @@ class AgentCrawlServer:
         self.crawl_job_page_quantum = max(
             0, int(os.getenv("AGENTCRAWL_CRAWL_JOB_PAGE_QUANTUM", "5"))
         )
+        # ``wait=true`` runs the whole crawl inside the request thread. Past
+        # this many pages the caller must use a durable job instead.
+        self.scrape_many_concurrency = max(
+            1, int(os.getenv("AGENTCRAWL_SCRAPE_MANY_CONCURRENCY", "8"))
+        )
+        self.sync_crawl_max_pages = max(1, int(os.getenv("AGENTCRAWL_SYNC_CRAWL_MAX_PAGES", "25")))
         self.cache_enabled = os.getenv("AGENTCRAWL_CACHE_ENABLED", "true").lower() in {
             "1",
             "true",
@@ -346,18 +407,25 @@ class AgentCrawlServer:
             return
         self.require_key(authorization)
 
-    def check_rate_limit(self, key_id: str) -> None:
-        if self.rate_limit_per_minute <= 0:
+    def check_rate_limit(self, key_id: str, units: int = 1) -> None:
+        """Consume ``units`` from the key's per-minute window, or raise 429.
+
+        ``units`` lets page-heavy requests (a synchronous crawl) pay for what
+        they fetch instead of counting as one request. A request larger than
+        the whole window is capped at the window so it can still run alone.
+        """
+        if self.rate_limit_per_minute <= 0 or units <= 0:
             return
+        units = min(units, self.rate_limit_per_minute)
         now = time.monotonic()
         cutoff = now - 60
         with self._rate_lock:
             requests = self._rate_windows.setdefault(key_id, deque())
             while requests and requests[0] <= cutoff:
                 requests.popleft()
-            if len(requests) >= self.rate_limit_per_minute:
+            if len(requests) + units > self.rate_limit_per_minute:
                 raise HTTPException(status_code=429, detail="API key rate limit exceeded.")
-            requests.append(now)
+            requests.extend([now] * units)
 
     def validate_config_override(self, override: dict[str, Any]) -> None:
         """Reject config overrides this server does not accept.
@@ -388,6 +456,22 @@ class AgentCrawlServer:
             CrawlConfig.from_dict(override)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # Camofox drives its own browser in another process, so neither the
+        # SSRF guard nor the airgap can see the requests its page makes. A
+        # caller may only route through it when the operator configured it.
+        wants_camofox = "camofox" in {override.get("fetcher"), override.get("browser_backend")}
+        operator_camofox = "camofox" in {
+            self.default_config.get("fetcher"),
+            self.default_config.get("browser_backend"),
+        }
+        if wants_camofox and not operator_camofox:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "The camofox backend is not enabled on this server "
+                    "(its network cannot be guarded; the operator must opt in)."
+                ),
+            )
 
     def merged_config(self, override: dict[str, Any]) -> dict[str, Any]:
         self.validate_config_override(override)
@@ -628,6 +712,11 @@ def scrape(
     request: ScrapeRequest, api_key: str | None = Depends(server.require_key)
 ) -> dict[str, Any]:
     server.validate_source(request.url)
+    return _scrape_one(request, api_key)
+
+
+def _scrape_one(request: ScrapeRequest, api_key: str | None) -> dict[str, Any]:
+    """Scrape one validated source: cache lookup, polite fetch, cache fill, usage."""
     # The cache is scoped to the key that filled it: the key already includes
     # the owner, so another key neither reads this entry nor overwrites it.
     owner_key = api_key or ""
@@ -643,7 +732,10 @@ def scrape(
     crawler = AgentCrawl(server.merged_config(request.config))
     with server.domain_slot(request.url):
         result = crawler.scrape(
-            request.url, formats=request.formats, only_main_content=request.only_main_content
+            request.url,
+            formats=request.formats,
+            only_main_content=request.only_main_content,
+            query=request.query,
         )
     payload = to_jsonable(result)
     payload.setdefault("metadata", {})["cache_hit"] = False
@@ -655,6 +747,57 @@ def scrape(
         server.store.set_cache(cache_key, request.url, response, ttl_seconds, owner_key=owner_key)
     server.store.record_usage(api_key, "/v1/scrape")
     return response
+
+
+@app.post("/v1/scrape_many")
+def scrape_many(
+    request: ScrapeManyRequest,
+    api_key: str | None = Depends(server.require_key),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Scrape up to ``_MAX_BATCH_URLS`` sources in one call.
+
+    Each URL goes through the exact single-scrape path (validation, per-key
+    cache, per-domain politeness, usage), so a batch is never a way around a
+    limit. Results keep the input order; a bad URL fails its own item, not the
+    batch.
+    """
+    server.validate_config_override(request.config)
+    if api_key is not None and not server.is_owner_key(authorization):
+        # One unit per URL; ``require_key`` already charged the first.
+        server.check_rate_limit(api_key, units=len(request.urls) - 1)
+
+    def run(url: str) -> dict[str, Any]:
+        try:
+            server.validate_source(url)
+        except HTTPException as exc:
+            return {"url": url, "success": False, "error": str(exc.detail)}
+        item = ScrapeRequest(
+            url=url,
+            formats=request.formats,
+            only_main_content=request.only_main_content,
+            query=request.query,
+            cache=request.cache,
+            cache_ttl_seconds=request.cache_ttl_seconds,
+            config=request.config,
+        )
+        try:
+            return {"url": url, **_scrape_one(item, api_key)}
+        except Exception as exc:  # one broken page must not sink the batch
+            return {"url": url, "success": False, "error": str(exc)}
+
+    workers = max(1, min(server.scrape_many_concurrency, len(request.urls)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        items = list(executor.map(run, request.urls))
+    return {
+        "success": all(item.get("success") for item in items),
+        "data": items,
+        "summary": {
+            "total": len(items),
+            "succeeded": sum(1 for item in items if item.get("success")),
+            "failed": sum(1 for item in items if not item.get("success")),
+        },
+    }
 
 
 @app.post("/v1/map")
@@ -679,6 +822,7 @@ def crawl(
     request: CrawlRequest,
     api_key: str | None = Depends(server.require_key),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     server.validate_source(request.url)
     # Validate before creating the job so a bad override fails the request
@@ -686,6 +830,23 @@ def crawl(
     server.validate_config_override(request.config)
     payload = request.model_dump()
     if request.wait:
+        pages = int(
+            request.max_pages
+            or request.config.get("crawl_max_pages")
+            or server.default_config.get("crawl_max_pages")
+            or 1
+        )
+        if pages > server.sync_crawl_max_pages:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"wait=true crawls are limited to {server.sync_crawl_max_pages} pages "
+                    f"(requested {pages}); submit a durable job with wait=false instead."
+                ),
+            )
+        if api_key is not None and not server.is_owner_key(authorization):
+            # ``require_key`` already charged one unit for the request itself.
+            server.check_rate_limit(api_key, units=pages - 1)
         result = _run_crawl(payload)
         server.store.record_usage(
             api_key, "/v1/crawl", units=max(1, len(result.get("documents", [])))
@@ -846,11 +1007,14 @@ def retry_job_failures(
         raise HTTPException(status_code=404, detail="Job not found.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # The job's owner pays for its pages, whoever pressed "retry": an owner
+    # key retrying someone else's job used to have the re-crawl billed to it.
+    job_owner = server.store.job_owner_key(job_id) or None
     if failures:
         job = server.store.get_job(job_id)
         if job is not None:
-            server.schedule_job(job_id, job["request"], scope.key_id)
-    server.store.record_usage(scope.key_id, "/v1/jobs.failures.retry")
+            server.schedule_job(job_id, job["request"], job_owner)
+    server.store.record_usage(job_owner, "/v1/jobs.failures.retry")
     return {
         "success": True,
         "data": {"job_id": job_id, "retried": len(failures), "failures": failures},
@@ -866,7 +1030,27 @@ def extract(
     with server.domain_slot(request.url):
         result = crawler.extract(request.url, request.prompt, request.output_schema)
     server.store.record_usage(api_key, "/v1/extract")
+    llm_calls = int((getattr(result, "metadata", None) or {}).get("llm_calls", 0) or 0)
+    if llm_calls:
+        # Model requests are the expensive part of an extraction and are
+        # metered on their own line instead of hiding inside one page unit.
+        server.store.record_usage(api_key, "/v1/extract.llm_calls", units=llm_calls)
     return {"success": bool(getattr(result, "ok", True)), "data": to_jsonable(result)}
+
+
+@app.post("/v1/extract_css")
+def extract_css(
+    request: ExtractCssRequest, api_key: str | None = Depends(server.require_key)
+) -> dict[str, Any]:
+    """Deterministic CSS-schema extraction: no LLM, no model cost, same answer every run."""
+    server.validate_source(request.url)
+    crawler = AgentCrawl(server.merged_config(request.config))
+    with server.domain_slot(request.url):
+        result = crawler.extract_css(request.url, request.css_schema)
+    if result["errors"]:
+        result.setdefault("metadata", {})["error_type"] = classify_error(str(result["errors"][0]))
+    server.store.record_usage(api_key, "/v1/extract_css")
+    return {"success": not result["errors"], "data": result}
 
 
 @app.get("/v1/usage")
@@ -886,7 +1070,7 @@ def stats(scope: JobScope = Depends(server.job_scope)) -> dict[str, Any]:
             "usage_total": server.store.usage_count(scope.key_id),
             "usage_by_endpoint": server.store.usage_by_endpoint(api_key=scope.key_id),
             "jobs": server.store.job_counts(owner_key=owner_key),
-            "job_events": server.store.job_event_counts(),
+            "job_events": server.store.job_event_counts(owner_key=owner_key),
             "crawl_queue": server.store.crawl_queue_metrics(owner_key=owner_key),
             "crawl_failures": server.store.crawl_failure_metrics(owner_key=owner_key),
             "cache_entries": server.store.cache_count(owner_key=owner_key),
@@ -1030,6 +1214,7 @@ def _scrape_cache_key(request: ScrapeRequest, owner_key: str = "") -> str:
         "url": request.url,
         "formats": sorted(request.formats),
         "only_main_content": request.only_main_content,
+        "query": request.query,
         "config": request.config,
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))

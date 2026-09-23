@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import html
+import io
 import json
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,12 @@ _MARKDOWN_SUFFIXES = {".md", ".markdown", ".mdown", ".mkd"}
 _JSON_SUFFIXES = {".json"}
 _XML_SUFFIXES = {".xml", ".rss", ".atom"}
 _PDF_SUFFIXES = {".pdf"}
+_CSV_SUFFIXES = {".csv", ".tsv"}
+CSV_CONTENT_TYPES = frozenset({"text/csv", "text/tab-separated-values", "application/csv"})
+# Rendering caps: a Markdown table is for reading, not bulk transfer. Past
+# these, the cut is reported in metadata (``csv_rows_omitted``), never silent.
+_MAX_CSV_ROWS = 5_000
+_MAX_CSV_CELL_CHARS = 500
 _MAX_PDF_BYTES = 50 * 1024 * 1024
 _MAX_PDF_PAGES = 500
 # Local text-like documents were read whole with no ceiling, so a multi-GB
@@ -42,6 +50,9 @@ def read_local_document(path: Path) -> tuple[str, dict[str, Any]]:
             "content_format": "markdown",
             "document_type": "json",
         }
+    if suffix in _CSV_SUFFIXES:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+        return csv_to_markdown(text, delimiter="\t" if suffix == ".tsv" else None)
     if suffix in _XML_SUFFIXES:
         text = path.read_text(encoding="utf-8", errors="replace")
         return f"```xml\n{text.strip()}\n```", {
@@ -52,6 +63,58 @@ def read_local_document(path: Path) -> tuple[str, dict[str, Any]]:
         "content_format": "html",
         "document_type": "html",
     }
+
+
+def csv_to_markdown(text: str, *, delimiter: str | None = None) -> tuple[str, dict[str, Any]]:
+    """Render CSV/TSV as a Markdown table plus shape metadata.
+
+    The delimiter is sniffed (``, ; \t |``) unless given. Pipes and newlines
+    inside cells are escaped so a cell can never break the table.
+    """
+    text = text.lstrip("\ufeff")
+    if delimiter is None:
+        try:
+            delimiter = csv.Sniffer().sniff(text[:8192], delimiters=",;\t|").delimiter
+        except csv.Error:
+            delimiter = ","
+    rows = [row for row in csv.reader(io.StringIO(text), delimiter=delimiter) if any(row)]
+    metadata: dict[str, Any] = {
+        "content_format": "markdown",
+        "document_type": "csv",
+        "csv_delimiter": delimiter,
+    }
+    if not rows:
+        metadata.update({"row_count": 0, "column_count": 0, "columns": []})
+        return "", metadata
+    header, body = rows[0], rows[1:]
+    width = max(len(row) for row in rows)
+    header = header + [""] * (width - len(header))
+    shown = body[:_MAX_CSV_ROWS]
+
+    def cell(value: str) -> str:
+        value = value.replace("\r", " ").replace("\n", " ").replace("|", "\\|").strip()
+        if len(value) > _MAX_CSV_CELL_CHARS:
+            value = value[: _MAX_CSV_CELL_CHARS - 1] + "…"
+        return value
+
+    lines = [
+        "| "
+        + " | ".join(cell(value) or f"column_{i + 1}" for i, value in enumerate(header))
+        + " |",
+        "| " + " | ".join("---" for _ in header) + " |",
+    ]
+    for row in shown:
+        padded = row + [""] * (width - len(row))
+        lines.append("| " + " | ".join(cell(value) for value in padded) + " |")
+    metadata.update(
+        {
+            "row_count": len(body),
+            "column_count": width,
+            "columns": [value.strip() for value in header],
+            "csv_rows_omitted": len(body) - len(shown),
+        }
+    )
+    return "\n".join(lines), metadata
 
 
 def markdown_from_fetched_content(content: str, metadata: dict[str, Any]) -> str | None:

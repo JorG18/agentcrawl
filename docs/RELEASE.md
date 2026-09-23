@@ -108,4 +108,4 @@ Before tagging:
 3. Publish PyPI only after artifact checks pass and credentials are ready.
 4. Tag the release.
 5. Run post-release install smoke from PyPI and GHCR.
-6. Only deploy the VPS if Jorge explicitly starts a deployment phase with backup + smoke tests.
+6. Deploy hosted instances only as a separate, explicit step with a fresh backup and smoke tests.

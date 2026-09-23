@@ -811,10 +811,19 @@ class SQLiteStore:
             ).fetchall()
         return [self._event_row_to_dict(row) for row in rows]
 
-    def job_event_counts(self) -> dict[str, int]:
+    def job_event_counts(self, *, owner_key: str | None = None) -> dict[str, int]:
+        # Events carry no owner of their own; they belong to their job's owner.
+        clauses: list[str] = []
+        params: list[Any] = []
+        _apply_owner_filter(clauses, params, owner_key, column="jobs.owner_key")
+        where = " where " + " and ".join(clauses) if clauses else ""
         with self._connect() as conn:
             rows = conn.execute(
-                "select event_type, count(*) as total from job_events group by event_type"
+                "select job_events.event_type as event_type, count(*) as total "
+                "from job_events join jobs on jobs.id = job_events.job_id"
+                + where
+                + " group by job_events.event_type",
+                params,
             ).fetchall()
         return {str(row["event_type"]): int(row["total"]) for row in rows}
 

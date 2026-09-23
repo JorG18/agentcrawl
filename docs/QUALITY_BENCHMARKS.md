@@ -106,3 +106,14 @@ Community benchmark targets should be accessible public docs, API references, bl
 Enhanced-gap targets belong in a separate private lane: PyPI/Cloudflare-style challenges, JS-heavy apps, anti-bot/proxy/geolocation needs, screenshots, schedules, webhooks, and managed browser workflows.
 
 Until repeated runs and fair scoring are ready, public docs should describe the quality standard and reproducible local checks, not claim broad superiority.
+
+### Offline comparison lane (`benchmarks/compare.py`)
+
+```bash
+python -m pip install trafilatura crawl4ai   # optional comparison tools, in a separate venv
+python -m benchmarks.compare --json results.json
+```
+
+Every tool receives the same raw HTML from `tests/fixtures/quality`, so the run needs no network or keys and is repeatable for the same tool versions. It reports text recall, structure recall (tables and code fences in any valid Markdown style), fence-language recall, noise leakage, output tokens and latency, and prints the tool versions, commit and environment it ran with.
+
+Read the results with their bias in mind: these fixtures were written by this project and AgentCrawl's extractor is tuned against them, so a perfect AgentCrawl score here is a **regression guard**, not evidence of general superiority. Crawl4AI's `raw_markdown` is a full-page conversion by design; compare main-content extraction against its `fit_markdown` variant. A neutral corpus (third-party pages with independently written expectations) is required before any public comparison.

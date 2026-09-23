@@ -14,9 +14,9 @@ import uuid
 from typing import Any
 
 from .config import CrawlConfig
-from .documents import read_local_document
+from .documents import CSV_CONTENT_TYPES, csv_to_markdown, read_local_document
 from .exceptions import FetchError
-from .security import validate_remote_url
+from .security import pinned_handlers, validate_remote_url
 from .utils import is_probably_url
 
 _browser_sem: threading.BoundedSemaphore | None = None
@@ -60,6 +60,8 @@ def _safe_urlopen(
     handlers: list[urllib.request.BaseHandler] = [
         _SafeRedirectHandler(allow_private_network=allow_private_network)
     ]
+    if not allow_private_network:
+        handlers.extend(pinned_handlers())
     if airgap or audit_trail is not None:
         from .airgap import _AirgapHandler, AuditTrail
 
@@ -114,33 +116,65 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
             # going to work.
             if not _browser_backend_available(backend):
                 raise
+            audit_kwargs, browser_trail = _browser_audit_kwargs(config)
             try:
-                html = _fetch_browser(source, config)
+                html = _fetch_browser(source, config, **audit_kwargs)
             except FetchError as browser_exc:
                 # Keep the original HTTP failure (the honest one) and attach
                 # the fallback reason so the caller can still see why the
                 # browser attempt did not rescue the page.
                 exc.browser_fallback_error = str(browser_exc)
                 raise exc from browser_exc
-            return html, {
+            metadata: dict[str, Any] = {
                 "fetcher": backend,
                 "fallback_from": "http",
                 "final_url": source,
             }
+            if browser_trail is not None:
+                metadata.update(browser_trail.to_metadata())
+            return html, metadata
     if config.fetcher in {"playwright", "camofox"}:
         backend = config.fetcher
-        html = _fetch_browser(source, config, backend=backend)
-        return html, {"fetcher": backend, "final_url": source}
+        audit_kwargs, browser_trail = _browser_audit_kwargs(config)
+        html = _fetch_browser(source, config, backend=backend, **audit_kwargs)
+        metadata = {"fetcher": backend, "final_url": source}
+        if browser_trail is not None:
+            metadata.update(browser_trail.to_metadata())
+        return html, metadata
     raise FetchError(f"Unknown fetcher: {config.fetcher}")
 
 
-def _fetch_browser(url: str, config: CrawlConfig, backend: str | None = None) -> str:
+def _fetch_browser(
+    url: str,
+    config: CrawlConfig,
+    backend: str | None = None,
+    audit_trail: Any | None = None,
+) -> str:
     selected = backend or config.browser_backend
     if selected == "playwright":
+        if audit_trail is not None:
+            return _fetch_playwright(url, config, audit_trail=audit_trail)
         return _fetch_playwright(url, config)
     if selected == "camofox":
+        if config.airgap:
+            # Camofox is a separate service driving its own browser: nothing
+            # here can see, let alone refuse, the requests its page makes.
+            # Running it under airgap would silently void the guarantee.
+            raise FetchError(
+                "airgap cannot be enforced on the camofox backend; use "
+                "browser_backend='playwright' or disable airgap."
+            )
         return _fetch_camofox(url, config)
     raise FetchError(f"Unknown browser backend: {selected}")
+
+
+def _browser_audit_kwargs(config: CrawlConfig) -> tuple[dict[str, Any], Any | None]:
+    if not config.audit:
+        return {}, None
+    from .airgap import AuditTrail
+
+    trail = AuditTrail()
+    return {"audit_trail": trail}, trail
 
 
 def _should_browser_fallback(message: str, config: CrawlConfig) -> bool:
@@ -197,7 +231,12 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     final_url,
                     allow_private_network=config.allow_private_network,
                 )
-                html_bytes = _read_bounded(response, config.max_response_bytes, url=url)
+                html_bytes = _read_bounded(
+                    response,
+                    config.max_response_bytes,
+                    url=url,
+                    deadline_seconds=read_deadline_seconds(config),
+                )
                 try:
                     len_bytes = len(html_bytes)
                 except Exception:  # pragma: no cover - extremely defensive
@@ -207,6 +246,7 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     "final_url": final_url,
                 }
                 charset = _response_charset(response.headers)
+                content_type = _response_content_type(response.headers)
                 if audit_trail is not None:
                     audit_trail.record(
                         "GET",
@@ -217,7 +257,13 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                         target_host=target_host,
                     )
                     fetch_metadata.update(audit_trail.to_metadata())
-                return _decode_http_body(html_bytes, charset), fetch_metadata
+                body = _decode_http_body(html_bytes, charset)
+                if content_type in CSV_CONTENT_TYPES:
+                    # Data URLs serve CSV; parsed as HTML they became one
+                    # unreadable paragraph. Render the table instead.
+                    body, csv_metadata = csv_to_markdown(body)
+                    fetch_metadata.update(csv_metadata)
+                return body, fetch_metadata
         except urllib.error.HTTPError as exc:
             last_exc = exc
             if audit_trail is not None:
@@ -283,20 +329,44 @@ def _is_policy_denial(exc: BaseException) -> bool:
 
 _READ_CHUNK_BYTES = 65536
 
+# Total wall-clock budget for reading one body, as a multiple of
+# ``timeout_ms``. ``timeout_ms`` is a per-socket-operation timeout, so a server
+# that drips one byte just under it keeps a worker busy indefinitely.
+READ_DEADLINE_FACTOR = 3
 
-def _read_bounded(response: Any, limit: int, *, url: str = "") -> bytes:
+
+def read_deadline_seconds(config: CrawlConfig) -> float:
+    return max(1.0, config.timeout_ms / 1000 * READ_DEADLINE_FACTOR)
+
+
+def _read_bounded(
+    response: Any,
+    limit: int,
+    *,
+    url: str = "",
+    deadline_seconds: float | None = None,
+) -> bytes:
     """Read a response body, refusing anything past ``limit`` bytes.
 
     Reads in chunks so an oversized body is rejected *while* it arrives rather
     than after it has been materialized in memory. The limit still holds for
     readers that only implement ``read()`` (test doubles, third-party
     adapters): those lose the streaming protection but not the cap.
+
+    ``deadline_seconds`` bounds the *total* read time. ``read1`` is preferred
+    because it returns after a single socket read; ``read(amt)`` would block
+    until ``amt`` bytes arrived and a slow drip would never reach the check.
     """
     chunks: list[bytes] = []
     total = 0
+    deadline = time.monotonic() + deadline_seconds if deadline_seconds else None
+    read1 = getattr(response, "read1", None)
     while True:
         try:
-            chunk = response.read(_READ_CHUNK_BYTES)
+            if callable(read1):
+                chunk = read1(_READ_CHUNK_BYTES)
+            else:
+                chunk = response.read(_READ_CHUNK_BYTES)
         except TypeError:
             # Reader without an ``amt`` parameter (test doubles, third-party
             # adapters): one call returns the whole body, so stop after it.
@@ -316,7 +386,23 @@ def _read_bounded(response: Any, limit: int, *, url: str = "") -> bytes:
         chunks.append(chunk)
         if last:
             break
+        if deadline is not None and time.monotonic() > deadline:
+            raise FetchError(
+                f"Response body took longer than {deadline_seconds:.0f}s to arrive"
+                + (f" for {url}" if url else "")
+                + f" (read deadline is {READ_DEADLINE_FACTOR}x timeout_ms)."
+            )
     return b"".join(chunks)
+
+
+def _response_content_type(headers: Any) -> str:
+    get_type = getattr(headers, "get_content_type", None)
+    if not callable(get_type):
+        return ""
+    try:
+        return str(get_type()).lower()
+    except Exception:  # pragma: no cover - malformed header values
+        return ""
 
 
 def _response_charset(headers: Any) -> str | None:
@@ -448,7 +534,7 @@ def _camofox_request(
     return body
 
 
-def _fetch_playwright(url: str, config: CrawlConfig) -> str:
+def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None = None) -> str:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
@@ -456,6 +542,9 @@ def _fetch_playwright(url: str, config: CrawlConfig) -> str:
             "Playwright is not installed. Install agentcrawl[browser] or use fetcher='http'."
         ) from exc
 
+    from .browser_guard import MAX_REDIRECTS, BrowserNetworkGuard
+
+    guard = BrowserNetworkGuard(url, config, audit_trail)
     acquired = _get_browser_semaphore().acquire(timeout=max(1, config.timeout_ms / 1000))
     if not acquired:
         raise FetchError(f"Playwright fetch failed for {url}: browser concurrency limit reached")
@@ -470,22 +559,45 @@ def _fetch_playwright(url: str, config: CrawlConfig) -> str:
             # processes on error paths.
             context = None
             try:
-                context = browser.new_context(user_agent=config.user_agent or "AgentCrawl/0.1")
+                context_kwargs: dict[str, Any] = {
+                    "user_agent": config.user_agent or "AgentCrawl/0.1"
+                }
+                if guard.active:
+                    # Service workers can issue requests the route never sees.
+                    context_kwargs["service_workers"] = "block"
+                context = browser.new_context(**context_kwargs)
+                blocked_types = set(config.browser_block_resources or ())
+
+                def route_request(route):
+                    if route.request.resource_type in blocked_types:
+                        route.abort()
+                    elif guard.active:
+                        guard.handle_route(route)
+                    else:
+                        route.continue_()
+
+                if guard.active or blocked_types:
+                    # Context-level so popups and iframes are covered too.
+                    context.route("**/*", route_request)
+                if guard.active and hasattr(context, "route_web_socket"):
+                    context.route_web_socket("**/*", guard.handle_websocket)
                 page = context.new_page()
+                guard.main_frame = getattr(page, "main_frame", None)
                 if config.browser_init_script:
                     page.add_init_script(config.browser_init_script)
-                if config.browser_block_resources:
-                    blocked = set(config.browser_block_resources)
-
-                    def block_selected_resources(route):
-                        request = route.request
-                        if request.resource_type in blocked:
-                            route.abort()
-                        else:
-                            route.continue_()
-
-                    page.route("**/*", block_selected_resources)
-                page.goto(url, wait_until=config.wait_until, timeout=config.timeout_ms)
+                target = url
+                for _hop in range(MAX_REDIRECTS + 1):
+                    guard.pending_navigation = None
+                    page.goto(target, wait_until=config.wait_until, timeout=config.timeout_ms)
+                    if guard.pending_navigation is None:
+                        break
+                    target = guard.pending_navigation
+                else:
+                    raise FetchError(f"too many redirects (>{MAX_REDIRECTS})")
+                if guard.enforcing and guard.blocked and not page.url.startswith("http"):
+                    # The navigation itself was refused: report the guard's
+                    # reason instead of Chromium's net::ERR_BLOCKED_BY_CLIENT.
+                    raise FetchError(guard.blocked[0]["reason"])
                 if config.browser_wait_for_selector:
                     page.wait_for_selector(
                         config.browser_wait_for_selector, timeout=config.timeout_ms
@@ -502,7 +614,17 @@ def _fetch_playwright(url: str, config: CrawlConfig) -> str:
                         resource.close()
                     except Exception:
                         pass
-    except Exception as exc:
+    except FetchError as exc:
         raise FetchError(f"Playwright fetch failed for {url}: {exc}") from exc
+    except Exception as exc:
+        reason = _main_navigation_block_reason(guard, url)
+        raise FetchError(f"Playwright fetch failed for {url}: {reason or exc}") from exc
     finally:
         _get_browser_semaphore().release()
+
+
+def _main_navigation_block_reason(guard: Any, url: str) -> str | None:
+    """The guard's reason when the navigation died because the guard refused it."""
+    for item in guard.blocked:
+        return item["reason"]
+    return None

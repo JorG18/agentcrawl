@@ -24,6 +24,7 @@ class AgentCrawlClient:
         only_main_content: bool | None = None,
         cache: bool = True,
         cache_ttl_seconds: int | None = None,
+        query: str | None = None,
     ) -> dict[str, Any]:
         return self._post(
             "/v1/scrape",
@@ -31,11 +32,41 @@ class AgentCrawlClient:
                 "url": url,
                 "formats": formats or ["markdown", "links", "metadata"],
                 "only_main_content": only_main_content,
+                "query": query,
                 "cache": cache,
                 "cache_ttl_seconds": cache_ttl_seconds,
                 "config": config or {},
             },
         )
+
+    def scrape_many(
+        self,
+        urls: list[str],
+        formats: list[str] | None = None,
+        config: dict[str, Any] | None = None,
+        *,
+        only_main_content: bool | None = None,
+        cache: bool = True,
+        cache_ttl_seconds: int | None = None,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        return self._post(
+            "/v1/scrape_many",
+            {
+                "urls": list(urls),
+                "formats": formats or ["markdown", "links", "metadata"],
+                "only_main_content": only_main_content,
+                "query": query,
+                "cache": cache,
+                "cache_ttl_seconds": cache_ttl_seconds,
+                "config": config or {},
+            },
+        )
+
+    def extract_css(
+        self, url: str, schema: dict[str, Any], config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return self._post("/v1/extract_css", {"url": url, "schema": schema, "config": config or {}})
 
     def map(
         self, url: str, max_urls: int | None = None, config: dict[str, Any] | None = None

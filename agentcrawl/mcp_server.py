@@ -9,6 +9,7 @@ except ImportError as exc:  # pragma: no cover
     raise RuntimeError("Install agentcrawl[mcp] to run the MCP server.") from exc
 from pydantic import Field
 
+from .config import config_from_env
 from .crawler import AgentCrawl
 from .remote_client import AgentCrawlClient
 from .serializers import to_jsonable
@@ -27,38 +28,14 @@ def _client() -> AgentCrawlClient | None:
     )
 
 
-def _env_flag(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None or not raw.strip():
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _crawler() -> AgentCrawl:
     """Local-mode engine, configured from the documented ``AGENTCRAWL_*`` vars.
 
-    MCP is the agent-facing entrance, so the privacy switches must be reachable
-    here. Previously only ``fetcher`` was read, which made ``airgap`` and
-    ``audit`` impossible to turn on from an agent even though they are
-    Community's headline guarantees. ``airgap_from_env`` / ``AGENTCRAWL_AUDIT``
-    are the same inputs the CLI uses.
+    MCP is the agent-facing entrance, so the privacy switches (airgap, audit,
+    private network) must be reachable here. The mapping lives in
+    ``config.config_from_env`` and is shared with the CLI's local mode.
     """
-    from .airgap import airgap_from_env
-
-    airgap, allowlist = airgap_from_env()
-    config: dict[str, Any] = {
-        "fetcher": os.getenv("AGENTCRAWL_FETCHER", "http"),
-        "airgap": airgap,
-        "allowlist_domains": list(allowlist),
-        "audit": _env_flag("AGENTCRAWL_AUDIT", False),
-        "allow_private_network": _env_flag("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", False),
-        "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
-        "browser_fallback": _env_flag("AGENTCRAWL_BROWSER_FALLBACK", True),
-    }
-    timeout_ms = os.getenv("AGENTCRAWL_TIMEOUT_MS", "").strip()
-    if timeout_ms.isdigit():
-        config["timeout_ms"] = int(timeout_ms)
-    return AgentCrawl(config)
+    return AgentCrawl(config_from_env())
 
 
 @mcp.tool()
@@ -86,6 +63,12 @@ def scrape_url(
             description="Extract only main content when true, full page when false, default engine behavior when omitted."
         ),
     ] = None,
+    query: Annotated[
+        str | None,
+        Field(
+            description="Optional: what you are looking for. If the page is longer than the output budget, the most relevant passages are kept instead of the beginning."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Default tool for reading or analyzing one web page.
 
@@ -106,14 +89,112 @@ def scrape_url(
             cache=use_cache,
             cache_ttl_seconds=cache_ttl_seconds,
             only_main_content=only_main_content,
+            query=query,
         )
     return to_jsonable(
         _crawler().scrape(
             url,
             formats=formats or ["markdown", "links", "metadata"],
             only_main_content=only_main_content,
+            query=query,
         )
     )
+
+
+@mcp.tool()
+def scrape_many(
+    urls: Annotated[
+        list[str],
+        Field(description="Public HTTP(S) page URLs to extract, 1 to 100.", min_length=1),
+    ],
+    formats: Annotated[
+        list[str] | None,
+        Field(description="Output fields: markdown, text, links, metadata, or html."),
+    ] = None,
+    only_main_content: Annotated[
+        bool | None,
+        Field(
+            description="Extract only main content when true, full page when false, default engine behavior when omitted."
+        ),
+    ] = None,
+    query: Annotated[
+        str | None,
+        Field(
+            description="Optional: what you are looking for. If the page is longer than the output budget, the most relevant passages are kept instead of the beginning."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Read several known pages in one call instead of calling scrape_url N times.
+
+    Pages are fetched concurrently (politely per site) and returned in the same
+    order as ``urls``; a page that fails carries its own error without failing
+    the others. For discovering pages use map_site; for following links use
+    crawl_site.
+    """
+    if len(urls) > 100:
+        return {"success": False, "error": "scrape_many accepts at most 100 URLs per call."}
+    client = _client()
+    if client is not None:
+        return client.scrape_many(
+            urls,
+            formats=formats or ["markdown", "links", "metadata"],
+            only_main_content=only_main_content,
+            query=query,
+        )
+    documents = _crawler().scrape_many(
+        urls,
+        formats=formats or ["markdown", "links", "metadata"],
+        only_main_content=only_main_content,
+        query=query,
+    )
+    items = [
+        {"url": url, "success": not document.get("errors"), "data": document}
+        for url, document in zip(urls, (to_jsonable(doc) for doc in documents))
+    ]
+    return {
+        "success": all(item["success"] for item in items),
+        "data": items,
+        "summary": {
+            "total": len(items),
+            "succeeded": sum(1 for item in items if item["success"]),
+            "failed": sum(1 for item in items if not item["success"]),
+        },
+    }
+
+
+@mcp.tool()
+def extract_structured(
+    url: Annotated[str, Field(description="Public HTTP(S) page URL to extract from.")],
+    schema: Annotated[
+        dict[str, Any],
+        Field(
+            description=(
+                "CSS extraction schema: {baseSelector?, fields: [{name, selector?, "
+                "type: text|attribute|html|regex|nested|list, attribute?, pattern?, "
+                "multiple?, transform?: strip|lower|upper|number|url, fields?}]}."
+            )
+        ),
+    ],
+) -> dict[str, Any]:
+    """Extract structured JSON from a page with CSS selectors — deterministic, no LLM.
+
+    Prefer this over reading the page and parsing it yourself when the page has
+    a repeated structure (product cards, listings, tables, search results) or
+    when the same fields will be read from many similar pages: write the schema
+    once, reuse it for free. Returns a list of objects when baseSelector is set,
+    otherwise one object.
+    """
+    from .css_extract import validate_css_schema
+
+    try:
+        validate_css_schema(schema)
+    except ValueError as exc:
+        return {"success": False, "error": f"invalid schema: {exc}"}
+    client = _client()
+    if client is not None:
+        return client.extract_css(url, schema)
+    result = _crawler().extract_css(url, schema)
+    return {"success": not result["errors"], "data": result}
 
 
 @mcp.tool()

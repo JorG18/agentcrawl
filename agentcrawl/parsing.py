@@ -137,7 +137,37 @@ def apply_output_budget(text: str, limit: int) -> tuple[str, int]:
     return text[:limit], len(text) - limit
 
 
-def chunk_text_stats(text: str, config: CrawlConfig) -> tuple[list[str], dict[str, Any]]:
+def budget_markdown(
+    markdown: str, limit: int, query: str | None = None
+) -> tuple[str, int, dict[str, Any]]:
+    """Fit ``markdown`` in ``limit`` chars; with a query, keep the relevant blocks.
+
+    Returns ``(text, chars_omitted, info)``; ``info["markdown_selection"]`` is
+    ``"bm25"`` when relevance picked the kept blocks and ``"head"`` otherwise.
+    """
+    if limit <= 0 or len(markdown) <= limit:
+        return markdown, 0, {}
+    if query and query.strip():
+        from .relevance import select_within_budget
+
+        selected, info = select_within_budget(markdown, query, limit)
+        if info.get("ranked"):
+            return (
+                selected,
+                max(0, len(markdown) - len(selected)),
+                {
+                    "markdown_selection": "bm25",
+                    "markdown_blocks_total": info["blocks_total"],
+                    "markdown_blocks_kept": info["blocks_kept"],
+                },
+            )
+    text, omitted = apply_output_budget(markdown, limit)
+    return text, omitted, {"markdown_selection": "head"}
+
+
+def chunk_text_stats(
+    text: str, config: CrawlConfig, query: str | None = None
+) -> tuple[list[str], dict[str, Any]]:
     """Split ``text`` into chunks and report what the ``max_chunks`` cap dropped.
 
     The old behaviour returned the first ``max_chunks`` chunks and threw the
@@ -163,9 +193,21 @@ def chunk_text_stats(text: str, config: CrawlConfig) -> tuple[list[str], dict[st
             for index in range(0, len(text), config.chunk_size)
         ]
     cleaned = [chunk.strip() for chunk in chunks if chunk.strip()]
-    used = cleaned[: config.max_chunks]
-    omitted = cleaned[config.max_chunks :]
+    selection = "head"
+    if query and config.relevance_chunking and len(cleaned) > config.max_chunks:
+        from .relevance import select_top_passages
+
+        keep, ranked = select_top_passages(cleaned, query, config.max_chunks)
+        if ranked:
+            selection = "bm25"
+        kept = set(keep)
+        used = [chunk for index, chunk in enumerate(cleaned) if index in kept]
+        omitted = [chunk for index, chunk in enumerate(cleaned) if index not in kept]
+    else:
+        used = cleaned[: config.max_chunks]
+        omitted = cleaned[config.max_chunks :]
     stats: dict[str, Any] = {
+        "chunk_selection": selection,
         "chunks_total": len(cleaned),
         "chunks_used": len(used),
         "chunks_omitted": len(omitted),

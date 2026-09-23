@@ -32,8 +32,8 @@ def dashboard_summary(store: SQLiteStore, *, owner_key: str | None = None) -> di
 
     return {
         "jobs": jobs,
-        "job_events": store.job_event_counts(),
-        "crawl_queue": store.crawl_queue_metrics(),
+        "job_events": store.job_event_counts(owner_key=owner_key),
+        "crawl_queue": store.crawl_queue_metrics(owner_key=owner_key),
         "crawl_failures": failures,
         "usage_by_endpoint": usage_by_endpoint,
         "cache_entries": cache_entries,

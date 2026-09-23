@@ -117,6 +117,9 @@ AgentCrawl Community is the self-hosted trust layer:
 | Durable crawls | SQLite jobs, events, checkpoints, retries, and failure records. |
 | Local dashboard | Read-only static HTML over SQLite via `agentcrawl dashboard` and `/dashboard`; the HTTP view follows the API auth setting. |
 | Quality extraction | Markdown, links, metadata, JSON-LD/provenance, tables, code blocks. |
+| Batch scraping | `scrape_many` in the library, API (`/v1/scrape_many`), MCP and CLI (`scrape-many`). |
+| Structured extraction without an LLM | CSS schemas (`extract-css`, `/v1/extract_css`, MCP `extract_structured`): deterministic, zero tokens. |
+| Query-aware budgets | `query=` keeps the passages that matter (BM25) when a page is larger than the output budget. |
 | Basic browser fallback | Optional local browser/Camofox path, not required for the default image. |
 | Lightweight docs | Install, examples, operations, release, quality notes. |
 
@@ -177,6 +180,7 @@ GET    /health                     (unauthenticated)
 GET    /dashboard                  (see AGENTCRAWL_DASHBOARD_PUBLIC)
 GET    /api/dashboard/summary      (see AGENTCRAWL_DASHBOARD_PUBLIC)
 POST   /v1/scrape
+POST   /v1/scrape_many
 POST   /v1/map
 POST   /v1/crawl
 GET    /v1/jobs/{job_id}
@@ -186,10 +190,30 @@ GET    /v1/failures
 GET    /v1/jobs/{job_id}/failures
 POST   /v1/jobs/{job_id}/failures/retry
 POST   /v1/extract
+POST   /v1/extract_css
 GET    /v1/usage
 GET    /v1/stats
 DELETE /v1/cache
 ```
+
+Several pages at once, and structured data without an LLM:
+
+```bash
+agentcrawl scrape-many https://example.com/a https://example.com/b
+agentcrawl scrape https://example.com/docs/faq --query "refund policy"
+
+cat > products.json <<'JSON'
+{"baseSelector": "div.product",
+ "fields": [{"name": "title", "selector": "h2"},
+            {"name": "price", "selector": ".price", "transform": "number"},
+            {"name": "url", "selector": "a", "type": "attribute", "attribute": "href", "transform": "url"}]}
+JSON
+agentcrawl extract-css https://shop.example.com/catalog --schema products.json
+```
+
+Scraping a local dev server (localhost/127.x) is refused by default by the SSRF guard. Allow it on purpose with `--allow-private-network` or `AGENTCRAWL_ALLOW_PRIVATE_NETWORK=true`; the CLI's local mode reads the same `AGENTCRAWL_*` variables as MCP (`--airgap`, `--allowlist`, `--audit`, `--timeout-ms`, `--no-robots`, `--no-browser-fallback` override them). `scrape`, `scrape-many`, `extract-css`, `map` and `crawl` exit 1 when the result has errors.
+
+The CSS schema supports `text`, `attribute`, `html`, `regex`, `nested` and `list` fields; the selector subset is documented in `agentcrawl/css_extract.py`, and anything outside it is rejected instead of silently matching nothing.
 
 OpenAPI docs are available at `/docs` when the server is running.
 
@@ -275,6 +299,7 @@ Current document support:
 | Text | Passed through as plain Markdown text. |
 | JSON | Pretty-printed inside a fenced `json` block. |
 | XML/RSS/Atom | Preserved inside a fenced `xml` block. |
+| CSV/TSV | Rendered as a Markdown table (delimiter sniffed); also for URLs served as `text/csv`. Shape in metadata; rows beyond 5 000 are reported as omitted. |
 | PDF | Extracted page-by-page to Markdown with the optional `docs` extra. Enforces size/page safety limits and rejects encrypted PDFs. |
 
 ## Browser rendering

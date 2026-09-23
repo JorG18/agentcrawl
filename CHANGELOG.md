@@ -4,11 +4,44 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
-## 0.2.0 - 2026-09-20
+## 0.2.0 - 2026-09-23
 
-Security, correctness, and observability hardening from the 2026-09 code audits: a security/durability pass, a correctness/DX pass, and a module-by-module deep sweep that followed. The sweep found one recurring failure mode and closed it everywhere it appeared — **the data was dropped or miscounted and nothing said so** — which is exactly what the project's three pillars promise never happens. Several deliberate API behavior changes are called out with **Breaking** below; everything else is invisible to existing callers.
+The 2026-09 hardening release, plus a first set of new extraction capabilities. It is the first release after 0.1.4.
+
+**Security and honesty.** Four audit passes closed one recurring failure mode everywhere it appeared — **the data was dropped, miscounted or let through and nothing said so** — which is exactly what the project's pillars promise never happens. The privacy guarantees now hold end to end: the airgap and the audit trail cover page fetches, search, robots.txt/sitemap discovery *and* every request the local Playwright browser makes (the Camofox backend, which cannot be guarded, is refused under airgap); HTTP connections are DNS-pinned against rebinding; jobs, cache and every aggregate are scoped per API key.
+
+**New capabilities.** Batch scraping (`scrape_many`) on every surface, deterministic CSS-schema extraction without an LLM, query-aware (BM25) selection when a page exceeds the budget, CSV/TSV ingestion, CLI parity with MCP configuration, and a reproducible offline comparison benchmark.
+
+Deliberate API behavior changes are called out with **Breaking** below; everything else is invisible to existing callers.
 
 ### Fixed
+
+- **SEC-11 (high) — `airgap` and `audit` now cover robots.txt and sitemap discovery.**
+  *What this means:* with `airgap=True`, `map()` still fetched a sitemap that a site's `robots.txt` announced on *another host* — reproduced with two local servers, the second host received `GET /sitemap.xml`. And discovery requests never appeared in the audit trail: a crawl that fetched `robots.txt` plus one page reported one request. Discovery had its own opener with the SSRF guard only.
+  *Detail:* `_guarded_urlopen` now goes through `fetchers._safe_urlopen` (SSRF guard on every hop, DNS pinning, airgap allowlist). Each `map()`/`crawl()` run carries a discovery audit trail, exposed as `metadata.discovery_audit` on `MapResult` / `CrawlRun` (same shape as a document's audit fields; page documents keep their own trails). A sitemap the airgap refuses is skipped and listed in `metadata.airgap_skipped` instead of failing the map. robots.txt is fetched at most once per run.
+
+- **SEC-8b (low) — the last global aggregates are scoped per key.**
+  *What this means:* SEC-8 (below) scoped the cache and most aggregates per key, but `/v1/stats` → `job_events` and the dashboard's `job_events` and `crawl_queue` still counted every key's jobs. They now follow the caller like the rest (owner keys and auth-disabled servers keep the global view).
+
+- **BUG (medium) — the CLI's local mode ignored the `AGENTCRAWL_*` environment.**
+  *What this means:* `cli._run_local` built the engine from `AGENTCRAWL_FETCHER` alone, so `AGENTCRAWL_ALLOW_PRIVATE_NETWORK=true agentcrawl scrape http://127.0.0.1:3000/` was still refused (while MCP honoured the same variable), and airgap/audit/robots/timeout could not be set from the CLI at all. One mapping, `config.config_from_env()`, now serves CLI local mode, MCP local mode and `doctor`; the CLI adds `--allow-private-network`, `--airgap`, `--allowlist`, `--audit`, `--timeout-ms`, `--no-robots`, `--no-browser-fallback` (flags beat env). The private-network refusal now says how to allow it on purpose.
+
+- **SEC-9 (high) — the browser fetcher is guarded request by request.**
+  *What this means:* with Playwright, only the final `page.url` was validated, after every redirect hop, iframe, image, `fetch()`/XHR and WebSocket had already left the machine. A public page could make the browser reach `127.0.0.1`, cloud metadata or any third-party host, and `airgap=True` kept nothing off the network on this path. Verified with real Chromium: an unguarded test page leaked 5 requests to a non-allowed host; the guarded one leaks 0.
+  *Detail:* new `agentcrawl.browser_guard.BrowserNetworkGuard`, installed as a context-level route (popups/iframes included) plus a WebSocket route; service workers are blocked while guarding. Because a Playwright route only sees the first URL of a redirect chain, the guard performs each request itself with `route.fetch(max_redirects=0)`: sub-resource chains are walked and validated hop by hop inside the guard; main-frame redirects become a fresh, re-routed `goto`. Blocked requests are recorded in the audit trail (`blocked: true`), and browser fetches now carry audit metadata when `audit=True`. Known limit, documented in SECURITY.md: the browser resolves DNS itself, so there is no IP pinning on this path.
+
+- **SEC-10 (medium) — DNS pinning on the HTTP path.**
+  *What this means:* the SSRF check resolved the host, then urllib resolved it again to connect; a DNS server answering "public" first and "127.0.0.1" second (DNS rebinding) got past the guard. Connections now resolve once, validate those addresses and connect to exactly them.
+  *Detail:* `security.resolve_public_addresses()` + `PinnedHTTPHandler` / `PinnedHTTPSHandler` (SNI and certificate checks still use the hostname), active whenever `allow_private_network` is false, for page fetches, search and robots/sitemap discovery. Proxied requests are not pinned (the proxy resolves).
+
+- **BUG (medium) — `AgentCrawl({"llm": client}).extract()` crashed for real LLM clients.**
+  *What this means:* the config was copied with `dataclasses.asdict`, which deep-copies every field — including the caller's LLM client, whose locks/connections cannot be copied (`TypeError: cannot pickle '_thread.RLock' object`). The config object is now passed as-is (`AgentCrawler.markdown()` uses a shallow `replace`).
+
+- **BUG (medium) — airgapped `search_then_scrape` let the search engine choose the hosts.**
+  *What this means:* each scrape trusts its own target host, so under `airgap=True` every result URL was contacted whatever its host. Result hosts must now match `allowlist_domains`; the rest are listed in `airgap_skipped` instead of fetched.
+
+- **BUG (low) — usage metering is attributed to the right key.**
+  *What this means:* retrying a job's failures billed (and scheduled the re-run under) the key that pressed retry — an owner key retrying another key's job paid for it. The job owner is now billed. `/v1/extract` also records model requests on their own line (`/v1/extract.llm_calls`, reattempts included; `CrawlResult.metadata.llm_calls`).
 
 - **SEC-1 (high) — robots.txt and sitemap discovery now honor SSRF guard rails.**
   *What this means:* `AgentCrawl.map()` fetched `robots.txt`, `Sitemap:` entries, and sitemap-index `<loc>` targets through raw `urllib.request.urlopen` with no URL validation and no redirect protection. On a network-exposed deployment, a remote site's robots file could point discovery at `169.254.169.254` or internal services. Discovery now goes through `_guarded_urlopen`, which applies `validate_remote_url` and `_SafeRedirectHandler` to the initial URL and every redirect hop, and `Sitemap:` entries are re-validated before fetch.
@@ -87,6 +120,13 @@ Security, correctness, and observability hardening from the 2026-09 code audits:
 
 ### Changed
 
+- **Breaking — CLI exit codes.** `scrape`, `scrape-many`, `extract-css`, `map` and `crawl` exit **1** when the result carries errors (`success: false` in remote mode) and **2** on usage errors; the JSON is still printed. They always exited 0 before, so scripts and CI could not tell a failed scrape from a good one.
+- **Breaking — `/v1/crawl` with `wait=true` is capped** at `AGENTCRAWL_SYNC_CRAWL_MAX_PAGES` (default 25) and charges one rate-limit unit per page; larger crawls get `400` asking for a durable job (`wait=false`). It used to run up to 10 000 pages inside the request thread for one unit.
+- **Breaking — `/v1/extract` bounds its input:** `prompt` 1-8 000 chars, `schema` ≤ 64 KiB (`422` otherwise).
+- **Breaking — total body read deadline** of 3 × `timeout_ms` (minimum 1 s). `timeout_ms` is per socket operation, so a server dripping bytes could hold a worker indefinitely; reads now use `read1` and stop at the deadline with an honest error.
+- **Breaking — the API only routes through Camofox when the operator configured it** (`AGENTCRAWL_FETCHER` or `AGENTCRAWL_BROWSER_BACKEND` = `camofox`); a caller override selecting it is `400`. Camofox also refuses to run under `airgap=True`: its browser lives in another process and cannot be guarded from here.
+- Scrape cache keys now include `query`; entries written by earlier builds simply miss once.
+
 - **Breaking (HTTP API) — unsupported `config` overrides are rejected with `400`.**
   *What this means:* `POST /v1/scrape`, `/v1/map`, and `/v1/crawl` used to silently drop any `config` key outside the server-controlled allowlist. A caller asking for `airgap=true` (or mistyping `fetcher`) got a request that looked accepted but had no effect — dangerous for the privacy settings. Unknown or server-controlled keys now fail the request with the offending names. `POST /v1/crawl` validates before creating the job, so a bad override does not leave a failed durable job behind.
 
@@ -100,6 +140,19 @@ Security, correctness, and observability hardening from the 2026-09 code audits:
 
 ### Added
 
+- **`scrape_many` everywhere** — `AgentCrawl.scrape_many()`, `POST /v1/scrape_many` (1-100 URLs), MCP `scrape_many`, CLI `agentcrawl scrape-many URL... [--file urls.txt]`.
+  *What this means:* an agent reads N known pages in one call instead of N sequential calls. Every URL goes through the single-scrape path (validation, per-key cache, per-domain politeness, usage), results keep input order, and a bad URL fails its own item, not the batch. The library bounds concurrency overall (`parallelism`) and per host (`per_host_concurrency=2`); the server uses `AGENTCRAWL_SCRAPE_MANY_CONCURRENCY` (default 8) and charges one rate-limit unit per URL.
+
+- **Deterministic CSS-schema extraction** — `AgentCrawl.extract_css()`, `POST /v1/extract_css`, MCP `extract_structured`, CLI `agentcrawl extract-css URL --schema schema.json`.
+  *What this means:* write a `baseSelector` + `fields` schema once and extract structured JSON from any number of similar pages with no LLM, no tokens and the same answer every run. Field types `text`/`attribute`/`html`/`regex`/`nested`/`list`, transforms `strip`/`lower`/`upper`/`number`/`url`, `multiple`, `default`. Stdlib only (no new dependency), with a documented selector subset; unsupported selector syntax and malformed schemas are rejected up front (`422` on the API) instead of silently matching nothing.
+
+- **Query-aware budgets (BM25)** — `scrape(..., query=...)` (API/MCP/CLI `query`), and the extraction prompt is now the query for LLM chunk selection.
+  *What this means:* when a page is larger than the budget, the truncation fix below reports the cut honestly but would still keep the *head* of the page. With a query, the budget goes to the passages that match it, in document order, with their section headings. If the query matches nothing, the head is kept exactly as before. New metadata: `markdown_selection` (`bm25`/`head`), `markdown_blocks_kept/total`, `chunking.chunk_selection`. Disable with `relevance_chunking=false`.
+
+- **CSV/TSV ingestion** — local `.csv`/`.tsv` files and URLs served as `text/csv` become Markdown tables, with `row_count`, `column_count`, `columns`, `csv_delimiter` (sniffed) and `csv_rows_omitted` (render cap 5 000 rows, reported, never silent).
+
+- **`benchmarks/compare.py`** — reproducible, offline comparison lane over the committed quality fixtures: text recall, style-neutral structure recall, fence-language recall, noise leakage, tokens, latency. Adapters for AgentCrawl, an html2text baseline, trafilatura and Crawl4AI (raw and `fit_markdown`) run when installed; missing tools are reported as skipped. It prints tool versions, commit and environment. The fixtures were written by this project, so results are a regression signal, not a neutral market claim (see docs/QUALITY_BENCHMARKS.md).
+
 - `AGENTCRAWL_LOCAL_FILES_ROOT` env var (optional local-file jail for the API server).
 - `max_response_bytes` config option (default 10 MB) capping a single fetched body.
 - `AGENTCRAWL_DASHBOARD_PUBLIC` env var (opt out of dashboard authentication on a trusted host).
@@ -112,11 +165,16 @@ Security, correctness, and observability hardening from the 2026-09 code audits:
   *What this means:* `validate_remote_url` resolves every hostname with `socket.getaddrinfo` before fetching, so the fetcher/audit tests silently depended on documentation hosts (e.g. `example.com`) resolving. In CI or containers with filtered DNS those 8 tests failed even though the code was correct. A conftest autouse fixture now stubs DNS for documentation hosts only (unknown hosts still fall through to the real resolver and keep the honest `Unable to resolve target host` failure path). The suite drops from ~139s to ~12s and passes in offline sandboxes. No production code changed.
 - Regression tests for the deep sweep: silent markdown/chunk truncation reporting (including the browser-retry path and its token metrics), audit-vs-airgap semantics with a real cross-host redirect (audit alone must not enforce, the airgap must), one-record-per-request and blocked-hop accounting, search under airgap/audit, `config` type/range rejection with `400`, regex validation and the total `url_allowed`, `max_urls` bounds, per-key cache/aggregate scoping plus the legacy-database migration, `loader_kwargs` timeout units, line-oriented blocked-page detection, and error-classification ordering.
 
+### Known issues
+
+- `SQLiteStore.prepare_restart_recovery()` requeues **every** `running` job when a server process starts. With `uvicorn --workers > 1`, a worker that restarts can requeue — and re-run — a job another live worker is still processing. A proper fix needs a per-job heartbeat and a migration; tracked for the next release. Until then run one server process and scale with `AGENTCRAWL_WORKERS` threads.
+- The per-domain concurrency slot is still keyed by the requested host, not re-keyed after a cross-domain redirect.
+
 ### Verification
 
-- `pytest`: 292 passed (219 after the previous pass; +73 regression cases in this sweep).
-- `ruff check` and `ruff format --check`: clean.
-- Every finding above was reproduced against a local HTTP server or a direct call before the fix and re-run after it; the evidence lives in the new `tests/test_*.py` modules.
+- `pytest`: 373 passed (292 after the first three audit passes; +81 regression and feature cases in 12 modules for the 2026-09-23 pass).
+- `ruff check` and `ruff format --check`: clean. `benchmarks.quality_report`: 20/20 fixtures, average 100.0.
+- Every finding was reproduced against a local HTTP server or a direct call before the fix and re-run after it; the evidence lives in the `tests/test_*.py` modules. The browser guard was additionally exercised against real Chromium (Playwright 1.61) with redirect chains, a hostile redirect, an iframe, an image redirect, XHR and a WebSocket: 5 leaked requests without the guard, 0 with it.
 
 ## 0.1.4 - 2026-06-29
 

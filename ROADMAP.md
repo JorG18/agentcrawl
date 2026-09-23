@@ -61,7 +61,7 @@ AgentCrawl Community is a serious self-hosted alpha surface. The core paths work
 - PyPI publication pipeline (`pip install agentcrawl-ai`).
 - CI badge in README + PyPI version badge.
 
-### Security & correctness fixes (2026-09 audit, unreleased)
+### Security & correctness fixes (2026-09 audits, shipped in v0.2.0)
 - SSRF guard rails extended to `robots.txt` and sitemap discovery; sitemap-index recursion bounded (depth + entry budget).
 - Optional local-file jail (`AGENTCRAWL_LOCAL_FILES_ROOT`) for servers with `ALLOW_LOCAL_FILES=true`.
 - Crawl jobs scoped to the creating API key; owner keys are the only ones that see every job. Foreign jobs answer `404`.
@@ -70,8 +70,18 @@ AgentCrawl Community is a serious self-hosted alpha surface. The core paths work
 - Unsupported `config` overrides are rejected with `400` instead of being silently dropped.
 - `doctor` and the OpenAPI schema report the real package version; the source-checkout version fallback reads `pyproject.toml` instead of a hardcoded literal.
 - Playwright sessions close their context and browser exactly once, including on navigation failure.
+- Airgap and audit cover robots.txt/sitemap discovery and every request a local Playwright browser makes (redirect hops, iframes, sub-resources, XHR, WebSockets); the HTTP path pins DNS against rebinding.
+- Per-key scoping reaches the cache, every aggregate and the dashboard; usage is billed to the job owner and LLM calls are metered separately.
+- CLI local mode reads the same `AGENTCRAWL_*` configuration as MCP, and exits non-zero on failed results.
 
-**Audit context:** `~/Proyectos/agentcrawl-private-docs/archive/2026-06-28/CODE_AUDIT_2026-06-28.md` (2026-06 audit, with fixes-applied appendix); the 2026-09 passes are recorded in the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md).
+### New capabilities (v0.2.0)
+- `scrape_many` on the library, API, MCP and CLI.
+- Deterministic CSS-schema extraction (`extract-css`, `/v1/extract_css`, MCP `extract_structured`) — no LLM, zero tokens.
+- Query-aware (BM25) selection when a page exceeds the output or chunk budget.
+- CSV/TSV ingestion for local files and `text/csv` URLs.
+- `benchmarks/compare.py`: reproducible offline comparison lane (results stay internal until a neutral corpus exists).
+
+**Audit context:** each audit pass is recorded, finding by finding, in [CHANGELOG.md](CHANGELOG.md) (the 2026-06 audit under 0.1.3, the 2026-09 passes under 0.2.0).
 
 ## Next community priorities
 
@@ -86,7 +96,7 @@ These are scope keepers, not feature promises. Each only lands when its verifica
 
 ## Public launch readiness
 
-Public marketing and visibility copy (Show HN, Reddit, blog, demo assets) is drafted in private planning docs and only rolls out after:
+Public announcements only go out after:
 
 1. The `agentcrawl-ai` package installs cleanly in a fresh venv and reports the version we tagged.
 2. `pytest` + `ruff check` + `ruff format --check` are clean on the release commit.
@@ -94,4 +104,4 @@ Public marketing and visibility copy (Show HN, Reddit, blog, demo assets) is dra
 4. The GHCR workflow for the tag is green.
 5. No `from agentcrawl.enhanced` import exists in any public source file.
 
-Autonomous work stops at "ready to ship". Showing drafts for review is a user-driven step — see `agentcrawl-private-docs/MARKETING_DRAFTS.md` for the current draft pack and the guardrails around competitive claims.
+Comparative claims follow the benchmark policy in [docs/QUALITY_BENCHMARKS.md](docs/QUALITY_BENCHMARKS.md): no numbers without a reproducible run on a neutral corpus.

@@ -1,24 +1,29 @@
 from __future__ import annotations
 
+import contextvars
+import json
 import re
+import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 import urllib.robotparser
 import time
 import xml.etree.ElementTree as ET
 from collections import deque
-from dataclasses import asdict
+from contextlib import contextmanager
 from typing import Any, Callable
 
+from .airgap import AirgapViolation, AuditTrail
 from .config import CrawlConfig
 from .documents import markdown_from_fetched_content
 from .errors import classify_error
 from .exceptions import FetchError
-from .fetchers import _read_bounded, _SafeRedirectHandler, fetch_source
+from .fetchers import _read_bounded, _safe_urlopen, fetch_source, read_deadline_seconds
 from .html_tools import extract_html_facts, normalize_url, same_domain, url_allowed
 from .models import CrawlRun, MapResult, ScrapeDocument
 from .parsing import (
-    apply_output_budget,
+    budget_markdown,
     extraction_provenance,
     html_to_markdown,
     markdown_structure_metrics,
@@ -64,29 +69,74 @@ _SITEMAP_MAX_URLS = 100_000
 _DISCOVERY_MAX_BYTES = 50 * 1024 * 1024
 
 
-def _guarded_urlopen(url: str, config: CrawlConfig, *, allow_private: bool | None = None):
-    """Open ``url`` with the same SSRF guard rails as page fetches.
+# Per-run discovery context: the audit trail and the host the run targets.
+# A ContextVar (not extra parameters) so the discovery helpers keep their
+# ``(url, config)`` signatures; ``map()`` / ``crawl()`` set it for their run.
+_DISCOVERY: contextvars.ContextVar[tuple[Any, str] | None] = contextvars.ContextVar(
+    "agentcrawl_discovery", default=None
+)
 
-    Applies ``validate_remote_url`` to the target and installs
-    ``_SafeRedirectHandler`` so redirect hops are re-validated. Without
-    this, ``robots.txt`` / sitemap discovery fetched attacker-chosen URLs
-    (robots ``Sitemap:`` lines, sitemap-index ``<loc>`` entries) with zero
-    validation — an SSRF hole reachable through ``AgentCrawl.map()`` on
-    any network-exposed deployment.
+
+def _guarded_urlopen(url: str, config: CrawlConfig, *, allow_private: bool | None = None):
+    """Open ``url`` with exactly the guard rails of a page fetch.
+
+    SSRF validation of the target and of every redirect hop, DNS pinning, and —
+    this was missing until the 2026-09-23 audit — the airgap allowlist. Discovery
+    used its own opener, so with ``airgap=True`` a ``Sitemap:`` line pointing at
+    another host was fetched anyway. It now shares ``fetchers._safe_urlopen``.
     """
-    validate_remote_url(
-        url,
-        allow_private_network=config.allow_private_network
-        if allow_private is None
-        else allow_private,
-    )
+    allow_private_network = config.allow_private_network if allow_private is None else allow_private
+    validate_remote_url(url, allow_private_network=allow_private_network)
     request = urllib.request.Request(
         url, headers={"user-agent": config.user_agent or "AgentCrawl/0.1"}
     )
-    opener = urllib.request.build_opener(
-        _SafeRedirectHandler(allow_private_network=config.allow_private_network)
+    context = _DISCOVERY.get()
+    trail, target_host = context if context else (None, None)
+    return _safe_urlopen(
+        request,
+        timeout=config.timeout_ms / 1000,
+        allow_private_network=allow_private_network,
+        airgap=config.airgap,
+        allowlist_domains=config.allowlist_domains,
+        audit_trail=trail,
+        target_host=target_host or (urllib.parse.urlsplit(url).hostname or ""),
     )
-    return opener.open(request, timeout=config.timeout_ms / 1000)
+
+
+def _discovery_read(url: str, config: CrawlConfig) -> str:
+    """Fetch a robots.txt/sitemap body and record the request in the run's trail."""
+    context = _DISCOVERY.get()
+    trail, target_host = context if context else (None, "")
+    try:
+        with _guarded_urlopen(url, config) as response:
+            body = _read_bounded(
+                response,
+                _DISCOVERY_MAX_BYTES,
+                url=url,
+                deadline_seconds=read_deadline_seconds(config),
+            )
+            final_url = getattr(response, "geturl", lambda: url)() or url
+            status = getattr(response, "status", None) or 200
+    except AirgapViolation:
+        raise  # the airgap handler already recorded the refusal as blocked
+    except urllib.error.HTTPError as exc:
+        if trail is not None:
+            trail.record("GET", url, final_url=url, status=exc.code, target_host=target_host)
+        raise
+    except Exception:
+        if trail is not None:
+            trail.record("GET", url, final_url=url, status=None, target_host=target_host)
+        raise
+    if trail is not None:
+        trail.record(
+            "GET",
+            url,
+            final_url=final_url,
+            status=status,
+            bytes_count=len(body),
+            target_host=target_host,
+        )
+    return body.decode("utf-8", errors="replace")
 
 
 class AgentCrawl:
@@ -104,6 +154,8 @@ class AgentCrawl:
         source: str,
         formats: list[str] | None = None,
         only_main_content: bool | None = None,
+        *,
+        query: str | None = None,
     ) -> ScrapeDocument | dict[str, Any]:
         requested = formats or ["markdown"]
         from .browser_retry import attempt_browser_retry  # local import keeps scrape() cheap
@@ -130,6 +182,7 @@ class AgentCrawl:
                         original_config=self.config,
                         only_main_content=only_main_content,
                         requested=requested,
+                        query=query,
                     )
                 if retry is not None:
                     if formats is None:
@@ -169,7 +222,11 @@ class AgentCrawl:
             # The output budget is applied here, not in the parser, so the loss
             # is recorded on the document instead of disappearing silently.
             markdown_chars_full = len(markdown)
-            markdown, chars_omitted = apply_output_budget(markdown, self.config.max_input_chars)
+            markdown, chars_omitted, selection = budget_markdown(
+                markdown,
+                self.config.max_input_chars,
+                query if self.config.relevance_chunking else None,
+            )
             text = _markdown_to_text(markdown)
             structure_metrics = markdown_structure_metrics(markdown)
             source_url = str(metadata.get("source_url") or source)
@@ -192,6 +249,7 @@ class AgentCrawl:
                     "markdown_chars_full": markdown_chars_full,
                     "markdown_truncated": chars_omitted > 0,
                     "chars_omitted": chars_omitted,
+                    **selection,
                     "text_chars": len(text),
                     "link_count": len(links),
                     "estimated_tokens": estimate_tokens(text),
@@ -232,6 +290,91 @@ class AgentCrawl:
                 return document
             return _format_document(document, requested)
 
+    def extract_css(self, source: str, schema: dict[str, Any]) -> dict[str, Any]:
+        """Deterministic structured extraction: CSS schema in, JSON out, no LLM.
+
+        The page goes through :meth:`scrape` (same SSRF guard, airgap, audit,
+        blocked-page detection); the schema then runs on the raw HTML. A schema
+        error raises ``ValueError`` before anything is fetched.
+        """
+        from .css_extract import extract_with_schema, validate_css_schema
+
+        validate_css_schema(schema)
+        document = self.scrape(source, formats=["html", "metadata"], only_main_content=False)
+        metadata = dict(document.get("metadata") or {})
+        errors = list(document.get("errors") or [])
+        data: Any = None
+        if not errors:
+            final_url = str(metadata.get("final_url") or source)
+            data = extract_with_schema(document.get("html") or "", schema, base_url=final_url)
+            serialized = json.dumps(data, ensure_ascii=False)
+            metadata.update(
+                {
+                    "extraction_strategy": "css_schema",
+                    "item_count": len(data) if isinstance(data, list) else 1,
+                    "estimated_tokens": estimate_tokens(serialized),
+                    "llm_calls": 0,
+                }
+            )
+        return {"url": source, "data": data, "metadata": metadata, "errors": errors}
+
+    def scrape_many(
+        self,
+        sources: list[str],
+        formats: list[str] | None = None,
+        only_main_content: bool | None = None,
+        *,
+        max_workers: int | None = None,
+        per_host_concurrency: int = 2,
+        query: str | None = None,
+    ) -> list[ScrapeDocument | dict[str, Any]]:
+        """Scrape several sources concurrently, returning results in input order.
+
+        Concurrency is bounded twice: ``max_workers`` (default
+        ``config.parallelism``) overall, and ``per_host_concurrency`` per host
+        so a batch of one site's pages stays polite. Every source runs through
+        :meth:`scrape`, so validation, airgap/audit and error reporting are
+        identical to a single call; a failing source yields a document with
+        ``errors`` instead of raising.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        source_list = list(sources)
+        if not source_list:
+            return []
+        workers = max(1, min(max_workers or self.config.parallelism, len(source_list)))
+        host_limits: dict[str, threading.BoundedSemaphore] = {}
+        host_lock = threading.Lock()
+
+        def host_slot(source: str) -> threading.BoundedSemaphore:
+            host = urllib.parse.urlsplit(source).hostname or ""
+            with host_lock:
+                if host not in host_limits:
+                    host_limits[host] = threading.BoundedSemaphore(max(1, per_host_concurrency))
+                return host_limits[host]
+
+        def run(source: str) -> ScrapeDocument | dict[str, Any]:
+            with host_slot(source):
+                try:
+                    return self.scrape(
+                        source,
+                        formats=formats,
+                        only_main_content=only_main_content,
+                        query=query,
+                    )
+                except Exception as exc:  # one broken source must not sink the batch
+                    document = ScrapeDocument(
+                        url=source,
+                        markdown="",
+                        text="",
+                        metadata={"error_type": classify_error(str(exc)) or "fetch_error"},
+                        errors=[str(exc)],
+                    )
+                    return document if formats is None else _format_document(document, formats)
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            return list(executor.map(run, source_list))
+
     def map(
         self,
         source: str,
@@ -244,14 +387,20 @@ class AgentCrawl:
         exclude_patterns = exclude if exclude is not None else self.config.crawl_exclude
         discovered: set[str] = set()
         errors: list[str] = []
+        airgap_skipped: list[str] = []
 
-        for sitemap_url in _candidate_sitemaps(source, self.config):
-            try:
-                discovered.update(_read_sitemap(sitemap_url, self.config))
-            except Exception as exc:
-                message = str(exc)
-                if "HTTP Error 404" not in message:
-                    errors.append(f"{sitemap_url}: {exc}")
+        with _discovery_run(self.config, source) as discovery_trail:
+            for sitemap_url in _candidate_sitemaps(source, self.config):
+                try:
+                    discovered.update(_read_sitemap(sitemap_url, self.config))
+                except AirgapViolation:
+                    # Refused before it was sent: a sitemap on another host is
+                    # skipped (and recorded as blocked), not a failed map.
+                    airgap_skipped.append(sitemap_url)
+                except Exception as exc:
+                    message = str(exc)
+                    if "HTTP Error 404" not in message:
+                        errors.append(f"{sitemap_url}: {exc}")
 
         if len(discovered) < limit:
             doc = self.scrape(source)
@@ -267,12 +416,12 @@ class AgentCrawl:
             if same_domain(url, normalized_root)
             and url_allowed(url, include_patterns, exclude_patterns)
         ][:limit]
-        return MapResult(
-            source=source,
-            urls=urls,
-            errors=errors,
-            metadata={"max_urls": limit, "same_domain": True},
-        )
+        metadata: dict[str, Any] = {"max_urls": limit, "same_domain": True}
+        if airgap_skipped:
+            metadata["airgap_skipped"] = airgap_skipped
+        if discovery_trail is not None:
+            metadata["discovery_audit"] = discovery_trail.to_metadata()
+        return MapResult(source=source, urls=urls, errors=errors, metadata=metadata)
 
     def crawl(
         self,
@@ -329,7 +478,11 @@ class AgentCrawl:
         fairness_yielded = False
         next_retry_at: float | None = None
         run_pages = 0
-        robots = _load_robots(root, self.config) if self.config.respect_robots_txt else None
+        discovery_trail = None
+        robots = None
+        if self.config.respect_robots_txt:
+            with _discovery_run(self.config, root) as discovery_trail:
+                robots = _load_robots(root, self.config)
         defer_retries = checkpoint_callback is not None
 
         def report(
@@ -497,13 +650,22 @@ class AgentCrawl:
                 "next_retry_at": next_retry_at,
                 "cancelled": cancelled,
                 "robots_txt": self.config.respect_robots_txt,
+                **(
+                    {"discovery_audit": discovery_trail.to_metadata()}
+                    if discovery_trail is not None
+                    else {}
+                ),
             },
         )
 
     def extract(self, source: str, prompt: str, schema: Any | None = None) -> Any:
         from .client import AgentCrawler
 
-        return AgentCrawler(asdict(self.config)).extract(source, prompt, schema)
+        # Hand the config object over as-is: ``asdict`` deep-copies every field,
+        # including a caller-supplied ``llm`` client, and real clients hold
+        # locks/connections that cannot be copied (TypeError: cannot pickle
+        # '_thread.RLock').
+        return AgentCrawler(self.config).extract(source, prompt, schema)
 
 
 def _queue_item(
@@ -677,14 +839,8 @@ def _sitemaps_from_robots(root_url: str, config: CrawlConfig) -> list[str]:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return []
     robots_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/robots.txt", "", ""))
-    try:
-        with _guarded_urlopen(robots_url, config) as response:
-            # Bounded read: a hostile robots.txt could otherwise stream without
-            # limit and take the process down during discovery.
-            content = _read_bounded(response, _DISCOVERY_MAX_BYTES, url=robots_url).decode(
-                "utf-8", errors="replace"
-            )
-    except Exception:
+    content = _robots_body(robots_url, config)
+    if content is None:
         return []
     sitemaps: list[str] = []
     for line in content.splitlines():
@@ -711,10 +867,7 @@ def _read_sitemap(
     # ``_guarded_urlopen`` validates the initial URL and every redirect hop
     # (via ``_SafeRedirectHandler``), so the final response URL is already
     # covered — no extra validation pass, no extra DNS lookups.
-    with _guarded_urlopen(sitemap_url, config) as response:
-        xml_text = _read_bounded(response, _DISCOVERY_MAX_BYTES, url=sitemap_url).decode(
-            "utf-8", errors="replace"
-        )
+    xml_text = _discovery_read(sitemap_url, config)
     root = ET.fromstring(xml_text)
     urls: list[str] = []
     is_sitemap_index = root.tag.endswith("sitemapindex")
@@ -740,6 +893,46 @@ def _read_sitemap(
     return urls
 
 
+def _robots_body(robots_url: str, config: CrawlConfig) -> str | None:
+    """robots.txt body, fetched at most once per discovery run (``None`` if absent).
+
+    ``map()`` reads it for ``Sitemap:`` lines and ``crawl()`` for the rules; a
+    run that needs both reuses the first fetch instead of asking the site twice.
+    """
+    context = _DISCOVERY.get()
+    cache = _ROBOTS_CACHE.get()
+    if context is not None and cache is not None and robots_url in cache:
+        return cache[robots_url]
+    try:
+        # Bounded read: a hostile robots.txt could otherwise stream without
+        # limit and take the process down during discovery.
+        content: str | None = _discovery_read(robots_url, config)
+    except Exception:
+        content = None
+    if context is not None and cache is not None:
+        cache[robots_url] = content
+    return content
+
+
+_ROBOTS_CACHE: contextvars.ContextVar[dict[str, str | None] | None] = contextvars.ContextVar(
+    "agentcrawl_robots_cache", default=None
+)
+
+
+@contextmanager
+def _discovery_run(config: CrawlConfig, source: str):
+    """Scope one map/crawl run: its audit trail, target host and robots cache."""
+    trail = AuditTrail() if config.audit else None
+    host = (urllib.parse.urlsplit(source).hostname or "").lower()
+    token = _DISCOVERY.set((trail, host))
+    cache_token = _ROBOTS_CACHE.set({})
+    try:
+        yield trail
+    finally:
+        _DISCOVERY.reset(token)
+        _ROBOTS_CACHE.reset(cache_token)
+
+
 def _robots_user_agent(config: CrawlConfig) -> str:
     """Product token claimed when matching ``robots.txt`` rules.
 
@@ -757,12 +950,8 @@ def _load_robots(root_url: str, config: CrawlConfig) -> urllib.robotparser.Robot
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return None
     robots_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/robots.txt", "", ""))
-    try:
-        with _guarded_urlopen(robots_url, config) as response:
-            content = _read_bounded(response, _DISCOVERY_MAX_BYTES, url=robots_url).decode(
-                "utf-8", errors="replace"
-            )
-    except Exception:
+    content = _robots_body(robots_url, config)
+    if content is None:
         return None
     parser = urllib.robotparser.RobotFileParser()
     parser.set_url(robots_url)

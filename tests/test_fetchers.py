@@ -194,6 +194,14 @@ class FakeContext:
     def __init__(self, page):
         self.page = page
         self.closed = 0
+        self.route_calls = []
+        self.websocket_routes = []
+
+    def route(self, pattern, handler):
+        self.route_calls.append({"pattern": pattern, "handler": handler})
+
+    def route_web_socket(self, pattern, handler):
+        self.websocket_routes.append({"pattern": pattern, "handler": handler})
 
     def new_page(self):
         return self.page
@@ -256,7 +264,9 @@ def test_playwright_uses_default_user_agent_when_config_none(monkeypatch) -> Non
     )
 
     assert "ok" in html
-    assert browser.context_kwargs == {"user_agent": "AgentCrawl/0.1"}
+    # The default config guards the browser's network (SSRF), and service
+    # workers are blocked because they can issue requests the route never sees.
+    assert browser.context_kwargs == {"user_agent": "AgentCrawl/0.1", "service_workers": "block"}
     assert page.load_states == []
 
 
@@ -284,7 +294,9 @@ def test_playwright_applies_browser_workflow_options(monkeypatch) -> None:
     _fetch_playwright("https://example.com/", config)
 
     assert page.add_init_script_calls == ["window.__agentcrawl = true;"]
-    assert page.route_calls == [{"pattern": "**/*", "handler": page.route_calls[0]["handler"]}]
+    # One context-level route carries both resource blocking and the guard.
+    context = _browser.context
+    assert [call["pattern"] for call in context.route_calls] == ["**/*"]
     assert page.wait_for_selectors == [{"selector": "main.app-content", "timeout": 30000}]
     assert page.wait_for_timeouts == [250]
 
