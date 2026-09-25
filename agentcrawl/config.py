@@ -122,11 +122,36 @@ class CrawlConfig:
         if unknown:
             raise ValueError(f"Unknown config keys: {', '.join(unknown)}")
         normalized = {key: _validate_config_value(str(key), value) for key, value in config.items()}
+        if "fetcher" in normalized:
+            normalized["fetcher"] = _validate_fetcher(normalized["fetcher"])
+        if "browser_backend" in normalized:
+            backend = normalized["browser_backend"]
+            if backend not in BROWSER_BACKENDS:
+                raise ValueError(
+                    f"browser_backend must be one of {', '.join(BROWSER_BACKENDS)}, got {backend!r}"
+                )
         # Tuple normalization for fields that use tuples by convention.
         for tuple_field in ("allowlist_domains", "browser_fallback_statuses"):
             if tuple_field in normalized and not isinstance(normalized[tuple_field], tuple):
                 normalized[tuple_field] = tuple(normalized[tuple_field])
         return cls(**normalized)
+
+
+BROWSER_BACKENDS = ("playwright", "camofox")
+FETCHERS = ("http", *BROWSER_BACKENDS)
+# "browser" is what people type; the engine name is "playwright". An unknown
+# name used to reach the fetcher and come back as "Unknown fetcher: browser",
+# which the substring classifier then labelled ``browser_error``.
+_FETCHER_ALIASES = {"browser": "playwright"}
+
+
+def _validate_fetcher(value: str) -> str:
+    name = _FETCHER_ALIASES.get(value.strip().lower(), value.strip().lower())
+    if name not in FETCHERS:
+        raise ValueError(
+            f"fetcher must be one of {', '.join(FETCHERS)} (or 'browser'), got {value!r}"
+        )
+    return name
 
 
 # ---------------------------------------------------------------------------

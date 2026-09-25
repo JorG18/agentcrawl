@@ -15,6 +15,7 @@ from typing import Any
 
 from .config import CrawlConfig
 from .documents import CSV_CONTENT_TYPES, csv_to_markdown, read_local_document
+from .errors import status_code_of
 from .exceptions import FetchError
 from .security import check_local_source, pinned_handlers, validate_remote_url
 from .utils import is_probably_url
@@ -142,7 +143,7 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
         if browser_trail is not None:
             metadata.update(browser_trail.to_metadata())
         return html, metadata
-    raise FetchError(f"Unknown fetcher: {config.fetcher}")
+    raise FetchError(f"Unknown fetcher: {config.fetcher}", error_type="config_error")
 
 
 def _fetch_browser(
@@ -166,7 +167,7 @@ def _fetch_browser(
                 "browser_backend='playwright' or disable airgap."
             )
         return _fetch_camofox(url, config)
-    raise FetchError(f"Unknown browser backend: {selected}")
+    raise FetchError(f"Unknown browser backend: {selected}", error_type="config_error")
 
 
 def _browser_audit_kwargs(config: CrawlConfig) -> tuple[dict[str, Any], Any | None]:
@@ -189,7 +190,7 @@ def _should_browser_fallback(message: str, config: CrawlConfig) -> bool:
 def _fetch_local_file(source: str) -> tuple[str, dict[str, Any]]:
     path = pathlib.Path(source).expanduser()
     if not path.exists():
-        raise FetchError(f"Local file not found: {source}")
+        raise FetchError(f"Local file not found: {source}", error_type="not_found")
     resolved = str(path.resolve())
     content, metadata = read_local_document(path)
     return content, {
@@ -300,7 +301,12 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
             if _is_policy_denial(exc) or attempt >= config.http_retries:
                 break
             time.sleep(_retry_delay(config, attempt, None))
-    err = FetchError(f"HTTP fetch failed for {url}: {last_exc}")
+    # Keep the status on the error itself: the browser fallback re-raises
+    # this error *from* the browser failure, which replaces ``__cause__``.
+    err = FetchError(
+        f"HTTP fetch failed for {url}: {last_exc}",
+        status_code=status_code_of(last_exc),
+    )
     # When all retries are exhausted, ``audit_trail`` accumulated one
     # record per attempt. Without this attachment the trail would be
     # silently dropped on the way out and any caller that wanted to

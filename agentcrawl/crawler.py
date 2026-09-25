@@ -17,7 +17,7 @@ from typing import Any, Callable
 from .airgap import AirgapViolation, AuditTrail
 from .config import CrawlConfig
 from .documents import markdown_from_fetched_content
-from .errors import classify_error
+from .errors import classify_error, error_metadata, sanitize_error_message
 from .exceptions import FetchError
 from .fetchers import _read_bounded, _safe_urlopen, fetch_source, read_deadline_seconds
 from .html_tools import extract_html_facts, normalize_url, same_domain, url_allowed
@@ -195,6 +195,9 @@ class AgentCrawl:
                     metadata={
                         **fetch_metadata,
                         "error_type": "client_challenge",
+                        "error_message": sanitize_error_message(
+                            f"Blocked or challenge page detected: {blocked_reason}"
+                        ),
                         "blocked_reason": blocked_reason,
                         "source_url": source,
                         "final_url": str(fetch_metadata.get("final_url") or source),
@@ -262,9 +265,7 @@ class AgentCrawl:
             return _format_document(document, requested)
         except FetchError as exc:
             message = str(exc)
-            error_metadata: dict[str, Any] = {
-                "error_type": classify_error(message) or "fetch_error",
-            }
+            failure_metadata: dict[str, Any] = dict(error_metadata(exc))
             # Surface the audit trail accumulated across exhausted retries
             # so callers can still see which URLs were contacted and the
             # statuses returned. ``_fetch_http`` only attaches the trail
@@ -272,18 +273,20 @@ class AgentCrawl:
             # default config.
             failed_audit = getattr(exc, "audit_trail", None)
             if failed_audit is not None:
-                error_metadata.update(failed_audit.to_metadata())
+                failure_metadata.update(failed_audit.to_metadata())
             # When the browser fallback was attempted and also failed, say so:
             # the reported error stays the honest HTTP one, and the reason the
             # rescue did not work is still visible to the operator.
             fallback_error = getattr(exc, "browser_fallback_error", None)
             if fallback_error:
-                error_metadata["browser_fallback_error"] = str(fallback_error)
+                failure_metadata["browser_fallback_error"] = sanitize_error_message(
+                    str(fallback_error)
+                )
             document = ScrapeDocument(
                 url=source,
                 markdown="",
                 text="",
-                metadata=error_metadata,
+                metadata=failure_metadata,
                 errors=[message],
             )
             if formats is None:
@@ -367,7 +370,7 @@ class AgentCrawl:
                         url=source,
                         markdown="",
                         text="",
-                        metadata={"error_type": classify_error(str(exc)) or "fetch_error"},
+                        metadata=dict(error_metadata(exc)),
                         errors=[str(exc)],
                     )
                     return document if formats is None else _format_document(document, formats)
@@ -572,7 +575,13 @@ class AgentCrawl:
             if not isinstance(doc, ScrapeDocument):
                 continue
             if doc.errors:
-                error_type = classify_error(doc.errors[0]) or "fetch_error"
+                # The engine already classified this failure (from the
+                # exception type, status or challenge detection); re-reading
+                # the message text turned ``client_challenge`` into a
+                # retryable ``fetch_error``.
+                error_type = (
+                    doc.metadata.get("error_type") or classify_error(doc.errors[0]) or "fetch_error"
+                )
                 can_retry = (
                     attempt < self.config.crawl_url_retries
                     and error_type in self.config.crawl_retry_error_types

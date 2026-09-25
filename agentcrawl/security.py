@@ -15,8 +15,7 @@ class LocalFileAccessError(FetchError):
     """A local-file source was refused by the access gate."""
 
     def __init__(self, message: str, error_type: str) -> None:
-        super().__init__(message)
-        self.error_type = error_type
+        super().__init__(message, error_type=error_type)
 
 
 LOCAL_FILES_DISABLED_MESSAGE = (

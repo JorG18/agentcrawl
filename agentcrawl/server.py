@@ -1036,7 +1036,9 @@ def extract_css(
     with server.domain_slot(request.url):
         result = crawler.extract_css(request.url, request.css_schema)
     if result["errors"]:
-        result.setdefault("metadata", {})["error_type"] = classify_error(str(result["errors"][0]))
+        result.setdefault("metadata", {}).setdefault(
+            "error_type", classify_error(str(result["errors"][0])) or "fetch_error"
+        )
     server.store.record_usage(api_key, "/v1/extract_css")
     return {"success": not result["errors"], "data": result}
 
@@ -1213,4 +1215,9 @@ def _attach_error_type(payload: dict[str, Any]) -> None:
     errors = payload.get("errors") or []
     if not errors:
         return
-    payload.setdefault("metadata", {})["error_type"] = classify_error(str(errors[0]))
+    # The engine's own classification (exception type, status, challenge
+    # detection) wins; the message text is only a fallback for payloads
+    # that arrive without one.
+    payload.setdefault("metadata", {}).setdefault(
+        "error_type", classify_error(str(errors[0])) or "fetch_error"
+    )

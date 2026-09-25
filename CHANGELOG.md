@@ -4,9 +4,9 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
-## Unreleased (0.2.1)
+## 0.2.1 - 2026-09-24
 
-A security patch. **Upgrade if an agent uses the local MCP server.**
+A security patch, plus honest error reporting. **Upgrade if an agent uses the local MCP server.**
 
 ### Security
 
@@ -14,6 +14,13 @@ A security patch. **Upgrade if an agent uses the local MCP server.**
   *What this means:* with `AGENTCRAWL_BASE_URL` unset, `scrape_url("/etc/passwd")` or `scrape_url("~/.pypirc")` returned the file as Markdown, and so did `scrape_many`, `extract_structured`, `map_site` and `crawl_site`. A prompt injection on any page the agent read could turn that into credential theft. The API server gated local files, but the MCP did not.
   *Detail:* the gate now lives in `fetchers.fetch_source`, so every entrance goes through one check (`security.check_local_source`, also used by the API server). New config keys `allow_local_files` and `local_files_root`. `config_from_env()`, which the MCP uses, refuses local files unless `AGENTCRAWL_ALLOW_LOCAL_FILES=true`; `AGENTCRAWL_LOCAL_FILES_ROOT` confines reads to the real path of one directory (`..`, symlink escapes and `/root-evil` siblings are refused). The check runs before the file is touched, so a refusal does not reveal whether the path exists. Refusals come back as an honest `error_type` (`local_files_disabled` or `local_file_outside_root`). The API server also passes its setting into the engine, so the gate holds even on a path that skips request validation.
   **Breaking (MCP only):** an MCP setup that read local files must now set `AGENTCRAWL_ALLOW_LOCAL_FILES=true` (and should set a root). The Python library and the CLI keep reading local files by default; `AGENTCRAWL_ALLOW_LOCAL_FILES=false` turns them off there too.
+
+### Fixed
+
+- **S2: errors say what happened.**
+  *What this means:* a failed page carried only `error_type`, and that type was guessed from the message wording. "Unknown fetcher: browser" became `browser_error`, and a DNS failure inside a Playwright fetch could be labelled a browser problem. The API server and the crawl loop also re-guessed the type from the message, so a `client_challenge` page reached callers as `fetch_error` and the crawl retried it.
+  *Detail:* failed documents now carry `error_message` (one line, control characters stripped, at most 300 characters) and `status_code` when an HTTP status is known. `errors.classify_exception` classifies by the explicit type on the error first, then the HTTP status, then the exception cause chain (timeout, TLS, DNS/connection), and only then by message wording. The API server and `crawl()` keep the engine's `error_type` instead of overwriting it. `FetchError` accepts `error_type=` and `status_code=`.
+  **Breaking (config):** `fetcher` is validated in `CrawlConfig.from_dict` (`http`, `playwright`, `camofox`; `browser` is accepted as an alias of `playwright`), and so is `browser_backend`. An unknown name is now a `ValueError` (HTTP 400 on the API) instead of a failed page.
 
 ## 0.2.0 - 2026-09-23
 
