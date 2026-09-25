@@ -46,6 +46,8 @@ agentcrawl mcp
 
 MCP tools cover `scrape_url`, `map_site`, `crawl_site`, job status, cancellation, event history, failure inspection, selective retries, usage, and cache control. Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
 
+The MCP only fetches URLs by default: local file paths are refused, because an agent can be steered by the pages it reads. To let it read a docs folder, set `AGENTCRAWL_ALLOW_LOCAL_FILES=true` and `AGENTCRAWL_LOCAL_FILES_ROOT=/path/to/docs`. The Python library and the CLI still read local files by default.
+
 ### Developers: Python + CLI 🧪
 
 ```bash

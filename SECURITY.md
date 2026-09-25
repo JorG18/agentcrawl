@@ -14,7 +14,7 @@ Include affected versions, reproduction steps, impact, and any suggested mitigat
 - Keep `AGENTCRAWL_OWNER_API_KEYS` limited to operators. Owner keys bypass rate limiting and are the only keys that can read jobs created by another key; regular keys only reach their own jobs.
 - Put the service behind TLS and network-level request limits.
 - Configure `AGENTCRAWL_RATE_LIMIT_PER_MINUTE` for expected traffic.
-- Keep `AGENTCRAWL_ALLOW_LOCAL_FILES=false` on network services.
+- Keep `AGENTCRAWL_ALLOW_LOCAL_FILES=false` on network services. The same variable gates the local MCP engine, which refuses file paths unless it is set; when you enable it, also set `AGENTCRAWL_LOCAL_FILES_ROOT` (enforced with real paths, so `..` and escaping symlinks are refused).
 - Keep `AGENTCRAWL_ALLOW_PRIVATE_NETWORK=false` unless the service is isolated and internal access is intentional.
 - Treat browser execution as untrusted workload and constrain CPU, memory, and concurrency.
 - Update the base image and Python dependencies regularly.

@@ -16,7 +16,7 @@ from typing import Any
 from .config import CrawlConfig
 from .documents import CSV_CONTENT_TYPES, csv_to_markdown, read_local_document
 from .exceptions import FetchError
-from .security import pinned_handlers, validate_remote_url
+from .security import check_local_source, pinned_handlers, validate_remote_url
 from .utils import is_probably_url
 
 _browser_sem: threading.BoundedSemaphore | None = None
@@ -98,6 +98,7 @@ def _browser_backend_available(backend: str) -> bool:
 
 def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     if not is_probably_url(source):
+        check_local_source(source, allow=config.allow_local_files, root=config.local_files_root)
         return _fetch_local_file(source)
     validate_remote_url(source, allow_private_network=config.allow_private_network)
     if config.fetcher == "http":

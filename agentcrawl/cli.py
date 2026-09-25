@@ -475,7 +475,7 @@ def _check_local_scrape() -> dict[str, Any]:
         with tempfile.TemporaryDirectory() as directory:
             page = Path(directory) / "doctor.html"
             page.write_text("<main><h1>AgentCrawl Doctor</h1></main>", encoding="utf-8")
-            document = AgentCrawl(config_from_env()).scrape(str(page))
+            document = AgentCrawl(config_from_env(allow_local_files_default=True)).scrape(str(page))
         markdown = getattr(document, "markdown", "")
         return _check_bool("AgentCrawl Doctor" in markdown)
     except Exception as exc:
@@ -588,7 +588,7 @@ def _collect_urls(urls: list[str], file: str | None) -> list[str]:
 
 
 def _local_config(args: argparse.Namespace) -> dict[str, Any]:
-    config = config_from_env()
+    config = config_from_env(allow_local_files_default=True)
     config["fetcher"] = args.fetcher
     overrides = {
         "allow_private_network": getattr(args, "allow_private_network", None),

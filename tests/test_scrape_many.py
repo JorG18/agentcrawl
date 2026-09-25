@@ -113,6 +113,8 @@ def test_api_scrape_many_bounds_the_batch(tmp_path: Path) -> None:
 
 def test_mcp_scrape_many_runs_locally(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("AGENTCRAWL_BASE_URL", raising=False)
+    # Local files are opt-in on the MCP (S1); these fixtures are local pages.
+    monkeypatch.setenv("AGENTCRAWL_ALLOW_LOCAL_FILES", "true")
     pages = _pages(tmp_path, 2)
 
     result = mcp_scrape_many(pages, formats=["markdown"])

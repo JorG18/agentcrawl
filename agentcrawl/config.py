@@ -40,6 +40,12 @@ class CrawlConfig:
     browser_block_resources: tuple[str, ...] = field(default_factory=tuple)
     browser_init_script: str | None = None
     allow_private_network: bool = False
+    # Local-file sources (a path instead of a URL). On for the library and the
+    # CLI, where a human typed the path; the MCP turns it off (see
+    # ``config_from_env``) because an agent's input can come from a hostile
+    # page. ``local_files_root`` confines reads to one directory tree.
+    allow_local_files: bool = True
+    local_files_root: str | None = None
     airgap: bool = False
     allowlist_domains: tuple[str, ...] = field(default_factory=tuple)
     audit: bool = False
@@ -146,6 +152,7 @@ _BOOL_FIELDS = frozenset(
         "airgap",
         "audit",
         "allow_private_network",
+        "allow_local_files",
         "geoip",
         "humanize",
         "network_idle",
@@ -179,6 +186,7 @@ _STR_OR_NONE_FIELDS = frozenset(
         "browser_init_script",
         "wait_until",
         "serper_api_key",
+        "local_files_root",
     }
 )
 
@@ -308,8 +316,20 @@ def _env_flag(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def config_from_env() -> dict[str, Any]:
+def local_files_root_from_env() -> str | None:
+    """``AGENTCRAWL_LOCAL_FILES_ROOT`` resolved to a real path, or ``None``."""
+    raw = os.getenv("AGENTCRAWL_LOCAL_FILES_ROOT", "").strip()
+    return os.path.realpath(os.path.expanduser(raw)) if raw else None
+
+
+def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any]:
     """Engine config from the documented ``AGENTCRAWL_*`` variables.
+
+    Local-file sources are refused unless ``AGENTCRAWL_ALLOW_LOCAL_FILES`` is
+    set, because the MCP (an agent-driven entrance) uses this mapping. The CLI
+    passes ``allow_local_files_default=True``: there a human typed the path.
+    ``AGENTCRAWL_LOCAL_FILES_ROOT`` confines reads either way. Both names are
+    shared with the API server.
 
     One mapping for every local entrance (MCP local mode, CLI local mode,
     ``doctor``). The CLI used to read only ``AGENTCRAWL_FETCHER``, so
@@ -327,6 +347,8 @@ def config_from_env() -> dict[str, Any]:
         "allow_private_network": _env_flag("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", False),
         "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
         "browser_fallback": _env_flag("AGENTCRAWL_BROWSER_FALLBACK", True),
+        "allow_local_files": _env_flag("AGENTCRAWL_ALLOW_LOCAL_FILES", allow_local_files_default),
+        "local_files_root": local_files_root_from_env(),
     }
     backend = os.getenv("AGENTCRAWL_BROWSER_BACKEND", "").strip()
     if backend:

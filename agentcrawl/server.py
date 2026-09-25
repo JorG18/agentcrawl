@@ -6,7 +6,6 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
-import pathlib
 import queue
 import secrets
 import threading
@@ -15,14 +14,14 @@ import urllib.parse
 from typing import Any, NamedTuple
 
 from . import __version__
-from .config import CrawlConfig
+from .config import CrawlConfig, local_files_root_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
 from .crawler import AgentCrawl
 from .css_extract import validate_css_schema
 from .html_tools import validate_url_patterns
 from .serializers import to_jsonable
-from .security import validate_remote_url
+from .security import LocalFileAccessError, check_local_source, validate_remote_url
 from .utils import is_probably_url
 from .storage import SQLiteStore
 import uuid
@@ -265,11 +264,7 @@ class AgentCrawlServer:
         # enabling AGENTCRAWL_ALLOW_LOCAL_FILES on a network service let any
         # API key read world-readable files as the server user (/etc/passwd,
         # config volumes, other containers' mounts...).
-        self.local_files_root = (
-            os.path.realpath(os.getenv("AGENTCRAWL_LOCAL_FILES_ROOT", ""))
-            if os.getenv("AGENTCRAWL_LOCAL_FILES_ROOT", "")
-            else None
-        )
+        self.local_files_root = local_files_root_from_env()
         # The dashboard reports job counts, cache domains, open failures, and
         # usage units — the same operational data ``GET /v1/stats`` protects.
         # Leaving it open while ``/v1/stats`` required a key was an
@@ -479,25 +474,18 @@ class AgentCrawlServer:
             **self.default_config,
             **override,
             "allow_private_network": self.allow_private_network,
+            # Enforced again inside the engine (fetchers.fetch_source), so a
+            # path that bypasses validate_source still meets the same gate.
+            "allow_local_files": self.allow_local_files,
+            "local_files_root": self.local_files_root,
         }
 
     def validate_source(self, source: str) -> None:
         if not is_probably_url(source):
-            if not self.allow_local_files:
-                raise HTTPException(
-                    status_code=400, detail="Local file sources are disabled on this server."
-                )
-            if self.local_files_root is not None:
-                candidate = pathlib.Path(source).expanduser()
-                if not candidate.is_absolute():
-                    candidate = pathlib.Path.cwd() / candidate
-                resolved = os.path.realpath(candidate)
-                root = self.local_files_root
-                if resolved != root and not resolved.startswith(root + os.sep):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Local file sources must stay inside AGENTCRAWL_LOCAL_FILES_ROOT.",
-                    )
+            try:
+                check_local_source(source, allow=self.allow_local_files, root=self.local_files_root)
+            except LocalFileAccessError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             return
         try:
             validate_remote_url(source, allow_private_network=self.allow_private_network)

@@ -2,11 +2,49 @@ from __future__ import annotations
 
 import http.client
 import ipaddress
+import os
+import pathlib
 import socket
 import urllib.parse
 import urllib.request
 
 from .exceptions import FetchError
+
+
+class LocalFileAccessError(FetchError):
+    """A local-file source was refused by the access gate."""
+
+    def __init__(self, message: str, error_type: str) -> None:
+        super().__init__(message)
+        self.error_type = error_type
+
+
+LOCAL_FILES_DISABLED_MESSAGE = (
+    "Local file sources are disabled here (set AGENTCRAWL_ALLOW_LOCAL_FILES=true to opt in)."
+)
+LOCAL_FILE_OUTSIDE_ROOT_MESSAGE = "Local file sources must stay inside AGENTCRAWL_LOCAL_FILES_ROOT."
+
+
+def check_local_source(source: str, *, allow: bool, root: str | None) -> None:
+    """Refuse a local-file source unless allowed, and keep it inside ``root``.
+
+    The one gate for every entrance: ``fetchers.fetch_source`` (library, CLI,
+    MCP, crawl, discovery) and the API server. The check runs *before* the
+    file is touched, so a refusal does not reveal whether the path exists.
+    Containment uses the real path of both sides, so ``..`` segments and
+    symlinks that point out of the root are refused too.
+    """
+    if not allow:
+        raise LocalFileAccessError(LOCAL_FILES_DISABLED_MESSAGE, "local_files_disabled")
+    if root is None:
+        return
+    real_root = os.path.realpath(root)
+    candidate = pathlib.Path(source).expanduser()
+    if not candidate.is_absolute():
+        candidate = pathlib.Path.cwd() / candidate
+    resolved = os.path.realpath(candidate)
+    if resolved != real_root and not resolved.startswith(real_root.rstrip(os.sep) + os.sep):
+        raise LocalFileAccessError(LOCAL_FILE_OUTSIDE_ROOT_MESSAGE, "local_file_outside_root")
 
 
 def validate_remote_url(url: str, *, allow_private_network: bool = False) -> None:

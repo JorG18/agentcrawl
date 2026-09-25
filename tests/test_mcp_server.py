@@ -58,6 +58,8 @@ def test_local_engine_defaults_keep_privacy_switches_off(monkeypatch) -> None:
 
 def test_mcp_uses_local_engine_without_base_url(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("AGENTCRAWL_BASE_URL", raising=False)
+    # Local files are opt-in on the MCP (S1); these fixtures are local pages.
+    monkeypatch.setenv("AGENTCRAWL_ALLOW_LOCAL_FILES", "true")
     page = tmp_path / "index.html"
     page.write_text("<main><h1>Local MCP works</h1></main>", encoding="utf-8")
 

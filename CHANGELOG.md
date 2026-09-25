@@ -4,6 +4,17 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## Unreleased (0.2.1)
+
+A security patch. **Upgrade if an agent uses the local MCP server.**
+
+### Security
+
+- **C1 (high): the local MCP engine read arbitrary files.**
+  *What this means:* with `AGENTCRAWL_BASE_URL` unset, `scrape_url("/etc/passwd")` or `scrape_url("~/.pypirc")` returned the file as Markdown, and so did `scrape_many`, `extract_structured`, `map_site` and `crawl_site`. A prompt injection on any page the agent read could turn that into credential theft. The API server gated local files, but the MCP did not.
+  *Detail:* the gate now lives in `fetchers.fetch_source`, so every entrance goes through one check (`security.check_local_source`, also used by the API server). New config keys `allow_local_files` and `local_files_root`. `config_from_env()`, which the MCP uses, refuses local files unless `AGENTCRAWL_ALLOW_LOCAL_FILES=true`; `AGENTCRAWL_LOCAL_FILES_ROOT` confines reads to the real path of one directory (`..`, symlink escapes and `/root-evil` siblings are refused). The check runs before the file is touched, so a refusal does not reveal whether the path exists. Refusals come back as an honest `error_type` (`local_files_disabled` or `local_file_outside_root`). The API server also passes its setting into the engine, so the gate holds even on a path that skips request validation.
+  **Breaking (MCP only):** an MCP setup that read local files must now set `AGENTCRAWL_ALLOW_LOCAL_FILES=true` (and should set a root). The Python library and the CLI keep reading local files by default; `AGENTCRAWL_ALLOW_LOCAL_FILES=false` turns them off there too.
+
 ## 0.2.0 - 2026-09-23
 
 The 2026-09 hardening release, plus a first set of new extraction capabilities. It is the first release after 0.1.4.

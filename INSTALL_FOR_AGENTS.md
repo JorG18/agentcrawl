@@ -119,6 +119,17 @@ Without `AGENTCRAWL_BASE_URL`, the MCP server runs the local HTTP scraper direct
 
 Store real secrets using the client credential mechanism or protected environment files. Never commit them.
 
+**Local files are off on the MCP.** An agent's tool input can be steered by the pages it reads, so the local MCP engine refuses file paths (`error_type: "local_files_disabled"`) and only fetches URLs. To let it read a document folder, opt in and confine it to that folder:
+
+```json
+"env": {
+  "AGENTCRAWL_ALLOW_LOCAL_FILES": "true",
+  "AGENTCRAWL_LOCAL_FILES_ROOT": "/home/me/docs"
+}
+```
+
+Paths outside the root, including `..` and symlinks that escape it, return `error_type: "local_file_outside_root"`. Do not enable local files without a root.
+
 ## 4. Reload And Verify
 
 Reload or restart your client if it does not hot-reload MCP configuration. Verify that the `agentcrawl` server exposes at least:

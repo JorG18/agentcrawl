@@ -194,6 +194,8 @@ def test_api_rejects_a_bad_schema_with_422(tmp_path: Path) -> None:
 
 def test_mcp_and_cli_extract_locally(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.delenv("AGENTCRAWL_BASE_URL", raising=False)
+    # Local files are opt-in on the MCP (S1); these fixtures are local pages.
+    monkeypatch.setenv("AGENTCRAWL_ALLOW_LOCAL_FILES", "true")
     page = tmp_path / "shop.html"
     page.write_text(SHOP, encoding="utf-8")
     schema_file = tmp_path / "schema.json"
