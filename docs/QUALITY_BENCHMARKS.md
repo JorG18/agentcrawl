@@ -103,7 +103,7 @@ Comparisons against Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, or
 
 Community benchmark targets should be accessible public docs, API references, blogs, RFC/reference pages, non-protected ecommerce/product pages, and pages without active browser/proxy challenges. Community does **not** lose for detecting a protected page honestly and returning a clear unsupported/challenge failure. Community **does** lose if it returns challenge, cookie, nav, or other garbage as if it were page content.
 
-Enhanced-gap targets belong in a separate private lane: PyPI/Cloudflare-style challenges, JS-heavy apps, anti-bot/proxy/geolocation needs, screenshots, schedules, webhooks, and managed browser workflows.
+Protected pages (anti-bot challenges, proxy or geolocation requirements) are outside the Community benchmark lane.
 
 Until repeated runs and fair scoring are ready, public docs should describe the quality standard and reproducible local checks, not claim broad superiority.
 

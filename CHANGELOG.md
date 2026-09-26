@@ -231,7 +231,7 @@ Patch release driven by a cross-cutting technical audit dated 2026-06-28. The au
   *What this means:* pages that used to slip past the challenge heuristic because their HTML chrome hid the canonical "Access Denied" string are now correctly classified. The retry-to-browser path triggers when it should.
 
 - **BUG #4 (low) — `CrawlConfig.__post_init__` warns when `llm` is a dict.** Misconfigurations surface in logs instead of failing later as `ModuleNotFoundError`.
-  *What this means:* if you wrote `CrawlConfig(llm={"provider": "..."})` thinking dict shape worked for Community, you now get a `UserWarning` at construction time. Community expects an import path (e.g. `langchain_openai.ChatOpenAI`); the dict shape is the right contract for the Enhanced pool. Nothing breaks — you just see the warning, and can switch the shape.
+  *What this means:* if you wrote `CrawlConfig(llm={"provider": "..."})` thinking dict shape worked for Community, you now get a `UserWarning` at construction time. Community expects an import path (e.g. `langchain_openai.ChatOpenAI`). Nothing breaks — you just see the warning, and can switch the shape.
 
 ### Optimized
 
