@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+  <title>Install the Agent CLI</title>
+  <meta name="description" content="Install the agent CLI on macOS, Linux or Windows.">
+</head>
+<body>
+  <nav class="top-nav">Docs Pricing Login Blog</nav>
+  <div class="layout">
+    <aside class="sidebar">Getting started Configuration Sidebar upgrade promo</aside>
+    <main class="docs-content">
+      <article>
+        <h1>Install the Agent CLI</h1>
+        <p>The CLI runs on every major platform and needs Python 3.10 or newer on the machine.</p>
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" aria-controls="tab-mac">macOS</button>
+          <button role="tab" aria-selected="false" aria-controls="tab-linux">Linux</button>
+          <button role="tab" aria-selected="false" aria-controls="tab-win">Windows</button>
+        </div>
+        <div id="tab-mac" role="tabpanel">
+          <p>On macOS install it with Homebrew and confirm the version afterwards.</p>
+          <pre><code class="language-bash">brew install agent-cli
+agent-cli --version</code></pre>
+        </div>
+        <div id="tab-linux" role="tabpanel" hidden>
+          <p>On Linux use pipx so the CLI stays isolated from system packages.</p>
+          <pre><code class="language-bash">pipx install agent-cli</code></pre>
+        </div>
+        <div id="tab-win" role="tabpanel" class="tab-panel hidden" aria-hidden="true">
+          <p>On Windows use winget from an elevated PowerShell prompt.</p>
+          <pre><code class="language-powershell">winget install AgentCli</code></pre>
+        </div>
+        <h2>Verify the install</h2>
+        <p>Run the doctor command to check permissions, network access and the config file location.</p>
+        <table>
+          <tr><th>Check</th><th>Expected</th></tr>
+          <tr><td>config</td><td>found</td></tr>
+          <tr><td>network</td><td>reachable</td></tr>
+        </table>
+        <span class="visually-hidden">Hidden accessibility duplicate</span>
+      </article>
+    </main>
+  </div>
+  <footer>Footer documentation archive</footer>
+</body>
+</html>

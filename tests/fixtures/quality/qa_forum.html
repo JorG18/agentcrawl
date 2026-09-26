@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+  <title>How do I retry only failed pages in a crawl?</title>
+  <meta name="description" content="Question and answers about retrying failed crawl pages.">
+</head>
+<body>
+  <header class="site-header">Questions Tags Users Ask Question</header>
+  <div class="container">
+    <main id="question-page">
+      <div class="question">
+        <h1>How do I retry only failed pages in a crawl?</h1>
+        <div class="post-body">
+          <p>My crawl of about 400 pages finished with 12 timeouts. I want to fetch those 12 pages again without starting the whole crawl over.</p>
+        </div>
+        <div class="post-meta">Asked by dana · 2026-08-14 · 3 votes</div>
+      </div>
+      <div class="answers">
+        <h2>2 Answers</h2>
+        <div class="answer accepted-answer">
+          <div class="vote-count">14</div>
+          <div class="post-body">
+            <p>Accepted answer: resume from the checkpoint file. Failed URLs stay in the checkpoint with their error type, so a resumed run only fetches what did not finish.</p>
+            <pre><code class="language-python">crawler.crawl(start_url, checkpoint_path="run.json")</code></pre>
+          </div>
+          <div class="post-meta">Answered by morgan</div>
+        </div>
+        <div class="answer">
+          <div class="vote-count">4</div>
+          <div class="post-body">
+            <p>You can also collect the failed URLs from the errors list and call batch scrape on just those.</p>
+          </div>
+          <div class="post-meta">Answered by kai</div>
+        </div>
+      </div>
+    </main>
+    <aside class="related-questions">Related questions Hot network questions</aside>
+  </div>
+  <div class="cookie-banner">We use cookies to improve your experience. Accept all</div>
+  <footer>Footer site network links</footer>
+</body>
+</html>

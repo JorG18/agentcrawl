@@ -397,6 +397,56 @@ QUALITY_CASES = [
         excluded=("Upgrade to the hosted dashboard", "Enable JavaScript"),
         metadata=("title", "description", "extraction_strategy", "selected_content_hint"),
     ),
+    QualityCase(
+        name="docs_with_tabs",
+        expected=(
+            "Install the Agent CLI",
+            "brew install agent-cli",
+            "pipx install agent-cli",
+            "winget install AgentCli",
+            "| Check",
+        ),
+        excluded=(
+            "Pricing Login",
+            "Sidebar upgrade promo",
+            "Hidden accessibility duplicate",
+            "Footer documentation archive",
+        ),
+        metadata=("title", "description", "extraction_strategy", "selected_content_hint"),
+    ),
+    QualityCase(
+        name="qa_forum",
+        expected=(
+            "How do I retry only failed pages in a crawl?",
+            "12 timeouts",
+            "Accepted answer: resume from the checkpoint file",
+            "```python",
+            "call batch scrape on just those",
+        ),
+        excluded=(
+            "Ask Question",
+            "Hot network questions",
+            "We use cookies",
+            "Footer site network links",
+        ),
+        metadata=("title", "description", "extraction_strategy", "selected_content_hint"),
+    ),
+    QualityCase(
+        name="infinite_scroll_listing",
+        expected=(
+            "Release Notes Feed",
+            "Version 4.2",
+            "resumable exports",
+            "Removes the deprecated v1 endpoints",
+        ),
+        excluded=(
+            "Sign in",
+            "Loading more items",
+            "premium plan free",
+            "Footer company links",
+        ),
+        metadata=("title", "description", "extraction_strategy", "selected_content_hint"),
+    ),
 ]
 
 

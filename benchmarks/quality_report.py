@@ -68,6 +68,18 @@ EXPECTED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
         "```http",
         "| Field",
     ),
+    "docs_with_tabs": (
+        "Install the Agent CLI",
+        "brew install agent-cli",
+        "pipx install agent-cli",
+        "winget install AgentCli",
+    ),
+    "qa_forum": (
+        "How do I retry only failed pages in a crawl?",
+        "Accepted answer: resume from the checkpoint file",
+        "call batch scrape on just those",
+    ),
+    "infinite_scroll_listing": ("Release Notes Feed", "Version 4.2", "deprecated v1 endpoints"),
     "cookie_consent": (
         "Authenticating With API Keys",
         "Generate a key on the dashboard",
@@ -140,6 +152,9 @@ EXCLUDED_BY_FIXTURE: dict[str, tuple[str, ...]] = {
         "79xx Status Code 79",
         "Footer archive legal",
     ),
+    "docs_with_tabs": ("Pricing Login", "Sidebar upgrade promo", "Footer documentation archive"),
+    "qa_forum": ("Ask Question", "Hot network questions", "We use cookies"),
+    "infinite_scroll_listing": ("Loading more items", "premium plan free", "Footer company links"),
     "cookie_consent": (
         "This site uses cookies",
         "we use cookies",
