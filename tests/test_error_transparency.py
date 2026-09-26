@@ -122,3 +122,17 @@ def test_crawl_does_not_retry_a_challenge_page(tmp_path) -> None:
     failures = run.metadata.get("terminal_failures") or []
     assert failures and failures[0]["error_type"] == "client_challenge"
     assert failures[0]["attempts"] == 1
+
+
+def test_proxy_tunnel_refusal_is_a_network_error_not_blocked() -> None:
+    import urllib.error
+
+    from agentcrawl.errors import classify_error, classify_exception
+
+    exc = urllib.error.URLError(OSError("Tunnel connection failed: 403 Forbidden"))
+    assert classify_exception(exc) == "network_error"
+    assert classify_error(
+        "HTTP fetch failed: <urlopen error Tunnel connection failed: 403 Forbidden>"
+    ) == ("network_error")
+    # A real 403 from the site is still ``blocked``.
+    assert classify_error("HTTP Error 403: Forbidden") == "blocked"
