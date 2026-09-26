@@ -23,14 +23,18 @@ on:
       tools:
         description: Comma-separated tools
         default: "agentcrawl,crawl4ai,firecrawl,scrapegraph,tavily"
+      scrapegraph_pages:
+        description: Pages sent to ScrapeGraphAI (about 2 credits each); 0 = all
+        default: "50"
 
 permissions:
   contents: read
 
 env:
-  SIZE: ${{ inputs.size || '30' }}
+  SIZE: ${{ inputs.size || '20' }}
   SEED: ${{ inputs.seed || '2026' }}
-  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai,firecrawl,scrapegraph,tavily' }}
+  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
+  SCRAPEGRAPH_PAGES: ${{ inputs.scrapegraph_pages || '50' }}
 
 jobs:
   sample:
@@ -86,7 +90,11 @@ jobs:
           FIRECRAWL_API_KEY: ${{ matrix.tool == 'firecrawl' && secrets.FIRECRAWL_API_KEY || '' }}
           SCRAPEGRAPH_API_KEY: ${{ matrix.tool == 'scrapegraph' && secrets.SCRAPEGRAPH_API_KEY || '' }}
           TAVILY_API_KEY: ${{ matrix.tool == 'tavily' && secrets.TAVILY_API_KEY || '' }}
-        run: python -m benchmarks.web.run --tool "${{ matrix.tool }}" --sample sample.json --out "${{ matrix.tool }}.jsonl.gz"
+        run: |
+          limit=0
+          if [ "${{ matrix.tool }}" = "scrapegraph" ]; then limit="$SCRAPEGRAPH_PAGES"; fi
+          python -m benchmarks.web.run --tool "${{ matrix.tool }}" --sample sample.json \
+            --limit "$limit" --out "${{ matrix.tool }}.jsonl.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: web-${{ matrix.tool }}

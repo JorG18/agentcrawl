@@ -106,6 +106,8 @@ def analyse(
     reachable = {
         page["id"] for page in pages if any(buckets[t][page["id"]] == "content" for t in tools)
     }
+    # A tool limited to part of the sample is judged only on the pages it ran.
+    ran = {tool: [p for p in pages if buckets[tool][p["id"]] != "skipped"] for tool in tools}
     recall: dict[str, list[float]] = defaultdict(list)
     consensus_pages = 0
     for page in pages:
@@ -120,27 +122,28 @@ def analyse(
             continue
         consensus_pages += 1
         for tool in tools:
+            if buckets[tool][pid] == "skipped":
+                continue
             found = per_tool.get(tool, set())
             recall[tool].append(len(found & consensus) / len(consensus))
 
     summary = []
     for tool in tools:
         counts = Counter(buckets[tool].values())
-        results = [by_tool[tool].get(page["id"], {}) for page in pages]
-        content_results = [r for r, p in zip(results, pages) if buckets[tool][p["id"]] == "content"]
-        missed = sum(
-            1 for p in pages if p["id"] in reachable and buckets[tool][p["id"]] != "content"
-        )
+        own = ran[tool]
+        results = [by_tool[tool].get(page["id"], {}) for page in own]
+        content_results = [r for r, p in zip(results, own) if buckets[tool][p["id"]] == "content"]
+        missed = sum(1 for p in own if p["id"] in reachable and buckets[tool][p["id"]] != "content")
         seconds = [r["seconds"] for r in results if isinstance(r.get("seconds"), (int, float))]
         error_types = Counter(
             r.get("error_type") or "unclassified"
-            for r, p in zip(results, pages)
+            for r, p in zip(results, own)
             if buckets[tool][p["id"]] == "failed"
         )
         summary.append(
             {
                 "tool": tool,
-                "pages": len(pages),
+                "pages": len(own),
                 "content": counts["content"],
                 "thin": counts["thin"],
                 "junk": counts["junk"],
@@ -161,15 +164,15 @@ def analyse(
 
     by_stratum: dict[str, dict[str, float]] = defaultdict(dict)
     for stratum in sorted({p["stratum"] for p in pages}, key=lambda s: int(s.split("-")[0])):
-        subset = [p for p in pages if p["stratum"] == stratum]
         for tool in tools:
+            subset = [p for p in ran[tool] if p["stratum"] == stratum]
             got = sum(1 for p in subset if buckets[tool][p["id"]] == "content")
             by_stratum[stratum][tool] = round(got / len(subset), 3) if subset else 0.0
 
     by_kind: dict[str, dict[str, float]] = defaultdict(dict)
     for kind in ("homepage", "inner"):
-        subset = [p for p in pages if p.get("kind") == kind]
         for tool in tools:
+            subset = [p for p in ran[tool] if p.get("kind") == kind]
             got = sum(1 for p in subset if buckets[tool][p["id"]] == "content")
             by_kind[kind][tool] = round(got / len(subset), 3) if subset else 0.0
 
@@ -212,13 +215,13 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"{report['reachable_by_any_tool']} pages gave content to at least one tool; "
         f"consensus recall uses the {report['consensus_pages']} pages where two or more did.",
         "",
-        "| tool | content | thin | junk | failed | missed (others got it) | consensus recall | median tokens | median s |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| tool | pages | content | thin | junk | failed | missed (others got it) | consensus recall | median tokens | median s |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in report["summary"]:
         recall = "n/a" if row["consensus_recall"] is None else f"{row['consensus_recall']:.1%}"
         lines.append(
-            f"| {row['tool']} | {row['content']} | {row['thin']} | {row['junk']} | {row['failed']} "
+            f"| {row['tool']} | {row['pages']} | {row['content']} | {row['thin']} | {row['junk']} | {row['failed']} "
             f"| {row['missed_reachable']} | {recall} | {row['median_tokens']} | {row['median_seconds']} |"
         )
     if report.get("skipped_tools"):

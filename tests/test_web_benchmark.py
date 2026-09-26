@@ -88,3 +88,26 @@ def test_block_pages_are_not_content() -> None:
 def test_robot_block_notice_is_junk() -> None:
     nyt = "You have been blocked from The New York Times because we suspect that you're a robot."
     assert classify({"markdown": nyt * 3}) == "junk"
+
+
+def test_tool_limited_to_part_of_the_sample_is_judged_on_what_it_ran() -> None:
+    sample = {
+        "seed": 1,
+        "pages": [
+            {"id": f"p{i}", "url": f"https://s{i}.org/", "stratum": "1-1000", "kind": "homepage"}
+            for i in range(4)
+        ],
+    }
+    full = {f"p{i}": {"id": f"p{i}", "tool": "full", "markdown": ARTICLE} for i in range(4)}
+    partial = {"p0": {"id": "p0", "tool": "partial", "markdown": ARTICLE}}
+    partial.update(
+        {
+            f"p{i}": {"id": f"p{i}", "tool": "partial", "skipped": "beyond --limit"}
+            for i in (1, 2, 3)
+        }
+    )
+    report = analyse(sample, {"full": full, "partial": partial})
+    row = {r["tool"]: r for r in report["summary"]}["partial"]
+    assert (row["pages"], row["content"], row["missed_reachable"]) == (1, 1, 0)
+    assert row["consensus_recall"] == 1.0
+    assert report["content_rate_by_rank"]["1-1000"]["partial"] == 1.0

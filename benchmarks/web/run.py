@@ -296,8 +296,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     pages = json.loads(Path(args.sample).read_text("utf-8"))["pages"]
+    left_out: list[dict[str, Any]] = []
     if args.limit:
-        pages = pages[: args.limit]
+        pages, left_out = pages[: args.limit], pages[args.limit :]
     env_key, runner = TOOLS[args.tool]
     started = time.time()
     if env_key is None:
@@ -306,6 +307,8 @@ def main(argv: list[str] | None = None) -> int:
         results = [_result(page, args.tool, skipped=f"{env_key} not set") for page in pages]
     else:
         results = runner(pages, args.concurrency, os.environ[env_key])
+    # Pages beyond --limit are recorded as not run, not as failures.
+    results += [_result(page, args.tool, skipped="beyond --limit") for page in left_out]
     with gzip.open(args.out, "wt", encoding="utf-8") as handle:
         for result in results:
             handle.write(json.dumps(result, ensure_ascii=False) + "\n")
