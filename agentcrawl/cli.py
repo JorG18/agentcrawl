@@ -19,6 +19,7 @@ from . import __version__
 from .crawler import AgentCrawl
 from .config import config_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
+from .exceptions import FetchError
 from .remote_client import AgentCrawlClient
 from .serializers import to_jsonable
 from .storage import SQLiteStore
@@ -68,6 +69,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
     )
 
+    engine_group.add_argument(
+        "--session",
+        dest="browser_session",
+        default=None,
+        help="Read pages logged in, with a session saved by 'agentcrawl login'.",
+    )
     engine_group.add_argument(
         "--ocr",
         action="store_const",
@@ -215,6 +222,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Write a static HTML dashboard to PATH instead of stdout.",
     )
 
+    login = sub.add_parser(
+        "login",
+        help="Sign in by hand in a visible browser and save the session for later scrapes.",
+    )
+    login.add_argument("url")
+    login.add_argument("--session", required=True, help="Name to save the session under.")
+    sub.add_parser("sessions", help="List saved browser sessions.")
+    logout = sub.add_parser("logout", help="Delete a saved browser session.")
+    logout.add_argument("--session", required=True)
+
     sub.add_parser("doctor")
     sub.add_parser("mcp")
 
@@ -258,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         print(json.dumps(_doctor(), ensure_ascii=False, indent=2))
         return 0
+    if args.command in {"login", "sessions", "logout"}:
+        return _sessions_command(args, parser)
     if args.command == "backup":
         print(
             json.dumps(
@@ -678,6 +697,38 @@ def _collect_urls(urls: list[str], file: str | None) -> list[str]:
     return collected
 
 
+def _sessions_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from . import sessions
+
+    try:
+        if args.command == "sessions":
+            print(json.dumps(sessions.list_sessions(), ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "logout":
+            removed = sessions.delete_session(args.session)
+            print(json.dumps({"session": args.session, "deleted": removed}, indent=2))
+            return 0 if removed else 1
+        sessions.validate_session_name(args.session)
+        print(
+            f"A browser window is opening on {args.url}. Sign in there, then come back "
+            "and press Enter to save the session.",
+            file=sys.stderr,
+        )
+        path = sessions.interactive_login(args.url, args.session)
+    except ValueError as exc:
+        parser.error(str(exc))
+    except FetchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {"session": args.session, "path": str(path), "use": f"--session {args.session}"},
+            indent=2,
+        )
+    )
+    return 0
+
+
 def _local_config(args: argparse.Namespace) -> dict[str, Any]:
     config = config_from_env(allow_local_files_default=True)
     config["fetcher"] = args.fetcher
@@ -689,6 +740,7 @@ def _local_config(args: argparse.Namespace) -> dict[str, Any]:
         "respect_robots_txt": getattr(args, "respect_robots_txt", None),
         "browser_fallback": getattr(args, "browser_fallback", None),
         "ocr": getattr(args, "ocr", None),
+        "browser_session": getattr(args, "browser_session", None),
     }
     config.update({key: value for key, value in overrides.items() if value is not None})
     allowlist = getattr(args, "allowlist", None)

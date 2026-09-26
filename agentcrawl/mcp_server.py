@@ -70,10 +70,14 @@ def scrape_url(
         Field(
             description=(
                 "Browser steps before reading (max 25): {type: click|type|press|scroll|"
-                "wait|wait_for, selector?, text?, key?, times?, ms?}. Only for content "
-                "that needs interaction."
+                "scroll_to_end|virtual_scroll|wait|wait_for, selector?, text?, key?, "
+                "times?, max_scrolls?, ms?}. Only for content that needs interaction."
             )
         ),
+    ] = None,
+    session: Annotated[
+        str | None,
+        Field(description="Local mode: saved login name (agentcrawl login) for private pages."),
     ] = None,
 ) -> dict[str, Any]:
     """Read one web page as clean Markdown. Use it whenever you have a URL.
@@ -88,6 +92,13 @@ def scrape_url(
 
         try:
             overrides["browser_actions"] = list(validate_actions(browser_actions))
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+    if session:
+        from .sessions import validate_session_name
+
+        try:
+            overrides["browser_session"] = validate_session_name(session)
         except ValueError as exc:
             return {"success": False, "error": str(exc)}
     client = _client()

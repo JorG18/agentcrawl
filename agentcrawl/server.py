@@ -59,6 +59,8 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
         "max_input_chars",
         "chunk_tokens",
         "browser_actions",
+        "browser_iframes",
+        "browser_shadow_dom",
         "ocr",
         "max_response_bytes",
         "crawl_depth",
@@ -327,6 +329,8 @@ class AgentCrawlServer:
                 DEFAULT_USER_AGENT,
             ),
             "allow_private_network": self.allow_private_network,
+            # Operator-only: a request cannot pick a saved login (sessions.py).
+            "browser_session": os.getenv("AGENTCRAWL_BROWSER_SESSION", "").strip() or None,
             "crawl_depth": int(os.getenv("AGENTCRAWL_CRAWL_DEPTH", "1")),
             "crawl_max_pages": int(os.getenv("AGENTCRAWL_CRAWL_MAX_PAGES", "25")),
             "crawl_url_retries": int(os.getenv("AGENTCRAWL_CRAWL_URL_RETRIES", "2")),

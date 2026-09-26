@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import codecs
 import contextvars
+import dataclasses
 import importlib.util
 import json
 import os
@@ -116,12 +117,15 @@ _CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar
 
 def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     """Fetch ``source``; browser side outputs are added to the metadata."""
-    if (config.browser_actions or config.screenshot) and is_probably_url(source):
+    if (config.browser_actions or config.screenshot or config.browser_session) and is_probably_url(
+        source
+    ):
         if config.fetcher == "camofox" or (
             config.fetcher != "http" and config.browser_backend == "camofox"
         ):
             raise FetchError(
-                "browser_actions and screenshots need the local Playwright backend, not camofox.",
+                "browser_actions, browser_session and screenshots need the local "
+                "Playwright backend, not camofox.",
                 error_type="config_error",
             )
     capture: dict[str, Any] = {}
@@ -134,6 +138,10 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
         metadata["screenshot_png_base64"] = base64.b64encode(capture["screenshot"]).decode("ascii")
     if "actions" in capture:
         metadata["browser_actions_log"] = capture["actions"]
+    if capture.get("dom"):
+        metadata["browser_dom"] = capture["dom"]
+    if config.browser_session and metadata.get("fetcher") == "playwright":
+        metadata["browser_session"] = config.browser_session
     return content, metadata
 
 
@@ -142,6 +150,14 @@ def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]
         check_local_source(source, allow=config.allow_local_files, root=config.local_files_root)
         return _fetch_local_file(source, ocr=config.ocr)
     validate_remote_url(source, allow_private_network=config.allow_private_network)
+    if config.browser_session:
+        from .sessions import require_session
+
+        require_session(config.browser_session)  # fail before starting a browser
+    if config.browser_session and config.fetcher == "http":
+        # A logged-in page only exists inside the browser that holds the
+        # session's cookies; the plain HTTP fetch would read the login page.
+        config = dataclasses.replace(config, fetcher="playwright")
     if config.fetcher == "http":
         try:
             content, http_metadata = _fetch_http(source, config)
@@ -753,6 +769,10 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                 context_kwargs: dict[str, Any] = {
                     "user_agent": config.user_agent or DEFAULT_USER_AGENT
                 }
+                if config.browser_session:
+                    from .sessions import require_session
+
+                    context_kwargs["storage_state"] = str(require_session(config.browser_session))
                 if guard.active:
                     # Service workers can issue requests the route never sees.
                     context_kwargs["service_workers"] = "block"
@@ -810,7 +830,24 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                 validate_remote_url(page.url, allow_private_network=config.allow_private_network)
                 if config.screenshot and capture is not None:
                     capture["screenshot"] = page.screenshot(full_page=True, type="png")
-                return page.content()
+                if config.browser_iframes or config.browser_shadow_dom:
+                    from .browser_dom import flatten_page
+
+                    dom_report = flatten_page(
+                        page, iframes=config.browser_iframes, shadow_dom=config.browser_shadow_dom
+                    )
+                    if capture is not None:
+                        capture["dom"] = {k: v for k, v in dom_report.items() if v}
+                html = page.content()
+                if config.browser_session:
+                    # Keep a rolling login alive: sites refresh cookies on use.
+                    from .sessions import save_storage_state
+
+                    try:
+                        save_storage_state(context, config.browser_session)
+                    except Exception:
+                        pass
+                return html
             finally:
                 for resource in (context, browser):
                     try:
