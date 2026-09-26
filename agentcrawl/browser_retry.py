@@ -82,7 +82,9 @@ def attempt_browser_retry(
     try:
         links, metadata = extract_html_facts(html, source)
         main_content = True if only_main_content is None else only_main_content
-        markdown = html_to_markdown(html, browser_config, only_main_content=main_content)
+        markdown = html_to_markdown(
+            html, browser_config, only_main_content=main_content, base_url=source
+        )
         markdown_chars_full = len(markdown)
         markdown, chars_omitted, selection = budget_markdown(
             markdown,

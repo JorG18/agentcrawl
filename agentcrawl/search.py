@@ -8,7 +8,7 @@ import urllib.request
 from html import unescape
 from typing import Any
 
-from .config import CrawlConfig
+from .config import DEFAULT_USER_AGENT, CrawlConfig
 from .fetchers import _read_bounded, _safe_urlopen, read_deadline_seconds
 from .models import SearchResult
 
@@ -142,7 +142,7 @@ def _search_duckduckgo(
 ) -> list[SearchResult]:
     url = "https://duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
     request = urllib.request.Request(
-        url, headers={"user-agent": config.user_agent or "AgentCrawl/0.1"}
+        url, headers={"user-agent": config.user_agent or DEFAULT_USER_AGENT}
     )
     html = _fetch_search_body(request, config, audit_trail).decode("utf-8", errors="replace")
 

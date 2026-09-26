@@ -1,0 +1,44 @@
+name: Live smoke
+
+# Scrape real public pages with the default install plus the local browser,
+# and fail when AgentCrawl stops returning usable content. Runs on pull
+# requests that touch the engine, weekly, and on demand.
+on:
+  pull_request:
+    paths:
+      - "agentcrawl/**"
+      - "benchmarks/live_smoke.py"
+      - "benchmarks/corpus/live_smoke.json"
+      - ".github/workflows/live-smoke.yml"
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install AgentCrawl with the browser extra
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[browser]"
+          python -m playwright install --with-deps chromium
+      - name: Scrape real pages
+        run: |
+          set -o pipefail
+          python -m benchmarks.live_smoke --json live-smoke.json --max-failures 1 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-smoke
+          path: live-smoke.json

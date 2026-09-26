@@ -4,6 +4,32 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## 0.4.0 - 2026-09-26
+
+AgentCrawl now reads the real pages it used to get wrong: its own GitHub page, JavaScript-rendered sites and PyPI, checked on every change against 16 live public sites. Output is about a third smaller on table-heavy pages, the MCP costs agents ~1.5k tokens of context instead of ~4k, and install instructions point at GitHub while PyPI publishing is being set up.
+
+### Fixed
+
+- **Challenge detection no longer throws away real pages.** Any page whose text mentioned "client challenge" or "disable any ad blockers" (this project's own GitHub page, articles about bots) came back empty as `client_challenge`, while HTTP-200 Cloudflare, DataDome, PerimeterX and Fastly interstitials came back as content.
+  *Detail:* `agentcrawl/challenge.py` decides by page shape: an interstitial `<title>` ("Just a moment...", "Client Challenge") is enough; otherwise the page must be short and carry challenge wording on a very short page, or two kinds of evidence (title, vendor script, wording). The document lists what fired in `metadata.challenge_signals`.
+- **JavaScript-only pages are rendered.** An HTTP 200 that is only a script mount point used to scrape to a menu and a footer. With `browser_fallback` (default) and a browser installed it is rendered once (`metadata.fallback_reason: "javascript_required"`); without a browser the document says `javascript_required` instead of pretending.
+- **A refused proxy tunnel is `network_error`**, not `blocked`: "Tunnel connection failed: 403" is the local proxy, not the site.
+- **`AgentCrawler` has `scrape`, `map` and `crawl`**, the same as `AgentCrawl`; the two names were easy to mix up.
+- **`agentcrawl doctor` checks that the browser can start** and prints the fix (`python -m playwright install chromium`) when the installed Playwright has no matching browser.
+- **Install instructions work.** The agent guide installed the browser extra but not `mcp` (so `agentcrawl mcp` failed), the API example installed `browser` instead of `server`, and the verification step expected content from a URL the same guide called a challenge.
+
+### Changed
+
+- **Compact Markdown.** Tables are not padded with spaces; a column that repeats its neighbour or holds no data is dropped; link tooltips, image-only links (`[](url)`), skip links and runs of blank lines are removed; links and images are absolute URLs. On the GitHub repository page the output shrinks from 37k to 25k characters with the same content; offline quality fixtures still score 100%.
+- **HTTP transfer.** Requests send `Accept` and `Accept-Encoding: gzip, deflate` and inflate under the same `max_response_bytes` ceiling (a decompression bomb is refused). Pages that declare their charset only in `<meta>` decode correctly, and latin-1 labels decode as windows-1252 like browsers do. With these headers PyPI serves real project pages to the HTTP fetcher.
+- **User-Agent** is `Mozilla/5.0 (compatible; AgentCrawl/<version>; +https://github.com/JorG18/agentcrawl)` instead of `AgentCrawl/0.1` with a `.local` address.
+- **Lean MCP by default.** The core profile exposes `scrape_url`, `scrape_many`, `map_site`, `crawl_site` and `extract_structured`, plus `search_web` when a search engine is configured and `get_job` when a server is. `AGENTCRAWL_MCP_PROFILE=full` restores the operator tools (`check_changes`, `job_events`, `cancel_job`, `inspect_failures`, `retry_failures`, `usage`, `cache_stats`, `clear_cache`). Tool descriptions were shortened.
+- **Install from GitHub.** README, agent guide and examples install `agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.0`; the PyPI badge is gone for now. The release workflow publishes to PyPI only when the repository variable `PUBLISH_PYPI` is `true`.
+
+### Added
+
+- **Live smoke workflow** (`.github/workflows/live-smoke.yml`, `benchmarks/live_smoke.py`, `benchmarks/corpus/live_smoke.json`): on engine changes, weekly and on demand, scrapes 16 real public pages (docs, RFC, Wikipedia, GitHub, Hacker News, PyPI, a JavaScript-rendered page) with the browser extra and fails when content goes missing. The first run on 0.3.0 passed 14 of 16; 0.4.0 passes 16 of 16.
+
 ## 0.3.0 - 2026-09-26
 
 Agents can now go from a question to cited pages (web search, `llms.txt`, citable `chunks`), act on pages before reading them (bounded browser actions, screenshots), crawl by relevance, track what changed, read Office files and scanned PDFs, and get schema-checked LLM extraction. New LangChain and LlamaIndex adapters, a TypeScript client, and releases cut from tags.

@@ -52,12 +52,6 @@ AgentCrawl is strongest today as a self-hosted extraction layer for agents and i
 
 Community should be compared on accessible pages where local/private extraction is the goal: docs, API references, blogs, reference material, local documents, and non-protected product pages. If a page requires managed browser pools, proxies, geolocation, stealth, or challenge solving, that is an Enhanced/Hosted gap rather than a Community promise.
 
-The public roadmap tracks the next product areas:
-
-- reproducible Community quality checks;
-- protected-page/challenge detection without returning garbage content;
-- lightweight document ingestion improvements;
-- local browser examples where users bring their own runtime;
-- TypeScript usage examples before deciding whether a dedicated SDK is needed.
+Community ships the agent-facing basics: search, llms.txt, citable chunks, bounded browser actions and screenshots, JavaScript rendering with a local browser, adaptive crawls, change checks, Office/PDF documents, CSS and schema extraction, a TypeScript client and LangChain/LlamaIndex loaders. Its output is checked against real public sites on every engine change (the live smoke workflow), and bot challenges are reported with the signals that identified them.
 
 That boundary is intentional: AgentCrawl focuses first on agent-facing extraction that remains under user control.

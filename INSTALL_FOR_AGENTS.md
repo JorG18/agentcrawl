@@ -12,30 +12,27 @@ Install AgentCrawl, verify direct scraping, register its standards-based stdio M
 - Do not overwrite unrelated MCP servers or client settings.
 - Back up a configuration file before modifying it.
 - Prefer the client own supported MCP command or structured configuration format.
-- Do not install Playwright browsers unless the user requests browser fallback or the environment needs it. HTTP extraction works without a browser runtime.
+- Do not install Playwright browsers unless the user needs JavaScript-rendered pages. HTTP extraction works without a browser runtime.
 
 ## 1. Install
 
-For a published release:
+Install from the tagged GitHub release (the `mcp` extra is required for the MCP server):
 
 ```bash
-python -m pip install "agentcrawl-ai[browser]"
+python -m pip install "agentcrawl-ai[mcp] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
 ```
 
-For a repository checkout before a release is published:
+Add capabilities only when needed:
 
 ```bash
-python -m pip install "agentcrawl-ai[browser]"
+# JavaScript-rendered pages, browser_actions and screenshots
+python -m pip install "agentcrawl-ai[mcp,browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m playwright install chromium
+# local PDF ingestion
+python -m pip install "agentcrawl-ai[docs] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
 ```
 
-The base package uses HTTP and does not install a browser. Install other capabilities only when needed:
-
-```bash
-python -m pip install "agentcrawl-ai[browser]"
-python -m pip install "agentcrawl-ai[docs]"     # local PDF ingestion
-python -m pip install "agentcrawl-ai[browser]"
-playwright install chromium
-```
+From a repository checkout use `python -m pip install -e ".[mcp]"` instead.
 
 Inspect the installation:
 
@@ -44,37 +41,20 @@ agentcrawl doctor
 ```
 
 `doctor` reports installed extras, Python/command discovery, local scrape health,
+whether the browser fallback can actually start (with the fix when it cannot),
 and optional remote API health when `AGENTCRAWL_BASE_URL` is set. It only reports
 whether an API key is configured and never prints secret values.
 
 ## 2. Verify Direct Scraping
 
-Use a target that returns real content locally:
-
 ```bash
-agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
-agentcrawl doctor
+agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
-`agentcrawl doctor` is the most robust verification step: it reports
-installed extras, command/path health, local-scrape readiness, and
-optional remote API status without ever printing secret values.
-
-### Edge case: `https://example.com` is intentionally a challenge page
-
-```bash
-agentcrawl scrape https://example.com   # → ok=False, error_type=client_challenge
-```
-
-`example.com` is behind Cloudflare and returns a client challenge on
-many networks. AgentCrawl **detects** challenge pages and returns an
-honest `client_challenge` error rather than scraping challenge DOM as
-content. This is the **Community product boundary** — managed browser
-pools, proxy rotation, and challenge solving live in Enhanced/Hosted,
-and require a server-side paywall or operator approval.
-
-To confirm scrape actually works, point it at any accessible docs page:
-FastAPI, GitHub, Wikipedia, the RFC editor, etc.
+Success is a JSON document whose `markdown` contains `json.dumps` and whose
+`metadata` has no `error_type`. When a site answers with a bot challenge,
+AgentCrawl returns `error_type: "client_challenge"` with the signals it saw in
+`metadata.challenge_signals` instead of returning the challenge page as content.
 
 ## 3. Register The MCP Server
 
@@ -132,36 +112,34 @@ Paths outside the root, including `..` and symlinks that escape it, return `erro
 
 ## 4. Reload And Verify
 
-Reload or restart your client if it does not hot-reload MCP configuration. Verify that the `agentcrawl` server exposes at least:
+Reload or restart your client if it does not hot-reload MCP configuration. By
+default the server exposes the core tools an agent needs:
 
 ```text
 scrape_url
 scrape_many
-search_web
-check_changes
-extract_structured
 map_site
 crawl_site
-get_job
-cancel_job
-job_events
-inspect_failures
-retry_failures
-usage
-cache_stats
-clear_cache
+extract_structured
 ```
+
+`search_web` appears when `AGENTCRAWL_SEARCH_ENGINE` is set, and `get_job` when
+`AGENTCRAWL_BASE_URL` points at a server. Operator tools (`check_changes`,
+`job_events`, `cancel_job`, `inspect_failures`, `retry_failures`, `usage`,
+`cache_stats`, `clear_cache`) need `AGENTCRAWL_MCP_PROFILE=full` in the server's
+environment; they are hidden by default because every tool schema costs context
+on every turn.
 
 Call `scrape_url` with:
 
 ```json
 {
-  "url": "https://example.com",
+  "url": "https://docs.python.org/3/library/json.html",
   "formats": ["markdown", "metadata"]
 }
 ```
 
-Success requires clean Markdown containing `Example Domain`.
+Success requires clean Markdown containing `json.dumps`.
 
 ## 5. Normal Tool Selection
 
@@ -171,7 +149,7 @@ After registration:
 - Use `search_web` when there is a question but no URL (needs `AGENTCRAWL_SEARCH_ENGINE`).
 - Use `map_site` to discover site URLs without scraping all pages.
 - Use `crawl_site` for bounded multi-page extraction; pass `query` to read the most relevant pages first and stop when pages stop matching.
-- Use `check_changes` to see whether a page changed since you last read it (pass the previous Markdown or its `markdown_sha256`, and the `etag`/`last_modified` if you have them).
+- With the full profile, use `check_changes` to see whether a page changed since you last read it (pass the previous Markdown or its `markdown_sha256`, and the `etag`/`last_modified` if you have them).
 - Use `scrape_url` with `browser_actions` only when content appears after a click, typing or scrolling, and add `"screenshot"` to `formats` when you need to see the page.
 - For asynchronous crawl jobs, provide a stable idempotency key, keep the returned `job_id`, and poll `get_job`; do not start duplicates.
 - A queued job with a future `available_at` is waiting for persisted backoff, not stuck.

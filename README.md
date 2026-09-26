@@ -1,7 +1,6 @@
 # AgentCrawl
 
 [![CI](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/agentcrawl-ai.svg)](https://pypi.org/project/agentcrawl-ai/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 ![AgentCrawl README hero](assets/readme-hero.png)
@@ -13,53 +12,46 @@ AgentCrawl gives agents a simple way to read normal web pages without pasting ra
 The project is early, intentionally modest, and being worked on steadily: accessible pages first, clean output, local state, honest failures.
 
 ```bash
-pip install agentcrawl-ai
-agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
+pip install "agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
-### Edge case: `example.com` returns a Cloudflare client challenge
+Pages that only render with JavaScript need the browser extra (`[browser]`, then
+`python -m playwright install chromium`); `agentcrawl doctor` tells you whether
+the browser can start. When a site answers with a bot challenge, AgentCrawl
+returns `error_type: "client_challenge"` and the signals it saw, never the
+challenge page as content. Getting past protected sites is not a Community goal.
 
-```bash
-$ agentcrawl scrape https://example.com
-# → ok=False, error_type=client_challenge
-```
-
-`example.com` sits behind Cloudflare and returns a client challenge on
-most networks. AgentCrawl **detects** challenge pages and returns an
-honest `client_challenge` error rather than scraping challenge DOM as
-content. This is the Community product boundary, not a bug. Managed
-browser/proxy/challenge handling belongs to Enhanced/Hosted and
-requires an operator or paid plan.
-
-To verify Community works on your machine, point it at any accessible
-docs page: FastAPI, GitHub, Wikipedia, the RFC editor.
+Every change is checked against real public sites (docs, Wikipedia, GitHub,
+Hacker News, PyPI, a JavaScript-rendered page) by the
+[live smoke workflow](.github/workflows/live-smoke.yml).
 
 ## Pick your path 🚀
 
 ### Agents: MCP 🤖
 
 ```bash
-python -m pip install "agentcrawl-ai[browser]"
+python -m pip install "agentcrawl-ai[mcp] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
 agentcrawl doctor
 agentcrawl mcp
 ```
 
-MCP tools cover `scrape_url`, `search_web`, `map_site`, `crawl_site`, job status, cancellation, event history, failure inspection, selective retries, usage, and cache control. Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
+By default the MCP exposes the core tools an agent needs: `scrape_url`, `scrape_many`, `map_site`, `crawl_site` and `extract_structured`, plus `search_web` when a search engine is configured. Set `AGENTCRAWL_MCP_PROFILE=full` for the operator tools (job history, cancellation, failure inspection, retries, usage, cache, change checks). Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
 
 The MCP only fetches URLs by default: local file paths are refused, because an agent can be steered by the pages it reads. To let it read a docs folder, set `AGENTCRAWL_ALLOW_LOCAL_FILES=true` and `AGENTCRAWL_LOCAL_FILES_ROOT=/path/to/docs`. The Python library and the CLI still read local files by default.
 
 ### Developers: Python + CLI 🧪
 
 ```bash
-pip install agentcrawl-ai
-agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
+pip install "agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
 ```python
 from agentcrawl import AgentCrawl
 
 crawler = AgentCrawl({"fetcher": "http"})
-document = crawler.scrape("https://pypi.org/project/agentcrawl-ai/")
+document = crawler.scrape("https://docs.python.org/3/library/json.html")
 
 print(document.markdown)
 print(document.metadata)
@@ -163,7 +155,7 @@ Authentication is enabled by default. Configure at least one API key before expo
 
 ```bash
 export AGENTCRAWL_API_KEYS="replace-with-a-long-random-key"
-python -m pip install "agentcrawl-ai[browser]"
+python -m pip install "agentcrawl-ai[server] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
 agentcrawl serve --host 0.0.0.0 --port 8000
 ```
 
@@ -298,7 +290,7 @@ agentcrawl scrape ./notes.md
 agentcrawl scrape ./data.json
 agentcrawl scrape ./feed.xml
 agentcrawl scrape ./report.docx      # also .xlsx and .pptx, no extra needed
-python -m pip install "agentcrawl-ai[docs]"
+python -m pip install "agentcrawl-ai[docs] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
 agentcrawl scrape ./report.pdf
 agentcrawl scrape ./scanned.pdf --ocr # needs the Tesseract binary
 ```
@@ -323,8 +315,8 @@ PDF and Office files fetched from URLs are converted the same way, detected by c
 The default package and default Docker image use HTTP extraction. Add browser rendering only when a site needs JavaScript:
 
 ```bash
-python -m pip install "agentcrawl-ai[browser]"
-playwright install chromium
+python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m playwright install chromium
 ```
 
 AgentCrawl also supports an optional external Camofox REST backend:

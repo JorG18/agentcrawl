@@ -67,6 +67,10 @@ jobs:
 
   pypi:
     needs: build
+    # Off until the repository variable PUBLISH_PYPI is "true", so a release is
+    # not red while PyPI publishing is being set up; GitHub Release and Docker
+    # do not depend on it.
+    if: vars.PUBLISH_PYPI == 'true'
     runs-on: ubuntu-latest
     # PyPI trusted publishing: the agentcrawl-ai project on pypi.org must list
     # this repository, workflow release.yml and environment "pypi".

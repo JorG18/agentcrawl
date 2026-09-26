@@ -51,7 +51,17 @@ def _type_of_cause(exc: BaseException) -> str | None:
         return "tls_error"
     if isinstance(exc, (socket.gaierror, ConnectionError)):
         return "network_error"
+    if isinstance(exc, OSError) and _is_proxy_failure(str(exc)):
+        # "Tunnel connection failed: 403 Forbidden" is the local proxy refusing
+        # the CONNECT, not the site blocking us. Calling it ``blocked`` sent
+        # agents (and users) after the wrong problem.
+        return "network_error"
     return None
+
+
+def _is_proxy_failure(message: str) -> bool:
+    text = message.lower()
+    return "tunnel connection failed" in text or "proxyerror" in text or "proxy error" in text
 
 
 def classify_exception(exc: BaseException) -> str:
@@ -96,6 +106,8 @@ def classify_error(message: str | None) -> str | None:
         return "local_files_disabled"
     if "local file sources must stay inside" in text:
         return "local_file_outside_root"
+    if _is_proxy_failure(text):
+        return "network_error"
     if "http error 403" in text or "forbidden" in text:
         return "blocked"
     if "http error 429" in text or "too many requests" in text:

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "description": "Real public pages for the live smoke test. expect=ok needs usable Markdown with the listed strings; expect=challenge needs an honest challenge/blocked error instead of content.",
+  "pages": [
+    {"id": "python-json", "url": "https://docs.python.org/3/library/json.html", "expect": "ok", "must_contain": ["json.dumps", "JSONDecodeError"]},
+    {"id": "fastapi-first-steps", "url": "https://fastapi.tiangolo.com/tutorial/first-steps/", "expect": "ok", "must_contain": ["FastAPI", "uvicorn"]},
+    {"id": "mdn-using-fetch", "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch", "expect": "ok", "must_contain": ["fetch(", "Response"]},
+    {"id": "rust-book-installation", "url": "https://doc.rust-lang.org/book/ch01-01-installation.html", "expect": "ok", "must_contain": ["rustup"]},
+    {"id": "github-rest-repos", "url": "https://docs.github.com/en/rest/repos/repos", "expect": "ok", "must_contain": ["repositories"]},
+    {"id": "rfc9110", "url": "https://www.rfc-editor.org/rfc/rfc9110.html", "expect": "ok", "must_contain": ["HTTP Semantics"], "min_chars": 50000},
+    {"id": "pep-8", "url": "https://peps.python.org/pep-0008/", "expect": "ok", "must_contain": ["Indentation"]},
+    {"id": "postgres-select", "url": "https://www.postgresql.org/docs/current/sql-select.html", "expect": "ok", "must_contain": ["SELECT", "WHERE"]},
+    {"id": "sqlite-select", "url": "https://www.sqlite.org/lang_select.html", "expect": "ok", "must_contain": ["SELECT"]},
+    {"id": "wikipedia-web-crawler", "url": "https://en.wikipedia.org/wiki/Web_crawler", "expect": "ok", "must_contain": ["crawler", "robots.txt"]},
+    {"id": "go-blog-errors-are-values", "url": "https://go.dev/blog/errors-are-values", "expect": "ok", "must_contain": ["errors"]},
+    {"id": "books-toscrape-product", "url": "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html", "expect": "ok", "must_contain": ["A Light in the Attic"], "min_chars": 300},
+    {"id": "github-repo-agentcrawl", "url": "https://github.com/JorG18/agentcrawl", "expect": "ok", "must_contain": ["AgentCrawl", "self-hosted"]},
+    {"id": "hacker-news", "url": "https://news.ycombinator.com/", "expect": "ok", "must_contain": ["comments"], "min_chars": 1000},
+    {"id": "quotes-js-rendered", "url": "https://quotes.toscrape.com/js/", "expect": "ok", "must_contain": ["Einstein"], "min_chars": 300},
+    {"id": "pypi-project", "url": "https://pypi.org/project/requests/", "expect": "ok", "must_contain": ["Requests", "pip install"]}
+  ]
+}

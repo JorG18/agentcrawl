@@ -7,15 +7,17 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zlib
 from typing import Any
 
-from .config import CrawlConfig
+from .config import DEFAULT_USER_AGENT, CrawlConfig
 from .documents import (
     CSV_CONTENT_TYPES,
     csv_to_markdown,
@@ -142,7 +144,8 @@ def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]
     validate_remote_url(source, allow_private_network=config.allow_private_network)
     if config.fetcher == "http":
         try:
-            return _fetch_http(source, config)
+            content, http_metadata = _fetch_http(source, config)
+            return _render_if_js_shell(source, content, http_metadata, config)
         except FetchError as exc:
             if not (config.browser_fallback and _should_browser_fallback(str(exc), config)):
                 raise
@@ -182,6 +185,46 @@ def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]
             metadata.update(browser_trail.to_metadata())
         return html, metadata
     raise FetchError(f"Unknown fetcher: {config.fetcher}", error_type="config_error")
+
+
+def _render_if_js_shell(
+    source: str,
+    content: str,
+    metadata: dict[str, Any],
+    config: CrawlConfig,
+) -> tuple[str, dict[str, Any]]:
+    """Re-read a script-rendered shell in the local browser.
+
+    An HTTP 200 whose body is only a JavaScript mount point used to come back
+    as a near-empty document. With ``browser_fallback`` on and a browser
+    installed, render it once; if rendering fails, keep the HTTP result and say
+    why in ``browser_render_error`` so nothing is hidden.
+    """
+    from .challenge import needs_javascript
+
+    if not config.browser_fallback or not needs_javascript(content):
+        return content, metadata
+    backend = config.browser_backend
+    if not _browser_backend_available(backend):
+        return content, {**metadata, "javascript_required": True}
+    audit_kwargs, browser_trail = _browser_audit_kwargs(config)
+    try:
+        html = _fetch_browser(source, config, **audit_kwargs)
+    except FetchError as exc:
+        return content, {
+            **metadata,
+            "javascript_required": True,
+            "browser_render_error": str(exc),
+        }
+    rendered: dict[str, Any] = {
+        **metadata,
+        "fetcher": backend,
+        "fallback_from": "http",
+        "fallback_reason": "javascript_required",
+    }
+    if browser_trail is not None:
+        rendered.update(browser_trail.to_metadata())
+    return html, rendered
 
 
 def _fetch_browser(
@@ -240,7 +283,13 @@ def _fetch_local_file(source: str, *, ocr: bool = False) -> tuple[str, dict[str,
 
 
 def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
-    headers = {"user-agent": config.user_agent or "AgentCrawl/0.1"}
+    headers = {
+        "user-agent": config.user_agent or DEFAULT_USER_AGENT,
+        "accept": _ACCEPT,
+        # Compressed transfer is typically 4-8x smaller for HTML; the body is
+        # inflated below under the same ``max_response_bytes`` ceiling.
+        "accept-encoding": "gzip, deflate",
+    }
     if config.if_none_match:
         headers["if-none-match"] = config.if_none_match
     if config.if_modified_since:
@@ -294,6 +343,12 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     value = response.headers.get(header)
                     if value:
                         fetch_metadata[key] = value
+                html_bytes = _decompress_body(
+                    html_bytes,
+                    _header(response, "content-encoding"),
+                    config.max_response_bytes,
+                    url=url,
+                )
                 charset = _response_charset(response.headers)
                 content_type = _response_content_type(response.headers)
                 if audit_trail is not None:
@@ -508,6 +563,48 @@ def _response_charset(headers: Any) -> str | None:
         return None
 
 
+_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+_META_CHARSET_RE = re.compile(
+    rb"""<meta[^>]+charset\s*=\s*["']?\s*([A-Za-z0-9_.:-]+)""", re.IGNORECASE
+)
+
+
+def _header(response: Any, name: str) -> str:
+    headers = getattr(response, "headers", None)
+    getter = getattr(headers, "get", None)
+    if not callable(getter):
+        return ""
+    return str(getter(name) or "").strip().lower()
+
+
+def _decompress_body(data: bytes, encoding: str, limit: int, *, url: str = "") -> bytes:
+    """Inflate a gzip/deflate body without letting it grow past ``limit``.
+
+    A few kilobytes of gzip can inflate to gigabytes, so the output is capped
+    the same way the raw read is. Unknown or absent encodings pass through.
+    """
+    if encoding in {"gzip", "x-gzip"}:
+        inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    elif encoding == "deflate":
+        # Servers disagree on zlib-wrapped vs raw deflate; accept both.
+        inflater = zlib.decompressobj(zlib.MAX_WBITS if data[:1] == b"\x78" else -zlib.MAX_WBITS)
+    else:
+        return data
+    try:
+        out = inflater.decompress(data, limit + 1)
+    except zlib.error as exc:
+        raise FetchError(
+            f"Could not decode {encoding} response from {url}: {exc}", error_type="fetch_error"
+        ) from exc
+    if len(out) > limit or inflater.unconsumed_tail:
+        raise FetchError(
+            f"Response body exceeds the {limit} byte limit after decompression"
+            + (f" for {url}" if url else "")
+            + ". Raise max_response_bytes to accept larger pages."
+        )
+    return out
+
+
 def _decode_http_body(data: bytes, charset: str | None) -> str:
     """Decode an HTTP body honoring the declared charset, with safe fallbacks.
 
@@ -525,7 +622,14 @@ def _decode_http_body(data: bytes, charset: str | None) -> str:
         return data.decode("utf-8-sig", errors="replace")
     if data.startswith(codecs.BOM_UTF16_LE) or data.startswith(codecs.BOM_UTF16_BE):
         return data.decode("utf-16", errors="replace")
+    if not charset:
+        # Older pages declare their encoding only in the document.
+        match = _META_CHARSET_RE.search(data[:4096])
+        if match:
+            charset = match.group(1).decode("ascii", "ignore")
     if charset:
+        if charset.lower() in {"iso-8859-1", "latin-1", "latin1", "us-ascii", "ascii"}:
+            charset = "cp1252"  # what browsers actually use for these labels
         try:
             return data.decode(charset, errors="replace")
         except (LookupError, UnicodeDecodeError, TypeError, ValueError):
@@ -647,7 +751,7 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
             context = None
             try:
                 context_kwargs: dict[str, Any] = {
-                    "user_agent": config.user_agent or "AgentCrawl/0.1"
+                    "user_agent": config.user_agent or DEFAULT_USER_AGENT
                 }
                 if guard.active:
                     # Service workers can issue requests the route never sees.

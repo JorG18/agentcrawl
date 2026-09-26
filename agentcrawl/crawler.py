@@ -19,7 +19,9 @@ from typing import Any, Callable
 
 from .airgap import AirgapViolation, AuditTrail
 from .airgap import _match as _airgap_match
-from .config import CrawlConfig
+from .challenge import ChallengeVerdict, detect_challenge
+from .challenge import html_to_plain_text as _html_to_plain_text
+from .config import DEFAULT_USER_AGENT, CrawlConfig
 from .documents import markdown_from_fetched_content
 from .errors import classify_error, error_metadata, sanitize_error_message
 from .exceptions import FetchError
@@ -52,11 +54,6 @@ _COOKIE_CONSENT_LINE_RE = re.compile(
     r"cookie\s+(policy|settings|preferences|notice)|"
     r"accept\s+(all\s+)?cookies|manage\s+cookies?|"
     r"by\s+continuing\s+you\s+accept|consent\s+to\s+cookies)\b.*$"
-)
-_BLOCKED_PAGE_PATTERNS = (
-    re.compile(r"client challenge", re.IGNORECASE),
-    re.compile(r"required part of this site (?:couldn[’']t|could not) load", re.IGNORECASE),
-    re.compile(r"disable any ad blockers", re.IGNORECASE),
 )
 
 # Sitemap discovery limits. ``_read_sitemap`` recurses into sitemap-index
@@ -93,7 +90,7 @@ def _guarded_urlopen(url: str, config: CrawlConfig, *, allow_private: bool | Non
     allow_private_network = config.allow_private_network if allow_private is None else allow_private
     validate_remote_url(url, allow_private_network=allow_private_network)
     request = urllib.request.Request(
-        url, headers={"user-agent": config.user_agent or "AgentCrawl/0.1"}
+        url, headers={"user-agent": config.user_agent or DEFAULT_USER_AGENT}
     )
     context = _DISCOVERY.get()
     trail, target_host = context if context else (None, None)
@@ -167,7 +164,8 @@ class AgentCrawl:
 
         try:
             html, fetch_metadata = fetch_source(source, self._fetch_config(source, requested))
-            blocked_reason = _blocked_page_reason(html)
+            verdict = _challenge_verdict(html)
+            blocked_reason = verdict.reason
             if blocked_reason:
                 # If the user opted into the local browser fallback, try once
                 # with a browser fetcher before giving up. The retry only
@@ -206,6 +204,7 @@ class AgentCrawl:
                             f"Blocked or challenge page detected: {blocked_reason}"
                         ),
                         "blocked_reason": blocked_reason,
+                        "challenge_signals": list(verdict.signals),
                         "source_url": source,
                         "final_url": str(fetch_metadata.get("final_url") or source),
                     },
@@ -222,6 +221,7 @@ class AgentCrawl:
                     html,
                     self.config,
                     only_main_content=main_content,
+                    base_url=str(fetch_metadata.get("final_url") or source),
                 )
                 provenance = extraction_provenance(html, only_main_content=main_content)
             else:
@@ -1032,55 +1032,22 @@ def _pop_ready_item(
 
 
 def _blocked_page_reason(html: str) -> str:
-    # ``_markdown_to_text`` only strips markdown markers; it does not strip
-    # HTML tags. Passing raw HTML to ``_BLOCKED_PAGE_PATTERNS`` makes them
-    # hit script contents (``<script>client challenge</script>``) or DOM
-    # scaffolding rather than the user-facing challenge text. Strip the
-    # ``<script>`` / ``<style>`` blocks first, then drop remaining tags,
-    # then collapse whitespace before running the regex patterns. The
-    # cookie-banner filter inside ``_markdown_to_text`` still runs because
-    # markers there fire on plain-text lines, which is what we have now.
-    text = _html_to_plain_text(html)
-    for line in text.splitlines():
-        cleaned = line.strip()
-        if _COOKIE_CONSENT_LINE_RE.match(cleaned):
-            continue
-        for pattern in _BLOCKED_PAGE_PATTERNS:
-            if pattern.search(cleaned):
-                return pattern.pattern
-    return ""
+    """First challenge signal for ``html``, or ``""`` for a real page.
 
-
-_HTML_SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
-_HTML_WHITESPACE_RE = re.compile(r"\s+")
-# Block-level tags become line breaks. ``_blocked_page_reason`` is line-oriented
-# on purpose (it skips cookie-consent lines first), but the old implementation
-# collapsed every newline before splitting lines, so that loop saw a single line:
-# the skip was dead code and the challenge patterns matched anywhere in the page.
-_HTML_BLOCK_TAG_RE = re.compile(
-    r"</?(?:p|div|section|article|main|aside|header|footer|nav|ul|ol|li|table|tr|td|th|"
-    r"h[1-6]|br|hr|form|figure|figcaption|blockquote|pre|dl|dt|dd)\b[^>]*>",
-    re.IGNORECASE,
-)
-
-
-def _html_to_plain_text(html: str) -> str:
-    """Best-effort HTML -> plain-text for blocked-page detection.
-
-    Drops ``<script>`` / ``<style>`` contents entirely (they're noise for a
-    Cloudflare / interstitial heuristic), turns block-level tags into line
-    breaks, strips the rest, and collapses intra-line whitespace so the regex
-    patterns see contiguous tokens on the line they came from. Not intended for
-    general markdown extraction; ``parsing.py`` owns that path.
+    See :mod:`agentcrawl.challenge`: a known interstitial title, or a short
+    page with challenge wording or a vendor challenge script. Challenge wording
+    inside a real article never counts. Cookie-consent lines are dropped from
+    the readable text first so a banner cannot look like a challenge.
     """
-    if not html:
-        return ""
-    cleaned = _HTML_SCRIPT_STYLE_RE.sub("\n", html)
-    cleaned = _HTML_BLOCK_TAG_RE.sub("\n", cleaned)
-    cleaned = _HTML_TAG_RE.sub(" ", cleaned)
-    lines = (_HTML_WHITESPACE_RE.sub(" ", part).strip() for part in cleaned.splitlines())
-    return "\n".join(line for line in lines if line)
+    return _challenge_verdict(html).reason
+
+
+def _challenge_verdict(html: str) -> ChallengeVerdict:
+    text = _html_to_plain_text(html)
+    readable = "\n".join(
+        line for line in text.splitlines() if not _COOKIE_CONSENT_LINE_RE.match(line.strip())
+    )
+    return detect_challenge(html, readable)
 
 
 def _format_document(

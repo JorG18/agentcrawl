@@ -10,7 +10,7 @@ import pytest
 
 from agentcrawl import AgentCrawl
 from agentcrawl.airgap import AirgapViolation
-from agentcrawl.config import CrawlConfig
+from agentcrawl.config import DEFAULT_USER_AGENT, CrawlConfig
 from agentcrawl.exceptions import FetchError
 from agentcrawl.fetchers import (
     _browser_backend_available,
@@ -266,7 +266,7 @@ def test_playwright_uses_default_user_agent_when_config_none(monkeypatch) -> Non
     assert "ok" in html
     # The default config guards the browser's network (SSRF), and service
     # workers are blocked because they can issue requests the route never sees.
-    assert browser.context_kwargs == {"user_agent": "AgentCrawl/0.1", "service_workers": "block"}
+    assert browser.context_kwargs == {"user_agent": DEFAULT_USER_AGENT, "service_workers": "block"}
     assert page.load_states == []
 
 
