@@ -18,6 +18,8 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 - **`chunks` output format.** `formats=["chunks"]` on scrape, scrape_many, search and MCP returns pieces of at most `chunk_tokens` estimated tokens (config, default 400, 50-8000; also an API override).
   *Detail:* chunks follow sections and keep whole Markdown blocks (tables and code fences are cut only when one alone exceeds the budget, and then at line boundaries). Each carries `id`, `heading` (path like `Guide > Limits`), `url`, `cite_url` (a `#:~:text=` link to its first words, so no element ids are needed) and `estimated_tokens`; with `query` also a BM25 `score`, keeping document order.
 
+- **Neutral benchmark corpus.** `benchmarks/corpus/neutral.json` lists 12 accessible public pages; `python -m benchmarks.snapshot` freezes them with SHA-256 hashes and `python -m benchmarks.compare --corpus ...` scores every tool on the same bytes, printing the hashes. Snapshots are never committed; pages without reviewed signals are reported as `unscored`.
+
 ## 0.2.1 - 2026-09-24
 
 A security patch, plus honest error reporting. **Upgrade if an agent uses the local MCP server.**

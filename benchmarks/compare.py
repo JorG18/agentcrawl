@@ -188,9 +188,20 @@ def _structure_present(signal: str, markdown: str, table_lines: list[str]) -> bo
     return any(cell in line for line in table_lines)
 
 
-def score(tool: str, fixture: str, markdown: str, latency_ms: float) -> Row:
+def score(
+    tool: str,
+    fixture: str,
+    markdown: str,
+    latency_ms: float,
+    *,
+    expected: tuple[str, ...] | list[str] | None = None,
+    excluded: tuple[str, ...] | list[str] | None = None,
+) -> Row:
+    """Score one output. ``expected``/``excluded`` default to the fixture's signals."""
     output = _norm(markdown)
-    expected = EXPECTED_BY_FIXTURE[fixture]
+    if expected is None:
+        expected = EXPECTED_BY_FIXTURE[fixture]
+        excluded = EXCLUDED_BY_FIXTURE.get(fixture, ())
     text_signals = [signal for signal in expected if not _is_structure(signal)]
     structure_signals = [signal for signal in expected if _is_structure(signal)]
     table_lines = [line for line in markdown.splitlines() if line.count("|") >= 1]
@@ -203,7 +214,7 @@ def score(tool: str, fixture: str, markdown: str, latency_ms: float) -> Row:
     fence_language = (
         sum(1 for signal in fences if signal in markdown) / len(fences) if fences else None
     )
-    excluded = EXCLUDED_BY_FIXTURE.get(fixture, ())
+    excluded = excluded or ()
     leaked = [signal for signal in excluded if _norm(signal) in output]
 
     def recall(signals: list[str]) -> float:
@@ -223,8 +234,61 @@ def score(tool: str, fixture: str, markdown: str, latency_ms: float) -> Row:
     )
 
 
-def run(tools: list[str]) -> tuple[list[Row], dict[str, str], dict[str, str]]:
-    fixtures = sorted(EXPECTED_BY_FIXTURE)
+@dataclass
+class Page:
+    """One benchmark input: an HTML file and the signals it is scored on."""
+
+    name: str
+    path: Path
+    expected: tuple[str, ...]
+    excluded: tuple[str, ...] = ()
+
+
+def fixture_pages() -> list[Page]:
+    return [
+        Page(
+            name,
+            FIXTURE_DIR / f"{name}.html",
+            tuple(EXPECTED_BY_FIXTURE[name]),
+            tuple(EXCLUDED_BY_FIXTURE.get(name, ())),
+        )
+        for name in sorted(EXPECTED_BY_FIXTURE)
+    ]
+
+
+def corpus_pages(manifest_path: Path) -> tuple[list[Page], dict[str, str]]:
+    """Snapshotted pages of a neutral corpus manifest, plus the ones left out and why.
+
+    A page counts only once it has a snapshot (``benchmarks.snapshot``) *and*
+    reviewed ``expected`` signals: scoring a page on no signals would report a
+    perfect recall that means nothing.
+    """
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    snapshots = manifest_path.parent / "snapshots"
+    pages: list[Page] = []
+    unscored: dict[str, str] = {}
+    for entry in manifest["pages"]:
+        path = snapshots / f"{entry['id']}.html"
+        if not path.exists():
+            unscored[entry["id"]] = "no snapshot (run python -m benchmarks.snapshot)"
+        elif not entry.get("expected"):
+            unscored[entry["id"]] = "no reviewed expected signals yet"
+        else:
+            pages.append(
+                Page(
+                    entry["id"],
+                    path,
+                    tuple(entry["expected"]),
+                    tuple(entry.get("excluded", ())),
+                )
+            )
+    return pages, unscored
+
+
+def run(
+    tools: list[str], pages: list[Page] | None = None
+) -> tuple[list[Row], dict[str, str], dict[str, str]]:
+    pages = fixture_pages() if pages is None else pages
     rows: list[Row] = []
     versions: dict[str, str] = {}
     skipped: dict[str, str] = {}
@@ -240,8 +304,8 @@ def run(tools: list[str]) -> tuple[list[Row], dict[str, str], dict[str, str]]:
         except PackageNotFoundError:
             versions[tool] = "source checkout"
         try:
-            for fixture in fixtures:
-                html = (FIXTURE_DIR / f"{fixture}.html").read_text(encoding="utf-8")
+            for page in pages:
+                html = page.path.read_text(encoding="utf-8", errors="replace")
                 started = time.perf_counter()
                 try:
                     markdown = extractor(html)
@@ -249,7 +313,14 @@ def run(tools: list[str]) -> tuple[list[Row], dict[str, str], dict[str, str]]:
                 except Exception as exc:
                     markdown, error = "", f"{type(exc).__name__}: {exc}"[:300]
                 elapsed = (time.perf_counter() - started) * 1000
-                row = score(tool, fixture, markdown, elapsed)
+                row = score(
+                    tool,
+                    page.name,
+                    markdown,
+                    elapsed,
+                    expected=page.expected,
+                    excluded=page.excluded,
+                )
                 row.error = error
                 rows.append(row)
         finally:
@@ -355,20 +426,40 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--tools", default=",".join(ADAPTERS), help="Comma-separated adapters.")
     parser.add_argument("--json", dest="json_path", help="Write full per-fixture results here.")
+    parser.add_argument(
+        "--corpus",
+        help="Neutral corpus manifest (e.g. benchmarks/corpus/neutral.json) instead of fixtures.",
+    )
     args = parser.parse_args(argv)
     tools = [tool.strip() for tool in args.tools.split(",") if tool.strip()]
     unknown = sorted(set(tools) - set(ADAPTERS))
     if unknown:
         parser.error(f"unknown tools: {', '.join(unknown)}; choose from {', '.join(ADAPTERS)}")
 
-    rows, versions, skipped = run(tools)
+    pages, unscored = None, {}
+    if args.corpus:
+        pages, unscored = corpus_pages(Path(args.corpus))
+        if not pages:
+            print("no scorable corpus pages: " + json.dumps(unscored, indent=2))
+            return 1
+    rows, versions, skipped = run(tools, pages)
     summary = summarize(rows)
     environment = _environment()
+    if args.corpus:
+        # Name the exact bytes scored, so published numbers can be re-run.
+        index_path = Path(args.corpus).parent / "snapshots" / "index.json"
+        index = json.loads(index_path.read_text("utf-8")) if index_path.exists() else {}
+        environment["corpus"] = args.corpus
+        environment["corpus_sha256"] = {
+            page.name: index.get(page.name, {}).get("sha256", "unknown") for page in pages or []
+        }
     print(_markdown_table(summary))
     print()
     print("versions: " + ", ".join(f"{tool}={ver}" for tool, ver in versions.items()))
     for tool, reason in skipped.items():
         print(f"skipped {tool}: {reason}")
+    for page, reason in unscored.items():
+        print(f"unscored {page}: {reason}")
     print("environment: " + json.dumps(environment))
     if args.json_path:
         Path(args.json_path).write_text(
@@ -377,6 +468,7 @@ def main(argv: list[str] | None = None) -> int:
                     "environment": environment,
                     "versions": versions,
                     "skipped": skipped,
+                    "unscored": unscored,
                     "summary": summary,
                     "rows": [asdict(row) for row in rows],
                 },

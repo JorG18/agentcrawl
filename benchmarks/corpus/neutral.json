@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "description": "Neutral Community corpus: accessible public pages, no login, no anti-bot. Add expected/excluded signals only after reviewing a snapshot.",
+  "pages": [
+    {"id": "python-json", "category": "documentation", "url": "https://docs.python.org/3/library/json.html", "expected": [], "excluded": []},
+    {"id": "fastapi-first-steps", "category": "documentation", "url": "https://fastapi.tiangolo.com/tutorial/first-steps/", "expected": [], "excluded": []},
+    {"id": "mdn-using-fetch", "category": "documentation", "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch", "expected": [], "excluded": []},
+    {"id": "rust-book-installation", "category": "documentation", "url": "https://doc.rust-lang.org/book/ch01-01-installation.html", "expected": [], "excluded": []},
+    {"id": "github-rest-repos", "category": "api_reference", "url": "https://docs.github.com/en/rest/repos/repos", "expected": [], "excluded": []},
+    {"id": "rfc9110", "category": "reference", "url": "https://www.rfc-editor.org/rfc/rfc9110.html", "expected": [], "excluded": []},
+    {"id": "pep-8", "category": "reference", "url": "https://peps.python.org/pep-0008/", "expected": [], "excluded": []},
+    {"id": "postgres-select", "category": "reference", "url": "https://www.postgresql.org/docs/current/sql-select.html", "expected": [], "excluded": []},
+    {"id": "sqlite-select", "category": "reference", "url": "https://www.sqlite.org/lang_select.html", "expected": [], "excluded": []},
+    {"id": "wikipedia-web-crawler", "category": "article", "url": "https://en.wikipedia.org/wiki/Web_crawler", "expected": [], "excluded": []},
+    {"id": "go-blog-errors-are-values", "category": "blog", "url": "https://go.dev/blog/errors-are-values", "expected": [], "excluded": []},
+    {"id": "books-toscrape-product", "category": "ecommerce", "url": "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html", "expected": [], "excluded": []}
+  ]
+}

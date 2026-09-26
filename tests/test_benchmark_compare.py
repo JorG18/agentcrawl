@@ -40,3 +40,49 @@ def test_summary_aggregates_per_tool() -> None:
     (summary,) = summarize(rows)
     assert summary["tool"] == "a" and summary["fixtures"] == 2
     assert summary["median_latency_ms"] == 2
+
+
+def test_neutral_corpus_snapshot_and_scoring(tmp_path, capsys) -> None:
+    import json
+
+    from benchmarks.snapshot import snapshot
+
+    manifest = tmp_path / "neutral.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pages": [
+                    {
+                        "id": "doc",
+                        "url": "https://docs.example.com/a",
+                        "expected": ["Install Guide", "Run the installer"],
+                        "excluded": ["Subscribe now"],
+                    },
+                    {"id": "unreviewed", "url": "https://docs.example.com/b", "expected": []},
+                    {"id": "down", "url": "https://down.example.com/", "expected": ["x"]},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    html = (
+        b"<html><body><nav>Subscribe now</nav><main><h1>Install Guide</h1>"
+        b"<p>Run the installer.</p></main></body></html>"
+    )
+
+    def fake_fetch(url: str):
+        if "down" in url:
+            raise OSError("unreachable")
+        return html, url, 200
+
+    index = snapshot(manifest, fetcher=fake_fetch)
+
+    assert index["doc"]["bytes"] == len(html) and len(index["doc"]["sha256"]) == 64
+    assert "unreachable" in index["down"]["error"]
+    assert main(["--tools", "agentcrawl", "--corpus", str(manifest)]) == 0
+    out = capsys.readouterr().out
+    assert "| agentcrawl |" in out
+    assert "unscored unreviewed: no reviewed expected signals yet" in out
+    assert "unscored down: no snapshot" in out
+    assert index["doc"]["sha256"] in out
