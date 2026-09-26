@@ -91,6 +91,14 @@ _PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("press and hold", re.compile(r"press (?:&|and) hold", re.I)),
     ("unusual traffic", re.compile(r"unusual traffic from your (?:computer )?network", re.I)),
     (
+        "blocked as a robot",
+        re.compile(
+            r"we suspect (?:that )?you(?:[’']re| are) a (?:robot|bot)|"
+            r"you(?:[’']ve| have) been blocked",
+            re.I,
+        ),
+    ),
+    (
         "not a robot",
         re.compile(r"(?:confirm|prove) (?:that )?you(?:'re| are) not a (?:robot|bot)", re.I),
     ),

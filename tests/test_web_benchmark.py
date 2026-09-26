@@ -83,3 +83,8 @@ def test_block_pages_are_not_content() -> None:
     )
     assert classify({"markdown": cloudflare}) == "junk"
     assert classify({"markdown": ARTICLE, "error": "Blocked by anti-bot protection"}) == "failed"
+
+
+def test_robot_block_notice_is_junk() -> None:
+    nyt = "You have been blocked from The New York Times because we suspect that you're a robot."
+    assert classify({"markdown": nyt * 3}) == "junk"

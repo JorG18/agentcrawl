@@ -98,3 +98,14 @@ def test_real_page_mentioning_challenges_scrapes(monkeypatch) -> None:
     )
     assert doc.ok
     assert "How bot challenges work" in doc.markdown
+
+
+def test_robot_block_notice_is_a_challenge() -> None:
+    # DataDome's block page on nytimes.com, served to the browser fallback
+    # (found by the web-sample benchmark).
+    html = (
+        "<html><head><title>nytimes.com</title></head><body><p>You have been blocked from "
+        "The New York Times because we suspect that you're a robot.</p><p>Why am I seeing "
+        "this? You are browsing much faster than is typical of a human being.</p></body></html>"
+    )
+    assert _blocked_page_reason(html) == "blocked as a robot"

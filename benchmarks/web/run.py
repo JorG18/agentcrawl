@@ -77,7 +77,7 @@ def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result
     def one(page: dict[str, Any]) -> Result:
         started = time.perf_counter()
         try:
-            doc = crawler.scrape(page["url"])
+            doc = crawler.scrape(page["url"], formats=["markdown", "html"])
         except Exception as exc:  # the library should not raise; record it if it does
             return _result(
                 page,
@@ -85,14 +85,32 @@ def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result
                 error=f"{type(exc).__name__}: {exc}"[:300],
                 seconds=time.perf_counter() - started,
             )
+        markdown = doc.get("markdown") or ""
+        metadata = doc.get("metadata") or {}
+        errors = doc.get("errors") or []
+        diagnostics = {
+            key: metadata.get(key)
+            for key in (
+                "raw_html_bytes",
+                "javascript_required",
+                "browser_render_error",
+                "final_url",
+            )
+            if metadata.get(key) is not None
+        }
+        if len(markdown) < 300 and not errors:
+            # Keep the page AgentCrawl saw, so an empty result can be
+            # reproduced offline instead of guessed at.
+            diagnostics["html"] = (doc.get("html") or "")[:300_000]
         return _result(
             page,
             "agentcrawl",
-            markdown=doc.markdown or "",
-            error=(doc.errors[0][:300] if doc.errors else None),
-            error_type=doc.metadata.get("error_type"),
-            fetcher=doc.metadata.get("fetcher"),
+            markdown=markdown,
+            error=(errors[0][:300] if errors else None),
+            error_type=metadata.get("error_type"),
+            fetcher=metadata.get("fetcher"),
             seconds=time.perf_counter() - started,
+            **diagnostics,
         )
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
