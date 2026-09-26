@@ -59,6 +59,8 @@ def schema_json(schema: Any) -> str:
         return "No schema was provided. Return a JSON object or clean markdown as requested."
     if _is_pydantic_model(schema):
         return json.dumps(schema.model_json_schema(), indent=2)
+    if isinstance(schema, dict):
+        return json.dumps(schema, indent=2)
     try:
         _, TypeAdapter = _pydantic()
         return json.dumps(TypeAdapter(schema).json_schema(), indent=2)
@@ -69,6 +71,11 @@ def schema_json(schema: Any) -> str:
 def validate_with_schema(value: Any, schema: Any) -> Any:
     if schema is None:
         return value
+    from .json_schema import is_json_schema, validate_json_schema
+
+    if is_json_schema(schema):
+        # A JSON Schema dict (HTTP API, MCP, CLI): Pydantic cannot adapt it.
+        return validate_json_schema(json.loads(value) if isinstance(value, str) else value, schema)
     BaseModel, TypeAdapter = _pydantic()
     if isinstance(schema, type) and issubclass(schema, BaseModel):
         if isinstance(value, str):
