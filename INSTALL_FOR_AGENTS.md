@@ -138,6 +138,7 @@ Reload or restart your client if it does not hot-reload MCP configuration. Verif
 scrape_url
 scrape_many
 search_web
+check_changes
 extract_structured
 map_site
 crawl_site
@@ -169,7 +170,9 @@ After registration:
 - Use `scrape_url` for one known URL, `scrape_many` for several.
 - Use `search_web` when there is a question but no URL (needs `AGENTCRAWL_SEARCH_ENGINE`).
 - Use `map_site` to discover site URLs without scraping all pages.
-- Use `crawl_site` for bounded multi-page extraction.
+- Use `crawl_site` for bounded multi-page extraction; pass `query` to read the most relevant pages first and stop when pages stop matching.
+- Use `check_changes` to see whether a page changed since you last read it (pass the previous Markdown or its `markdown_sha256`, and the `etag`/`last_modified` if you have them).
+- Use `scrape_url` with `browser_actions` only when content appears after a click, typing or scrolling, and add `"screenshot"` to `formats` when you need to see the page.
 - For asynchronous crawl jobs, provide a stable idempotency key, keep the returned `job_id`, and poll `get_job`; do not start duplicates.
 - A queued job with a future `available_at` is waiting for persisted backoff, not stuck.
 - Read large completed crawls page by page with `offset` and `limit` until `has_more` is false.

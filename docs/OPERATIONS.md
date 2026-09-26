@@ -137,7 +137,9 @@ Local MCP mode does not require an API server:
 agentcrawl mcp
 ```
 
-Local mode (MCP and the CLI without `--remote`) reads the same variables: `AGENTCRAWL_FETCHER`, `AGENTCRAWL_BROWSER_BACKEND`, `AGENTCRAWL_USER_AGENT`, `AGENTCRAWL_TIMEOUT_MS`, `AGENTCRAWL_ALLOW_PRIVATE_NETWORK`, `AGENTCRAWL_RESPECT_ROBOTS_TXT`, `AGENTCRAWL_BROWSER_FALLBACK`, `AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AIRGAP_ALLOWLIST`, `AGENTCRAWL_AUDIT`. CLI flags override them per command.
+Local mode (MCP and the CLI without `--remote`) reads the same variables: `AGENTCRAWL_FETCHER`, `AGENTCRAWL_BROWSER_BACKEND`, `AGENTCRAWL_USER_AGENT`, `AGENTCRAWL_TIMEOUT_MS`, `AGENTCRAWL_ALLOW_PRIVATE_NETWORK`, `AGENTCRAWL_RESPECT_ROBOTS_TXT`, `AGENTCRAWL_BROWSER_FALLBACK`, `AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AIRGAP_ALLOWLIST`, `AGENTCRAWL_AUDIT`, `AGENTCRAWL_OCR`. CLI flags override them per command.
+
+Per-request API overrides added in 0.3.0: `browser_actions` (bounded steps run before the page is read; needs the Playwright backend in the image) and `ocr` (image-only PDF pages; needs the docs extra and Tesseract). `POST /v1/crawl` also accepts `query` and `stop_after_irrelevant` for adaptive crawls.
 
 Remote API-backed MCP mode uses:
 

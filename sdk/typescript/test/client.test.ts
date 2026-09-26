@@ -17,7 +17,7 @@ const server = createServer((req, res) => {
     seen.push({ method: req.method!, url: req.url!, headers: req.headers, body });
     if (req.url === "/v1/scrape" && body.url === "https://bad.example") {
       res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ detail: "Unsupported config keys: proxy" }));
+      res.end(JSON.stringify({ detail: "Unsupported config keys: not_a_key" }));
       return;
     }
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -102,7 +102,7 @@ test("an HTTP error throws AgentCrawlError with the server's detail", async () =
   await assert.rejects(client.scrape("https://bad.example"), (error: unknown) => {
     assert.ok(error instanceof AgentCrawlError);
     assert.equal(error.status, 400);
-    assert.match(error.message, /Unsupported config keys: proxy/);
+    assert.match(error.message, /Unsupported config keys: not_a_key/);
     return true;
   });
 });
