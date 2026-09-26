@@ -1,0 +1,119 @@
+name: Web benchmark
+
+# Scrape a random sample of real websites (Tranco ranks, homepages and inner
+# pages from Common Crawl) with AgentCrawl and other tools, and compare what
+# each returned without hand-written expectations (benchmarks/web).
+#
+# Pull requests that touch it run a small sample with the local tools only.
+# Hosted APIs (Firecrawl, ScrapeGraphAI, Tavily) run only on demand, with
+# keys from repository secrets; they spend the owner's credits.
+on:
+  pull_request:
+    paths:
+      - "benchmarks/web/**"
+      - ".github/workflows/web-benchmark.yml"
+  workflow_dispatch:
+    inputs:
+      size:
+        description: Pages in the sample
+        default: "30"
+      seed:
+        description: Sample seed (same seed, same sample)
+        default: "2026"
+      tools:
+        description: Comma-separated tools
+        default: "agentcrawl,crawl4ai,firecrawl,scrapegraph,tavily"
+
+permissions:
+  contents: read
+
+env:
+  SIZE: ${{ inputs.size || '20' }}
+  SEED: ${{ inputs.seed || '2026' }}
+  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      tools: ${{ steps.tools.outputs.list }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Draw the sample
+        run: python -m benchmarks.web.sample --size "$SIZE" --seed "$SEED" --out sample.json
+      - id: tools
+        run: echo "list=$(python -c "import json,os; print(json.dumps([t for t in os.environ['TOOLS'].split(',') if t]))")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-sample
+          path: sample.json
+
+  run:
+    needs: sample
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: ${{ fromJSON(needs.sample.outputs.tools) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-sample
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          if [ "${{ matrix.tool }}" = "crawl4ai" ]; then
+            python -m pip install -e . crawl4ai
+          else
+            python -m pip install -e ".[browser]"
+          fi
+          if [ "${{ matrix.tool }}" = "agentcrawl" ] || [ "${{ matrix.tool }}" = "crawl4ai" ]; then
+            python -m playwright install --with-deps chromium
+          fi
+      - name: Scrape the sample
+        env:
+          # Only the step that needs a key sees it; the runner never prints it.
+          FIRECRAWL_API_KEY: ${{ matrix.tool == 'firecrawl' && secrets.FIRECRAWL_API_KEY || '' }}
+          SCRAPEGRAPH_API_KEY: ${{ matrix.tool == 'scrapegraph' && secrets.SCRAPEGRAPH_API_KEY || '' }}
+          TAVILY_API_KEY: ${{ matrix.tool == 'tavily' && secrets.TAVILY_API_KEY || '' }}
+        run: python -m benchmarks.web.run --tool "${{ matrix.tool }}" --sample sample.json --out "${{ matrix.tool }}.jsonl.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-${{ matrix.tool }}
+          retention-days: 14
+          path: ${{ matrix.tool }}.jsonl.gz
+
+  report:
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e .
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: web-*
+          merge-multiple: true
+      - name: Compare
+        run: |
+          set -o pipefail
+          python -m benchmarks.web.report --sample sample.json *.jsonl.gz --out web-report \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-report
+          path: web-report.*
