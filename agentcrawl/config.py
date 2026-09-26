@@ -58,6 +58,8 @@ class CrawlConfig:
     output_format: str = "json"
     chunk_size: int = 8_000
     max_chunks: int = 8
+    # Size of each item of the ``chunks`` output format (estimated tokens).
+    chunk_tokens: int = 400
     include_links: bool = True
     include_images: bool = False
     max_input_chars: int = 64_000
@@ -224,6 +226,7 @@ _INT_RANGES: dict[str, tuple[int, int]] = {
     "max_response_bytes": (1_024, 1_000_000_000),
     "chunk_size": (1, 1_000_000),
     "max_chunks": (1, 100_000),
+    "chunk_tokens": (50, 8_000),
     "parallelism": (1, 256),
     "search_limit": (1, 100),
     "crawl_depth": (0, 1_000),
@@ -381,6 +384,10 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
     user_agent = os.getenv("AGENTCRAWL_USER_AGENT", "").strip()
     if user_agent:
         config["user_agent"] = user_agent
+    # Web search is opt-in: a query leaves the machine for a third-party engine.
+    search_engine = os.getenv("AGENTCRAWL_SEARCH_ENGINE", "").strip().lower()
+    if search_engine:
+        config["search_engine"] = search_engine
     timeout_ms = os.getenv("AGENTCRAWL_TIMEOUT_MS", "").strip()
     if timeout_ms.isdigit():
         config["timeout_ms"] = int(timeout_ms)

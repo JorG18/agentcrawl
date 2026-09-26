@@ -43,7 +43,9 @@ def scrape_url(
     url: Annotated[str, Field(description="Public HTTP(S) page URL to extract.")],
     formats: Annotated[
         list[str] | None,
-        Field(description="Output fields: markdown, text, links, metadata, or html."),
+        Field(
+            description="Output fields: markdown, text, links, metadata, html, or chunks (token-budgeted, citable pieces; with query, each has a relevance score)."
+        ),
     ] = None,
     use_cache: Annotated[
         bool,
@@ -109,7 +111,9 @@ def scrape_many(
     ],
     formats: Annotated[
         list[str] | None,
-        Field(description="Output fields: markdown, text, links, metadata, or html."),
+        Field(
+            description="Output fields: markdown, text, links, metadata, html, or chunks (token-budgeted, citable pieces; with query, each has a relevance score)."
+        ),
     ] = None,
     only_main_content: Annotated[
         bool | None,
@@ -159,6 +163,49 @@ def scrape_many(
             "succeeded": sum(1 for item in items if item["success"]),
             "failed": sum(1 for item in items if not item["success"]),
         },
+    }
+
+
+@mcp.tool()
+def search_web(
+    query: Annotated[str, Field(description="What to search the web for.", min_length=1)],
+    limit: Annotated[
+        int,
+        Field(description="Number of results, 1 to 20.", ge=1, le=20),
+    ] = 5,
+    scrape: Annotated[
+        bool,
+        Field(
+            description="Also read each result page (clean Markdown, most relevant passages first). False returns titles, URLs and snippets only."
+        ),
+    ] = True,
+    only_main_content: Annotated[
+        bool | None,
+        Field(
+            description="Extract only main content when true, full page when false, default engine behavior when omitted."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Search the web and read the top results in one call.
+
+    Use this when the user asks a question without giving a URL. Each result
+    carries its title, URL and snippet, and (with scrape=true) the page's clean
+    Markdown trimmed to the passages that best match the query, so you can
+    answer and cite the URL. Search is opt-in: the server operator enables it
+    with AGENTCRAWL_SEARCH_ENGINE=duckduckgo or serper.
+    """
+    client = _client()
+    if client is not None:
+        return client.search(query, limit=limit, scrape=scrape, only_main_content=only_main_content)
+    try:
+        payload = _crawler().search(
+            query, limit=limit, scrape=scrape, only_main_content=only_main_content
+        )
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    return {
+        "success": all(item.get("success", True) for item in payload["results"]),
+        "data": payload,
     }
 
 

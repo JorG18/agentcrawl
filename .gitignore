@@ -20,3 +20,6 @@ graphify-out/
 # Local agent tooling (graphify skill copies — keep out of the public repo)
 .agents/
 .claude/
+
+# Neutral corpus snapshots are third-party pages: fetch locally, never commit
+benchmarks/corpus/snapshots/

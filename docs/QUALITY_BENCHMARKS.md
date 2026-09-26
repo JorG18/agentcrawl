@@ -107,6 +107,17 @@ Protected pages (anti-bot challenges, proxy or geolocation requirements) are out
 
 Until repeated runs and fair scoring are ready, public docs should describe the quality standard and reproducible local checks, not claim broad superiority.
 
+### Neutral corpus (`benchmarks/corpus/neutral.json`)
+
+The fixtures above are written by us, so they cannot settle a comparison on their own. The neutral corpus is a versioned list of real, accessible public pages (docs, API references, RFCs and specs, an encyclopedia article, a blog post, a scraping-sandbox product page) that nobody here controls.
+
+```bash
+python -m benchmarks.snapshot                      # fetch each page once, record SHA-256
+python -m benchmarks.compare --corpus benchmarks/corpus/neutral.json
+```
+
+Snapshots are third-party content: they stay out of git (`benchmarks/corpus/snapshots/`), and `snapshots/index.json` records URL, final URL, status, size, SHA-256 and fetch time. `compare --corpus` prints those hashes with the results, so a published number names the exact bytes it was scored on. A page is scored only once someone has reviewed its snapshot and filled in its `expected` (and optionally `excluded`) signals; until then it is listed as `unscored` instead of counting as a perfect recall.
+
 ### Offline comparison lane (`benchmarks/compare.py`)
 
 ```bash

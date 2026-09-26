@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextvars
+import dataclasses
 import json
 import re
 import threading
@@ -15,6 +16,7 @@ from contextlib import contextmanager
 from typing import Any, Callable
 
 from .airgap import AirgapViolation, AuditTrail
+from .airgap import _match as _airgap_match
 from .config import CrawlConfig
 from .documents import markdown_from_fetched_content
 from .errors import classify_error, error_metadata, sanitize_error_message
@@ -29,6 +31,7 @@ from .parsing import (
     markdown_structure_metrics,
 )
 from .security import validate_remote_url
+from .serializers import to_jsonable
 from .utils import estimate_tokens
 
 
@@ -187,7 +190,9 @@ class AgentCrawl:
                 if retry is not None:
                     if formats is None:
                         return retry
-                    return _format_document(retry, requested)
+                    return _format_document(
+                        retry, requested, query=query, chunk_tokens=self.config.chunk_tokens
+                    )
                 document = ScrapeDocument(
                     url=source,
                     markdown="",
@@ -262,7 +267,9 @@ class AgentCrawl:
             )
             if formats is None:
                 return document
-            return _format_document(document, requested)
+            return _format_document(
+                document, requested, query=query, chunk_tokens=self.config.chunk_tokens
+            )
         except FetchError as exc:
             message = str(exc)
             failure_metadata: dict[str, Any] = dict(error_metadata(exc))
@@ -378,6 +385,79 @@ class AgentCrawl:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             return list(executor.map(run, source_list))
 
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int | None = None,
+        scrape: bool = True,
+        formats: list[str] | None = None,
+        only_main_content: bool | None = None,
+    ) -> dict[str, Any]:
+        """Search the web, then (by default) scrape the result pages.
+
+        The engine comes from ``config.search_engine`` (``duckduckgo`` or
+        ``serper``); ``none`` refuses with a message saying how to enable it,
+        instead of returning an empty list an agent would read as "no results".
+        The query doubles as the relevance query of every scrape, so long
+        result pages keep their best-matching passages (BM25).
+
+        Under ``airgap`` only allowlisted result hosts are scraped: otherwise
+        the search engine, not the caller, would choose which hosts an
+        airgapped run contacts. Skipped URLs are listed, never dropped silently.
+        """
+        from .search import search_web
+
+        query = (query or "").strip()
+        if not query:
+            raise ValueError("search needs a non-empty query.")
+        if self.config.search_engine not in {"duckduckgo", "serper"}:
+            raise ValueError(
+                "Web search is disabled (search_engine='none'). Set search_engine "
+                "(AGENTCRAWL_SEARCH_ENGINE) to 'duckduckgo' or 'serper' to enable it."
+            )
+        config = self.config
+        if limit is not None:
+            if not 1 <= int(limit) <= 20:
+                raise ValueError("search limit must be between 1 and 20.")
+            config = dataclasses.replace(config, search_limit=int(limit))
+        trail = AuditTrail() if config.audit else None
+        hits = search_web(query, config, trail)[: config.search_limit]
+        airgap_skipped: list[str] = []
+        if config.airgap:
+            allowed = []
+            for hit in hits:
+                host = (urllib.parse.urlsplit(hit.url).hostname or "").lower()
+                if host and any(_airgap_match(host, entry) for entry in config.allowlist_domains):
+                    allowed.append(hit)
+                else:
+                    airgap_skipped.append(hit.url)
+            hits = allowed
+        results: list[dict[str, Any]] = [
+            {"title": hit.title, "url": hit.url, "snippet": hit.snippet} for hit in hits
+        ]
+        if scrape and results:
+            documents = self.scrape_many(
+                [item["url"] for item in results],
+                formats=formats or ["markdown", "metadata"],
+                only_main_content=only_main_content,
+                query=query,
+            )
+            for item, document in zip(results, documents):
+                data = to_jsonable(document)
+                item["success"] = not data.get("errors")
+                item["data"] = data
+        payload: dict[str, Any] = {
+            "query": query,
+            "engine": config.search_engine,
+            "results": results,
+        }
+        if airgap_skipped:
+            payload["airgap_skipped"] = airgap_skipped
+        if trail is not None:
+            payload["audit"] = trail.to_metadata()
+        return payload
+
     def map(
         self,
         source: str,
@@ -404,6 +484,9 @@ class AgentCrawl:
                     message = str(exc)
                     if "HTTP Error 404" not in message:
                         errors.append(f"{sitemap_url}: {exc}")
+            # A site's llms.txt is its own curated list of pages worth reading.
+            llms_txt_url, llms_txt_urls = _llms_txt_urls(source, self.config)
+            discovered.update(llms_txt_urls)
 
         if len(discovered) < limit:
             doc = self.scrape(source)
@@ -420,11 +503,44 @@ class AgentCrawl:
             and url_allowed(url, include_patterns, exclude_patterns)
         ][:limit]
         metadata: dict[str, Any] = {"max_urls": limit, "same_domain": True}
+        if llms_txt_url:
+            metadata["llms_txt"] = llms_txt_url
         if airgap_skipped:
             metadata["airgap_skipped"] = airgap_skipped
         if discovery_trail is not None:
             metadata["discovery_audit"] = discovery_trail.to_metadata()
         return MapResult(source=source, urls=urls, errors=errors, metadata=metadata)
+
+    def llms_txt(self, source: str, max_pages: int | None = None) -> dict[str, Any]:
+        """Build an ``llms.txt`` (https://llmstxt.org) for a site from a bounded crawl.
+
+        The title and summary come from the start page; each crawled page becomes
+        one ``- [title](url): description`` line. Pages that failed are left out
+        and reported under ``errors``, never listed as if they were readable.
+        """
+        run = self.crawl(source, max_pages=max_pages)
+        root = normalize_url(source, source)
+        pages = [doc for doc in run.documents if doc.ok]
+        start = next((doc for doc in pages if normalize_url(doc.url, root) == root), None)
+        start = start or (pages[0] if pages else None)
+        host = urllib.parse.urlsplit(root).hostname or root
+        title = _one_line((start.metadata.get("title") if start else "") or host)
+        summary = _one_line(_page_description(start)) if start else ""
+        lines = [f"# {title}", ""]
+        if summary:
+            lines += [f"> {summary}", ""]
+        lines += ["## Pages", ""]
+        for doc in pages:
+            page_title = _one_line(doc.metadata.get("title") or doc.url)
+            description = _one_line(_page_description(doc))
+            entry = f"- [{_escape_link_text(page_title)}]({doc.url})"
+            lines.append(f"{entry}: {description}" if description else entry)
+        return {
+            "source": source,
+            "llms_txt": "\n".join(lines) + "\n",
+            "pages": len(pages),
+            "errors": list(run.errors),
+        }
 
     def crawl(
         self,
@@ -797,9 +913,22 @@ def _html_to_plain_text(html: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def _format_document(document: ScrapeDocument, formats: list[str]) -> dict[str, Any]:
+def _format_document(
+    document: ScrapeDocument,
+    formats: list[str],
+    *,
+    query: str | None = None,
+    chunk_tokens: int = 400,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {"url": document.url, "metadata": document.metadata}
     for output_format in formats:
+        if output_format == "chunks":
+            from .chunks import chunk_markdown
+
+            cite = str(document.metadata.get("final_url") or document.url)
+            payload["chunks"] = chunk_markdown(
+                document.markdown, cite, max_tokens=chunk_tokens, query=query
+            )
         if output_format == "markdown":
             payload["markdown"] = document.markdown
         elif output_format == "text":
@@ -829,6 +958,46 @@ def _markdown_to_text(markdown: str) -> str:
             continue
         lines.append(cleaned)
     return "\n".join(lines)
+
+
+# ``[title](url)`` links, optionally ``<url>`` or with a quoted title.
+_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+
+
+def _llms_txt_urls(source: str, config: CrawlConfig) -> tuple[str | None, list[str]]:
+    """URLs listed in the site's ``/llms.txt`` (and its URL), or ``(None, [])``.
+
+    Fetched like robots.txt (guarded, bounded, audited). A missing file, an
+    error, or an HTML page served at that path (soft 404s) contributes nothing.
+    """
+    parsed = urllib.parse.urlsplit(source)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None, []
+    llms_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/llms.txt", "", ""))
+    try:
+        body = _discovery_read(llms_url, config)
+    except Exception:
+        return None, []
+    if body.lstrip().startswith("<"):
+        return None, []
+    urls = [normalize_url(match.group(1), llms_url) for match in _MARKDOWN_LINK_RE.finditer(body)]
+    urls = [url for url in urls if url.startswith(("http://", "https://"))]
+    return (llms_url, urls) if urls else (None, [])
+
+
+def _page_description(doc: ScrapeDocument | None) -> str:
+    if doc is None:
+        return ""
+    metadata = doc.metadata
+    return str(metadata.get("description") or metadata.get("og:description") or "")
+
+
+def _one_line(value: str) -> str:
+    return " ".join(str(value).split())
+
+
+def _escape_link_text(value: str) -> str:
+    return value.replace("[", "\\[").replace("]", "\\]")
 
 
 def _candidate_sitemaps(source: str, config: CrawlConfig | None = None) -> list[str]:

@@ -95,6 +95,17 @@ def main(argv: list[str] | None = None) -> int:
     scrape_many.add_argument("--full-page", action="store_true")
     scrape_many.add_argument("--query")
 
+    search = sub.add_parser(
+        "search",
+        help="Search the web and read the top results (needs AGENTCRAWL_SEARCH_ENGINE).",
+        parents=[engine],
+    )
+    search.add_argument("query")
+    search.add_argument("--limit", type=int, default=5, help="Results, 1 to 20.")
+    search.add_argument("--no-scrape", action="store_true", help="Titles, URLs and snippets only.")
+    search.add_argument("--full-page", action="store_true")
+    search.add_argument("--format", action="append", dest="formats", default=None)
+
     extract_css = sub.add_parser(
         "extract-css",
         parents=[engine],
@@ -103,6 +114,14 @@ def main(argv: list[str] | None = None) -> int:
     extract_css.add_argument("url")
     extract_css.add_argument("--schema", required=True, help="Path to the JSON schema file.")
 
+    llms_txt = sub.add_parser(
+        "llms-txt",
+        help="Generate an llms.txt for a site from a bounded crawl (local only).",
+        parents=[engine],
+    )
+    llms_txt.add_argument("url")
+    llms_txt.add_argument("--max-pages", type=int, default=25)
+    llms_txt.add_argument("--output", help="Write the file here instead of stdout.")
     map_cmd = sub.add_parser("map", parents=[engine])
     map_cmd.add_argument("url")
     map_cmd.add_argument("--max-urls", type=int, default=None)
@@ -246,6 +265,16 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(html)
         return 0
+    if args.command == "llms-txt":
+        result = AgentCrawl(_local_config(args)).llms_txt(args.url, max_pages=args.max_pages)
+        for error in result["errors"]:
+            print(f"warning: {error}", file=sys.stderr)
+        if args.output:
+            Path(args.output).write_text(result["llms_txt"], encoding="utf-8")
+            print(json.dumps({**result, "llms_txt": args.output}, ensure_ascii=False, indent=2))
+        else:
+            sys.stdout.write(result["llms_txt"])
+        return 0 if result["pages"] else 1
     if args.command == "mcp":
         from .mcp_server import main as mcp_main
 
@@ -298,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     return 1 if args.command in _RESULT_COMMANDS and _result_failed(result) else 0
 
 
-_RESULT_COMMANDS = frozenset({"scrape", "scrape-many", "extract-css", "map", "crawl"})
+_RESULT_COMMANDS = frozenset({"scrape", "scrape-many", "search", "extract-css", "map", "crawl"})
 
 
 def _result_failed(result: Any) -> bool:
@@ -622,6 +651,21 @@ def _run_local(args: argparse.Namespace) -> Any:
             {"url": url, "success": not document.get("errors"), "data": document}
             for url, document in zip(args.urls, (to_jsonable(doc) for doc in documents))
         ]
+    if args.command == "search":
+        try:
+            payload = crawler.search(
+                args.query,
+                limit=args.limit,
+                scrape=not args.no_scrape,
+                formats=args.formats,
+                only_main_content=False if args.full_page else None,
+            )
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+        return {
+            "success": all(item.get("success", True) for item in payload["results"]),
+            "data": payload,
+        }
     if args.command == "scrape":
         return to_jsonable(
             crawler.scrape(
@@ -650,6 +694,14 @@ def _run_remote(args: argparse.Namespace) -> Any:
             cache=not args.no_cache,
             cache_ttl_seconds=args.cache_ttl,
             query=args.query,
+        )
+    if args.command == "search":
+        return client.search(
+            args.query,
+            limit=args.limit,
+            scrape=not args.no_scrape,
+            formats=args.formats,
+            only_main_content=False if args.full_page else None,
         )
     if args.command == "extract-css":
         return client.extract_css(args.url, args.css_schema)

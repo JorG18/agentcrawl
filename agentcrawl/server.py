@@ -20,6 +20,7 @@ from .errors import classify_error
 from .crawler import AgentCrawl
 from .css_extract import validate_css_schema
 from .html_tools import validate_url_patterns
+from .search import search_web
 from .serializers import to_jsonable
 from .security import LocalFileAccessError, check_local_source, validate_remote_url
 from .utils import is_probably_url
@@ -56,6 +57,7 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
         "include_links",
         "include_images",
         "max_input_chars",
+        "chunk_tokens",
         "max_response_bytes",
         "crawl_depth",
         "crawl_max_pages",
@@ -122,6 +124,18 @@ class ScrapeManyRequest(BaseModel):
             if not url or len(url) > 8192:
                 raise ValueError("each url must be 1-8192 characters")
         return value
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=1_000)
+    limit: int = Field(default=5, ge=1, le=20)
+    # Read each result page too; the query doubles as its relevance query.
+    scrape: bool = True
+    formats: list[str] = Field(default_factory=lambda: ["markdown", "metadata"])
+    only_main_content: bool | None = None
+    cache: bool = True
+    cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class MapRequest(BaseModel):
@@ -280,6 +294,9 @@ class AgentCrawlServer:
         self.allow_private_network = os.getenv(
             "AGENTCRAWL_ALLOW_PRIVATE_NETWORK", "false"
         ).lower() in {"1", "true", "yes", "on"}
+        # Web search is opt-in and operator-controlled: queries leave the host
+        # for a third-party engine, so a request cannot pick or enable one.
+        self.search_engine = os.getenv("AGENTCRAWL_SEARCH_ENGINE", "none").strip().lower()
         self._domain_lock = threading.Lock()
         self._domain_last_seen: dict[str, float] = {}
         self._domain_semaphores: dict[str, threading.BoundedSemaphore] = {}
@@ -754,29 +771,16 @@ def scrape_many(
     if api_key is not None and not server.is_owner_key(authorization):
         # One unit per URL; ``require_key`` already charged the first.
         server.check_rate_limit(api_key, units=len(request.urls) - 1)
-
-    def run(url: str) -> dict[str, Any]:
-        try:
-            server.validate_source(url)
-        except HTTPException as exc:
-            return {"url": url, "success": False, "error": str(exc.detail)}
-        item = ScrapeRequest(
-            url=url,
-            formats=request.formats,
-            only_main_content=request.only_main_content,
-            query=request.query,
-            cache=request.cache,
-            cache_ttl_seconds=request.cache_ttl_seconds,
-            config=request.config,
-        )
-        try:
-            return {"url": url, **_scrape_one(item, api_key)}
-        except Exception as exc:  # one broken page must not sink the batch
-            return {"url": url, "success": False, "error": str(exc)}
-
-    workers = max(1, min(server.scrape_many_concurrency, len(request.urls)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        items = list(executor.map(run, request.urls))
+    items = _scrape_batch(
+        request.urls,
+        api_key,
+        formats=request.formats,
+        only_main_content=request.only_main_content,
+        query=request.query,
+        cache=request.cache,
+        cache_ttl_seconds=request.cache_ttl_seconds,
+        config=request.config,
+    )
     return {
         "success": all(item.get("success") for item in items),
         "data": items,
@@ -785,6 +789,87 @@ def scrape_many(
             "succeeded": sum(1 for item in items if item.get("success")),
             "failed": sum(1 for item in items if not item.get("success")),
         },
+    }
+
+
+def _scrape_batch(urls: list[str], api_key: str | None, **fields: Any) -> list[dict[str, Any]]:
+    """Scrape ``urls`` concurrently through the single-scrape path, in order.
+
+    Each URL is validated and scraped like ``/v1/scrape`` (per-key cache,
+    per-domain politeness, usage); a bad URL fails its own item only.
+    """
+
+    def run(url: str) -> dict[str, Any]:
+        try:
+            server.validate_source(url)
+        except HTTPException as exc:
+            return {"url": url, "success": False, "error": str(exc.detail)}
+        try:
+            return {"url": url, **_scrape_one(ScrapeRequest(url=url, **fields), api_key)}
+        except Exception as exc:  # one broken page must not sink the batch
+            return {"url": url, "success": False, "error": str(exc)}
+
+    if not urls:
+        return []
+    workers = max(1, min(server.scrape_many_concurrency, len(urls)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(run, urls))
+
+
+@app.post("/v1/search")
+def search(
+    request: SearchRequest,
+    api_key: str | None = Depends(server.require_key),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Search the web and, by default, scrape each result page.
+
+    The engine is the operator's ``AGENTCRAWL_SEARCH_ENGINE``; with none set
+    the endpoint answers ``400`` instead of an empty result list. Result pages
+    go through the same path as ``/v1/scrape_many``, so SSRF checks, cache,
+    politeness and usage apply to every one of them.
+    """
+    if server.search_engine not in {"duckduckgo", "serper"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Web search is not enabled on this server (set AGENTCRAWL_SEARCH_ENGINE).",
+        )
+    config = server.merged_config(request.config)
+    if api_key is not None and request.scrape and not server.is_owner_key(authorization):
+        # One unit per result page; ``require_key`` already charged the search.
+        server.check_rate_limit(api_key, units=request.limit)
+    try:
+        hits = search_web(
+            request.query,
+            CrawlConfig.from_dict(
+                {**config, "search_engine": server.search_engine, "search_limit": request.limit}
+            ),
+        )[: request.limit]
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Web search failed: {exc}") from exc
+    results: list[dict[str, Any]] = [
+        {"title": hit.title, "url": hit.url, "snippet": hit.snippet} for hit in hits
+    ]
+    if request.scrape and results:
+        items = _scrape_batch(
+            [item["url"] for item in results],
+            api_key,
+            formats=request.formats,
+            only_main_content=request.only_main_content,
+            query=request.query,
+            cache=request.cache,
+            cache_ttl_seconds=request.cache_ttl_seconds,
+            config=request.config,
+        )
+        for item, scraped in zip(results, items):
+            item["success"] = bool(scraped.get("success"))
+            item["data"] = scraped.get("data")
+            if scraped.get("error"):
+                item["error"] = scraped["error"]
+    server.store.record_usage(api_key, "/v1/search")
+    return {
+        "success": all(item.get("success", True) for item in results),
+        "data": {"query": request.query, "engine": server.search_engine, "results": results},
     }
 
 

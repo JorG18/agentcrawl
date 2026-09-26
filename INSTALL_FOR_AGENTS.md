@@ -136,6 +136,9 @@ Reload or restart your client if it does not hot-reload MCP configuration. Verif
 
 ```text
 scrape_url
+scrape_many
+search_web
+extract_structured
 map_site
 crawl_site
 get_job
@@ -163,7 +166,8 @@ Success requires clean Markdown containing `Example Domain`.
 
 After registration:
 
-- Use `scrape_url` for one known URL.
+- Use `scrape_url` for one known URL, `scrape_many` for several.
+- Use `search_web` when there is a question but no URL (needs `AGENTCRAWL_SEARCH_ENGINE`).
 - Use `map_site` to discover site URLs without scraping all pages.
 - Use `crawl_site` for bounded multi-page extraction.
 - For asynchronous crawl jobs, provide a stable idempotency key, keep the returned `job_id`, and poll `get_job`; do not start duplicates.
