@@ -26,12 +26,16 @@ on:
       tools:
         description: Comma-separated tools
         default: "agentcrawl,crawl4ai,firecrawl,scrapegraph,tavily"
+      sample_from_run:
+        description: Reuse the sample of an earlier run (its run id) instead of drawing one
+        default: ""
       scrapegraph_pages:
         description: Pages sent to ScrapeGraphAI (about 2 credits each); 0 = all
         default: "50"
 
 permissions:
   contents: read
+  actions: read  # to reuse an earlier run's sample
 
 env:
   SIZE: ${{ inputs.size || '20' }}
@@ -39,6 +43,7 @@ env:
   HARD: ${{ inputs.hard || '5' }}
   TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
   SCRAPEGRAPH_PAGES: ${{ inputs.scrapegraph_pages || '50' }}
+  SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '' }}
 
 jobs:
   sample:
@@ -51,7 +56,15 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Reuse an earlier sample
+        if: env.SAMPLE_FROM_RUN != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: web-sample
+          run-id: ${{ env.SAMPLE_FROM_RUN }}
+          github-token: ${{ github.token }}
       - name: Draw the sample
+        if: env.SAMPLE_FROM_RUN == ''
         run: python -m benchmarks.web.sample --size "$SIZE" --hard "$HARD" --seed "$SEED" --out sample.json
       - id: tools
         run: echo "list=$(python -c "import json,os; print(json.dumps([t for t in os.environ['TOOLS'].split(',') if t]))")" >> "$GITHUB_OUTPUT"
