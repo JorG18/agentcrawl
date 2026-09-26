@@ -84,3 +84,10 @@ def test_skip_links_are_dropped() -> None:
     markdown = _md(html)
     assert "Skip to" not in markdown
     assert "# Title" in markdown
+
+
+def test_equal_values_under_different_headers_are_kept() -> None:
+    html = "<table><tr><th>Min</th><th>Max</th></tr><tr><td>1</td><td>1</td></tr></table>"
+    markdown = _md(html)
+    assert "| Min | Max |" in markdown
+    assert "| 1 | 1 |" in markdown

@@ -572,9 +572,17 @@ def _compact_table(rows: list[str]) -> list[str]:
     for column in range(width):
         if body and all(not row[column] for row in body):
             continue  # no data at all (often filled in later by JavaScript)
-        if keep and body and all(row[column] == row[keep[-1]] for row in body):
-            if not header[keep[-1]]:
-                header[keep[-1]] = header[column]
+        previous = keep[-1] if keep else None
+        if (
+            previous is not None
+            and body
+            and all(row[column] == row[previous] for row in body)
+            # Two real columns can hold equal values (Min/Max both 1), so only
+            # a twin with the same or a missing header counts as a duplicate.
+            and (header[column] == header[previous] or not header[column] or not header[previous])
+        ):
+            if not header[previous]:
+                header[previous] = header[column]
             continue  # the same data twice
         keep.append(column)
     if not keep:
