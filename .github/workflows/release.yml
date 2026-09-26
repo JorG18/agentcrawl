@@ -1,0 +1,88 @@
+name: Release
+
+# Push a tag like v0.3.0 (matching pyproject.toml) to build the package,
+# publish it to PyPI and create the GitHub Release from CHANGELOG.md.
+# The Docker image for the tag is published by docker.yml.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release (e.g. v0.3.0)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        run: echo "tag=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Tag matches the package version
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          test "v${version}" = "${{ steps.tag.outputs.tag }}" || {
+            echo "::error::tag ${{ steps.tag.outputs.tag }} does not match pyproject version ${version}"; exit 1; }
+      - name: Test
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[server,mcp,dev]" build twine
+          python -m ruff check agentcrawl tests examples benchmarks
+          python -m pytest -q
+      - name: Build
+        run: |
+          python -m build --sdist --wheel
+          python -m twine check dist/*
+      - name: Release notes
+        run: python scripts/release_notes.py "${{ steps.tag.outputs.tag }}" > dist-notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/
+            dist-notes.md
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    # PyPI trusted publishing: the agentcrawl-ai project on pypi.org must list
+    # this repository, workflow release.yml and environment "pypi".
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" --notes-file dist-notes.md --verify-tag
