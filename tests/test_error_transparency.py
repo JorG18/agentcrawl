@@ -136,3 +136,13 @@ def test_proxy_tunnel_refusal_is_a_network_error_not_blocked() -> None:
     ) == ("network_error")
     # A real 403 from the site is still ``blocked``.
     assert classify_error("HTTP Error 403: Forbidden") == "blocked"
+
+
+def test_agentcrawler_can_scrape_like_agentcrawl(tmp_path) -> None:
+    from agentcrawl import AgentCrawler
+
+    page = tmp_path / "page.html"
+    page.write_text("<html><body><main><h1>Hello</h1><p>World</p></main></body></html>")
+    doc = AgentCrawler().scrape(str(page))
+    assert doc.ok
+    assert "Hello" in doc.markdown

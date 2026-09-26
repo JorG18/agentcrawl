@@ -12,10 +12,32 @@ from .search import search_web
 
 
 class AgentCrawler:
-    """Programmatic entry point for prompt-driven scraping."""
+    """Prompt-driven extraction with an LLM (``extract``, ``markdown``).
+
+    For plain scraping, mapping and crawling (no LLM), use :class:`AgentCrawl`.
+    The two names were easy to mix up, so ``scrape``, ``map`` and ``crawl``
+    also work here and run on the same configuration.
+    """
 
     def __init__(self, config: dict[str, Any] | CrawlConfig | None = None):
         self.config = CrawlConfig.from_dict(config)
+
+    def _engine(self):
+        from .crawler import AgentCrawl
+
+        return AgentCrawl(self.config)
+
+    def scrape(self, source: str, *args: Any, **kwargs: Any):
+        """Same as :meth:`AgentCrawl.scrape`."""
+        return self._engine().scrape(source, *args, **kwargs)
+
+    def map(self, source: str, *args: Any, **kwargs: Any):
+        """Same as :meth:`AgentCrawl.map`."""
+        return self._engine().map(source, *args, **kwargs)
+
+    def crawl(self, source: str, *args: Any, **kwargs: Any):
+        """Same as :meth:`AgentCrawl.crawl`."""
+        return self._engine().crawl(source, *args, **kwargs)
 
     def extract(self, source: str, prompt: str, schema: Any | None = None) -> CrawlResult:
         return CrawlGraph(self.config).run(source, prompt, schema)
