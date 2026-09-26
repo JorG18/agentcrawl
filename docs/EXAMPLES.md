@@ -12,6 +12,7 @@ AgentCrawl works as a local Python library, CLI tool, HTTP API, Docker service, 
 | [Docker](../examples/docker.md) | You want the API through the published GHCR image. |
 | [MCP](../examples/mcp.md) | You want an agent client to use AgentCrawl tools. |
 | [Browser-rendered pages](../examples/browser_rendered.md) | A page needs JavaScript rendering. |
+| [LLM graph extraction](../examples/graph_extraction.py) | You want an LLM to answer a prompt about a page. |
 
 ## Quick start by interface
 
