@@ -34,10 +34,10 @@ permissions:
   contents: read
 
 env:
-  SIZE: ${{ inputs.size || '20' }}
+  SIZE: ${{ inputs.size || '500' }}
   SEED: ${{ inputs.seed || '2026' }}
-  HARD: ${{ inputs.hard || '5' }}
-  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
+  HARD: ${{ inputs.hard || '100' }}
+  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai,firecrawl,scrapegraph,tavily' }}
   SCRAPEGRAPH_PAGES: ${{ inputs.scrapegraph_pages || '50' }}
 
 jobs:
@@ -96,9 +96,13 @@ jobs:
           TAVILY_API_KEY: ${{ matrix.tool == 'tavily' && secrets.TAVILY_API_KEY || '' }}
         run: |
           limit=0
+          concurrency=8
+          case "${{ matrix.tool }}" in
+            firecrawl|scrapegraph|tavily) concurrency=3 ;;  # stay under free-plan rate limits
+          esac
           if [ "${{ matrix.tool }}" = "scrapegraph" ]; then limit="$SCRAPEGRAPH_PAGES"; fi
           python -m benchmarks.web.run --tool "${{ matrix.tool }}" --sample sample.json \
-            --limit "$limit" --out "${{ matrix.tool }}.jsonl.gz"
+            --limit "$limit" --concurrency "$concurrency" --out "${{ matrix.tool }}.jsonl.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: web-${{ matrix.tool }}

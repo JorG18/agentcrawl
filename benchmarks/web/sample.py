@@ -148,6 +148,7 @@ def inner_page(
     *,
     mime: str = "text/html",
     pattern: re.Pattern[str] | None = None,
+    deadline: float | None = None,
 ) -> str | None:
     """A random page of ``domain`` that Common Crawl fetched with a 200.
 
@@ -166,9 +167,13 @@ def inner_page(
     )
     # The index server sheds load with 503s; back off instead of giving up,
     # or the sample silently turns into homepages only.
-    for attempt in range(6):
+    # At most ~2.5 minutes per domain: a hung index request must not stall a
+    # 500-page sample for hours.
+    for attempt in range(4):
+        if deadline is not None and time.monotonic() > deadline:
+            return None
         try:
-            body = _get(f"{index_api}?{query}", timeout=60).decode("utf-8", "replace")
+            body = _get(f"{index_api}?{query}", timeout=30).decode("utf-8", "replace")
             break
         except urllib.error.HTTPError as exc:
             if exc.code == 404:  # the index has no page of this domain
@@ -200,7 +205,8 @@ def hard_block(
     ranked: list[tuple[int, str]],
     index_api: str,
     *,
-    workers: int = 2,
+    workers: int = 4,
+    deadline: float | None = None,
 ) -> list[dict[str, object]]:
     """``count`` pages split evenly over :data:`HARD_CATEGORIES`.
 
@@ -228,6 +234,7 @@ def hard_block(
                 random.Random(f"{seed}-{category}-{row[1]}"),
                 mime=str(rule.get("mime", "text/html")),
                 pattern=rule.get("pattern"),  # type: ignore[arg-type]
+                deadline=deadline,
             )
             return row, url
 
@@ -249,12 +256,20 @@ def hard_block(
                         )
                 if len(found) >= per_category:
                     break
+                if deadline is not None and time.monotonic() > deadline:
+                    break
         print(f"hard block: {category} {len(found)}/{per_category}", file=sys.stderr)
         pages += found
     return pages
 
 
-def build_sample(size: int, seed: int, *, hard: int = 0, workers: int = 2) -> dict[str, object]:
+# Wall-clock budget for Common Crawl lookups, per block. When the index is
+# slow, the remaining random positions use homepages and the hard block ends
+# short; both are counted in the sample's metadata, never hidden.
+LOOKUP_BUDGET_S = 900.0
+
+
+def build_sample(size: int, seed: int, *, hard: int = 0, workers: int = 4) -> dict[str, object]:
     rng = random.Random(seed)
     ranked = [row for row in load_tranco() if is_candidate(row[1])]
     chosen: list[tuple[int, str, str]] = []
@@ -267,6 +282,7 @@ def build_sample(size: int, seed: int, *, hard: int = 0, workers: int = 2) -> di
         ]
     chosen.sort()
     index_api = latest_cc_index()
+    deadline = time.monotonic() + LOOKUP_BUDGET_S
 
     def page(item: tuple[int, tuple[int, str, str]]) -> dict[str, object]:
         position, (rank, domain, stratum) = item
@@ -279,7 +295,9 @@ def build_sample(size: int, seed: int, *, hard: int = 0, workers: int = 2) -> di
             "block": "random",
         }
         if position % 2:
-            url = inner_page(domain, index_api, random.Random(f"{seed}-{domain}"))
+            url = inner_page(
+                domain, index_api, random.Random(f"{seed}-{domain}"), deadline=deadline
+            )
             if url:
                 return {**entry, "url": url, "kind": "inner"}
         return {**entry, "url": f"https://{domain}/", "kind": "homepage"}
@@ -288,7 +306,13 @@ def build_sample(size: int, seed: int, *, hard: int = 0, workers: int = 2) -> di
         pages = list(pool.map(page, enumerate(chosen)))
     if hard:
         taken = {domain for _, domain, _ in chosen}
-        extra = hard_block(hard, seed, [r for r in ranked if r[1] not in taken], index_api)
+        extra = hard_block(
+            hard,
+            seed,
+            [r for r in ranked if r[1] not in taken],
+            index_api,
+            deadline=time.monotonic() + LOOKUP_BUDGET_S,
+        )
         pages += [{"id": f"{len(pages) + i:04d}-{p['domain']}", **p} for i, p in enumerate(extra)]
     return {
         "seed": seed,
@@ -296,6 +320,8 @@ def build_sample(size: int, seed: int, *, hard: int = 0, workers: int = 2) -> di
         "tranco": TRANCO_URL,
         "common_crawl_index": index_api,
         "drawn_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "inner_pages_wanted": sum(1 for position in range(len(chosen)) if position % 2),
+        "hard_pages_wanted": hard,
         "pages": pages,
     }
 

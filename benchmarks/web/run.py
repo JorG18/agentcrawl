@@ -48,14 +48,22 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeo
         headers={"content-type": "application/json", **headers},
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        # The body explains the refusal (credits, blocked site); headers are
-        # never echoed, so the key cannot leak through an error message.
-        body = exc.read().decode("utf-8", "replace")[:300]
-        raise RuntimeError(f"HTTP {exc.code}: {body}") from None
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 and attempt < 5:
+                # Free plans rate-limit; a 429 is our pacing, not the tool
+                # failing the page.
+                wait = exc.headers.get("retry-after", "")
+                time.sleep(min(60.0, float(wait)) if wait.isdigit() else 10.0 * (attempt + 1))
+                continue
+            # The body explains the refusal (credits, blocked site); headers are
+            # never echoed, so the key cannot leak through an error message.
+            body = exc.read().decode("utf-8", "replace")[:300]
+            raise RuntimeError(f"HTTP {exc.code}: {body}") from None
+    raise RuntimeError("HTTP 429: still rate-limited after retries")
 
 
 def _get_json(url: str, headers: dict[str, str], timeout: float) -> Any:
