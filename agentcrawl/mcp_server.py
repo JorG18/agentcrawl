@@ -44,7 +44,7 @@ def scrape_url(
     formats: Annotated[
         list[str] | None,
         Field(
-            description="Output fields: markdown, text, links, metadata, html, or chunks (token-budgeted, citable pieces; with query, each has a relevance score)."
+            description="Output fields: markdown, text, links, metadata, html, chunks (token-budgeted, citable pieces; with query, each has a relevance score), or screenshot (full-page PNG, base64; needs a local browser)."
         ),
     ] = None,
     use_cache: Annotated[
@@ -71,6 +71,17 @@ def scrape_url(
             description="Optional: what you are looking for. If the page is longer than the output budget, the most relevant passages are kept instead of the beginning."
         ),
     ] = None,
+    browser_actions: Annotated[
+        list[dict[str, Any]] | None,
+        Field(
+            description=(
+                "Optional steps run in a local browser before reading, at most 25: "
+                "{type: click|type|press|scroll|wait|wait_for, selector?, text?, key?, "
+                "times?, ms?, timeout_ms?}. Use only when content appears after a click, "
+                "scroll or typing."
+            )
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Default tool for reading or analyzing one web page.
 
@@ -83,18 +94,28 @@ def scrape_url(
     cache and no durable jobs, so use_cache and cache_ttl_seconds only apply in
     server mode.
     """
+    overrides: dict[str, Any] = {}
+    if browser_actions:
+        from .browser_actions import validate_actions
+
+        try:
+            overrides["browser_actions"] = list(validate_actions(browser_actions))
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
     client = _client()
     if client is not None:
         return client.scrape(
             url,
             formats=formats or ["markdown", "links", "metadata"],
+            config=overrides or None,
             cache=use_cache,
             cache_ttl_seconds=cache_ttl_seconds,
             only_main_content=only_main_content,
             query=query,
         )
+    crawler = AgentCrawl({**config_from_env(), **overrides}) if overrides else _crawler()
     return to_jsonable(
-        _crawler().scrape(
+        crawler.scrape(
             url,
             formats=formats or ["markdown", "links", "metadata"],
             only_main_content=only_main_content,
