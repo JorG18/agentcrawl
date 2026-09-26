@@ -190,7 +190,9 @@ class AgentCrawl:
                 if retry is not None:
                     if formats is None:
                         return retry
-                    return _format_document(retry, requested)
+                    return _format_document(
+                        retry, requested, query=query, chunk_tokens=self.config.chunk_tokens
+                    )
                 document = ScrapeDocument(
                     url=source,
                     markdown="",
@@ -265,7 +267,9 @@ class AgentCrawl:
             )
             if formats is None:
                 return document
-            return _format_document(document, requested)
+            return _format_document(
+                document, requested, query=query, chunk_tokens=self.config.chunk_tokens
+            )
         except FetchError as exc:
             message = str(exc)
             failure_metadata: dict[str, Any] = dict(error_metadata(exc))
@@ -909,9 +913,22 @@ def _html_to_plain_text(html: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def _format_document(document: ScrapeDocument, formats: list[str]) -> dict[str, Any]:
+def _format_document(
+    document: ScrapeDocument,
+    formats: list[str],
+    *,
+    query: str | None = None,
+    chunk_tokens: int = 400,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {"url": document.url, "metadata": document.metadata}
     for output_format in formats:
+        if output_format == "chunks":
+            from .chunks import chunk_markdown
+
+            cite = str(document.metadata.get("final_url") or document.url)
+            payload["chunks"] = chunk_markdown(
+                document.markdown, cite, max_tokens=chunk_tokens, query=query
+            )
         if output_format == "markdown":
             payload["markdown"] = document.markdown
         elif output_format == "text":

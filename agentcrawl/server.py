@@ -57,6 +57,7 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
         "include_links",
         "include_images",
         "max_input_chars",
+        "chunk_tokens",
         "max_response_bytes",
         "crawl_depth",
         "crawl_max_pages",

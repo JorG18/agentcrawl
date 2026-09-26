@@ -43,7 +43,9 @@ def scrape_url(
     url: Annotated[str, Field(description="Public HTTP(S) page URL to extract.")],
     formats: Annotated[
         list[str] | None,
-        Field(description="Output fields: markdown, text, links, metadata, or html."),
+        Field(
+            description="Output fields: markdown, text, links, metadata, html, or chunks (token-budgeted, citable pieces; with query, each has a relevance score)."
+        ),
     ] = None,
     use_cache: Annotated[
         bool,
@@ -109,7 +111,9 @@ def scrape_many(
     ],
     formats: Annotated[
         list[str] | None,
-        Field(description="Output fields: markdown, text, links, metadata, or html."),
+        Field(
+            description="Output fields: markdown, text, links, metadata, html, or chunks (token-budgeted, citable pieces; with query, each has a relevance score)."
+        ),
     ] = None,
     only_main_content: Annotated[
         bool | None,

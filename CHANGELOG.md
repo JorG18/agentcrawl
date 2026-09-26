@@ -15,6 +15,9 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 - **llms.txt.** `map()` (and `map_site`, `/v1/map`) reads the site's `/llms.txt` and adds the pages it lists, reported as `metadata.llms_txt`; `AgentCrawl.llms_txt()` and `agentcrawl llms-txt URL [--output FILE]` generate one from a bounded crawl.
   *Detail:* the file is fetched like robots.txt (guarded, bounded, audited); a missing file, an error or an HTML soft-404 contributes nothing. Generated files list only pages that were read; failed pages go to `errors`.
 
+- **`chunks` output format.** `formats=["chunks"]` on scrape, scrape_many, search and MCP returns pieces of at most `chunk_tokens` estimated tokens (config, default 400, 50-8000; also an API override).
+  *Detail:* chunks follow sections and keep whole Markdown blocks (tables and code fences are cut only when one alone exceeds the budget, and then at line boundaries). Each carries `id`, `heading` (path like `Guide > Limits`), `url`, `cite_url` (a `#:~:text=` link to its first words, so no element ids are needed) and `estimated_tokens`; with `query` also a BM25 `score`, keeping document order.
+
 ## 0.2.1 - 2026-09-24
 
 A security patch, plus honest error reporting. **Upgrade if an agent uses the local MCP server.**
