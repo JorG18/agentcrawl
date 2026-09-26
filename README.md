@@ -120,6 +120,7 @@ AgentCrawl Community is the self-hosted trust layer:
 | Local dashboard | Read-only static HTML over SQLite via `agentcrawl dashboard` and `/dashboard`; the HTTP view follows the API auth setting. |
 | Quality extraction | Markdown, links, metadata, JSON-LD/provenance, tables, code blocks. |
 | Web search | `search` in the library, API (`/v1/search`), MCP (`search_web`) and CLI: search, then read the top results with the query as the relevance query. Opt-in with `AGENTCRAWL_SEARCH_ENGINE=duckduckgo` (or `serper` + `SERPER_API_KEY`). |
+| llms.txt | `map` reads a site's `/llms.txt` links; `agentcrawl llms-txt URL` generates one from a bounded crawl. |
 | Batch scraping | `scrape_many` in the library, API (`/v1/scrape_many`), MCP and CLI (`scrape-many`). |
 | Structured extraction without an LLM | CSS schemas (`extract-css`, `/v1/extract_css`, MCP `extract_structured`): deterministic, zero tokens. |
 | Query-aware budgets | `query=` keeps the passages that matter (BM25) when a page is larger than the output budget. |

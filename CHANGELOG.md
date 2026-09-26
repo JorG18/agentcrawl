@@ -12,6 +12,9 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
   *What this means:* an agent can go from a question to cited pages without a second tool. Each result carries title, URL and snippet and, by default, the page's Markdown with the query used as the relevance query, so long pages keep their best passages.
   *Detail:* opt-in through `AGENTCRAWL_SEARCH_ENGINE` (`duckduckgo`, or `serper` with `SERPER_API_KEY`); with none set, every surface says how to enable it instead of returning an empty list. On the API the engine is operator-only and result pages go through the `/v1/scrape_many` path (SSRF checks, cache, politeness, metering). Under `airgap`, only allowlisted result hosts are scraped and the rest are listed in `airgap_skipped`.
 
+- **llms.txt.** `map()` (and `map_site`, `/v1/map`) reads the site's `/llms.txt` and adds the pages it lists, reported as `metadata.llms_txt`; `AgentCrawl.llms_txt()` and `agentcrawl llms-txt URL [--output FILE]` generate one from a bounded crawl.
+  *Detail:* the file is fetched like robots.txt (guarded, bounded, audited); a missing file, an error or an HTML soft-404 contributes nothing. Generated files list only pages that were read; failed pages go to `errors`.
+
 ## 0.2.1 - 2026-09-24
 
 A security patch, plus honest error reporting. **Upgrade if an agent uses the local MCP server.**

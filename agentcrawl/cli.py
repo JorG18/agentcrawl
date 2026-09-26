@@ -114,6 +114,14 @@ def main(argv: list[str] | None = None) -> int:
     extract_css.add_argument("url")
     extract_css.add_argument("--schema", required=True, help="Path to the JSON schema file.")
 
+    llms_txt = sub.add_parser(
+        "llms-txt",
+        help="Generate an llms.txt for a site from a bounded crawl (local only).",
+        parents=[engine],
+    )
+    llms_txt.add_argument("url")
+    llms_txt.add_argument("--max-pages", type=int, default=25)
+    llms_txt.add_argument("--output", help="Write the file here instead of stdout.")
     map_cmd = sub.add_parser("map", parents=[engine])
     map_cmd.add_argument("url")
     map_cmd.add_argument("--max-urls", type=int, default=None)
@@ -257,6 +265,16 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(html)
         return 0
+    if args.command == "llms-txt":
+        result = AgentCrawl(_local_config(args)).llms_txt(args.url, max_pages=args.max_pages)
+        for error in result["errors"]:
+            print(f"warning: {error}", file=sys.stderr)
+        if args.output:
+            Path(args.output).write_text(result["llms_txt"], encoding="utf-8")
+            print(json.dumps({**result, "llms_txt": args.output}, ensure_ascii=False, indent=2))
+        else:
+            sys.stdout.write(result["llms_txt"])
+        return 0 if result["pages"] else 1
     if args.command == "mcp":
         from .mcp_server import main as mcp_main
 

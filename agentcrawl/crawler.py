@@ -480,6 +480,9 @@ class AgentCrawl:
                     message = str(exc)
                     if "HTTP Error 404" not in message:
                         errors.append(f"{sitemap_url}: {exc}")
+            # A site's llms.txt is its own curated list of pages worth reading.
+            llms_txt_url, llms_txt_urls = _llms_txt_urls(source, self.config)
+            discovered.update(llms_txt_urls)
 
         if len(discovered) < limit:
             doc = self.scrape(source)
@@ -496,11 +499,44 @@ class AgentCrawl:
             and url_allowed(url, include_patterns, exclude_patterns)
         ][:limit]
         metadata: dict[str, Any] = {"max_urls": limit, "same_domain": True}
+        if llms_txt_url:
+            metadata["llms_txt"] = llms_txt_url
         if airgap_skipped:
             metadata["airgap_skipped"] = airgap_skipped
         if discovery_trail is not None:
             metadata["discovery_audit"] = discovery_trail.to_metadata()
         return MapResult(source=source, urls=urls, errors=errors, metadata=metadata)
+
+    def llms_txt(self, source: str, max_pages: int | None = None) -> dict[str, Any]:
+        """Build an ``llms.txt`` (https://llmstxt.org) for a site from a bounded crawl.
+
+        The title and summary come from the start page; each crawled page becomes
+        one ``- [title](url): description`` line. Pages that failed are left out
+        and reported under ``errors``, never listed as if they were readable.
+        """
+        run = self.crawl(source, max_pages=max_pages)
+        root = normalize_url(source, source)
+        pages = [doc for doc in run.documents if doc.ok]
+        start = next((doc for doc in pages if normalize_url(doc.url, root) == root), None)
+        start = start or (pages[0] if pages else None)
+        host = urllib.parse.urlsplit(root).hostname or root
+        title = _one_line((start.metadata.get("title") if start else "") or host)
+        summary = _one_line(_page_description(start)) if start else ""
+        lines = [f"# {title}", ""]
+        if summary:
+            lines += [f"> {summary}", ""]
+        lines += ["## Pages", ""]
+        for doc in pages:
+            page_title = _one_line(doc.metadata.get("title") or doc.url)
+            description = _one_line(_page_description(doc))
+            entry = f"- [{_escape_link_text(page_title)}]({doc.url})"
+            lines.append(f"{entry}: {description}" if description else entry)
+        return {
+            "source": source,
+            "llms_txt": "\n".join(lines) + "\n",
+            "pages": len(pages),
+            "errors": list(run.errors),
+        }
 
     def crawl(
         self,
@@ -905,6 +941,46 @@ def _markdown_to_text(markdown: str) -> str:
             continue
         lines.append(cleaned)
     return "\n".join(lines)
+
+
+# ``[title](url)`` links, optionally ``<url>`` or with a quoted title.
+_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+
+
+def _llms_txt_urls(source: str, config: CrawlConfig) -> tuple[str | None, list[str]]:
+    """URLs listed in the site's ``/llms.txt`` (and its URL), or ``(None, [])``.
+
+    Fetched like robots.txt (guarded, bounded, audited). A missing file, an
+    error, or an HTML page served at that path (soft 404s) contributes nothing.
+    """
+    parsed = urllib.parse.urlsplit(source)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None, []
+    llms_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/llms.txt", "", ""))
+    try:
+        body = _discovery_read(llms_url, config)
+    except Exception:
+        return None, []
+    if body.lstrip().startswith("<"):
+        return None, []
+    urls = [normalize_url(match.group(1), llms_url) for match in _MARKDOWN_LINK_RE.finditer(body)]
+    urls = [url for url in urls if url.startswith(("http://", "https://"))]
+    return (llms_url, urls) if urls else (None, [])
+
+
+def _page_description(doc: ScrapeDocument | None) -> str:
+    if doc is None:
+        return ""
+    metadata = doc.metadata
+    return str(metadata.get("description") or metadata.get("og:description") or "")
+
+
+def _one_line(value: str) -> str:
+    return " ".join(str(value).split())
+
+
+def _escape_link_text(value: str) -> str:
+    return value.replace("[", "\\[").replace("]", "\\]")
 
 
 def _candidate_sitemaps(source: str, config: CrawlConfig | None = None) -> list[str]:
