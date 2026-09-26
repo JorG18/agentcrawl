@@ -111,3 +111,57 @@ def test_tool_limited_to_part_of_the_sample_is_judged_on_what_it_ran() -> None:
     assert (row["pages"], row["content"], row["missed_reachable"]) == (1, 1, 0)
     assert row["consensus_recall"] == 1.0
     assert report["content_rate_by_rank"]["1-1000"]["partial"] == 1.0
+
+
+def test_hard_categories_match_the_pages_they_name() -> None:
+    from benchmarks.web.sample import HARD_CATEGORIES
+
+    def matches(category: str, path: str) -> bool:
+        return bool(HARD_CATEGORIES[category]["pattern"].search(path))
+
+    assert matches("product", "/dp/B0C1234567")
+    assert matches("news", "/2025/03/14/some-story")
+    assert matches("forum", "/t/how-to-install/1234")
+    assert matches("pdf", "/files/report.pdf")
+    assert not matches("product", "/about-us")
+    gov = HARD_CATEGORIES["government"]["domains"]
+    assert gov.search("gov.uk") and gov.search("usa.gov") and gov.search("gob.mx")
+    assert not gov.search("google.com")
+
+
+def test_hard_block_is_reported_apart(tmp_path) -> None:
+    import gzip as gz
+    import json as js
+
+    from benchmarks.web import report as rep
+
+    sample = {
+        "seed": 1,
+        "pages": [
+            {
+                "id": "r0",
+                "url": "https://a.org/",
+                "stratum": "1-1000",
+                "kind": "homepage",
+                "block": "random",
+            },
+            {
+                "id": "h0",
+                "url": "https://b.gov/x.pdf",
+                "stratum": "hard",
+                "kind": "pdf",
+                "block": "hard",
+            },
+        ],
+    }
+    (tmp_path / "s.json").write_text(js.dumps(sample))
+    with gz.open(tmp_path / "t.jsonl.gz", "wt") as handle:
+        for pid in ("r0", "h0"):
+            handle.write(js.dumps({"id": pid, "tool": "agentcrawl", "markdown": ARTICLE}) + "\n")
+    out = tmp_path / "rep"
+    rep.main(
+        [str(tmp_path / "t.jsonl.gz"), "--sample", str(tmp_path / "s.json"), "--out", str(out)]
+    )
+    data = js.loads((tmp_path / "rep.json").read_text())
+    assert data["pages"] == 1 and data["hard_block"]["pages"] == 1
+    assert "# Hard block: 1 pages" in (tmp_path / "rep.md").read_text()

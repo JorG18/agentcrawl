@@ -163,14 +163,18 @@ def analyse(
         )
 
     by_stratum: dict[str, dict[str, float]] = defaultdict(dict)
-    for stratum in sorted({p["stratum"] for p in pages}, key=lambda s: int(s.split("-")[0])):
+    strata = sorted(
+        {p["stratum"] for p in pages},
+        key=lambda s: (0, int(s.split("-")[0])) if s[0].isdigit() else (1, 0),
+    )
+    for stratum in strata:
         for tool in tools:
             subset = [p for p in ran[tool] if p["stratum"] == stratum]
             got = sum(1 for p in subset if buckets[tool][p["id"]] == "content")
             by_stratum[stratum][tool] = round(got / len(subset), 3) if subset else 0.0
 
     by_kind: dict[str, dict[str, float]] = defaultdict(dict)
-    for kind in ("homepage", "inner"):
+    for kind in sorted({str(p.get("kind")) for p in pages}):
         for tool in tools:
             subset = [p for p in ran[tool] if p.get("kind") == kind]
             got = sum(1 for p in subset if buckets[tool][p["id"]] == "content")
@@ -207,9 +211,9 @@ def analyse(
     }
 
 
-def markdown_report(report: dict[str, Any]) -> str:
+def markdown_report(report: dict[str, Any], title: str = "Web sample") -> str:
     lines = [
-        f"# Web sample: {report['pages']} pages",
+        f"# {title}: {report['pages']} pages",
         "",
         f"Sample seed {report['sample'].get('seed')}, drawn {report['sample'].get('drawn_utc')}. "
         f"{report['reachable_by_any_tool']} pages gave content to at least one tool; "
@@ -253,9 +257,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="report", help="Writes <out>.json and <out>.md")
     args = parser.parse_args(argv)
     sample = json.loads(Path(args.sample).read_text("utf-8"))
-    report = analyse(sample, load(args.results))
+    by_tool = load(args.results)
+    # The random block is the headline; the hard block (page types chosen on
+    # purpose) is reported on its own so it cannot move the headline number.
+    blocks = {}
+    for block in ("random", "hard"):
+        pages = [p for p in sample["pages"] if p.get("block", "random") == block]
+        if pages:
+            blocks[block] = analyse({**sample, "pages": pages}, by_tool)
+    report = blocks.get("random") or blocks["hard"]
+    if "hard" in blocks and "random" in blocks:
+        report = {**report, "hard_block": blocks["hard"]}
     Path(f"{args.out}.json").write_text(json.dumps(report, indent=1, ensure_ascii=False), "utf-8")
-    text = markdown_report(report)
+    text = markdown_report(report, "Random web sample")
+    if "hard_block" in report:
+        text += "\n" + markdown_report(report["hard_block"], "Hard block")
     Path(f"{args.out}.md").write_text(text, "utf-8")
     print(text)
     return 0

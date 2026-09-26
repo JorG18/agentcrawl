@@ -19,6 +19,7 @@ import csv
 import io
 import json
 import random
+import re
 import sys
 import time
 import urllib.error
@@ -90,6 +91,29 @@ _ADULT = (
 )
 
 
+# The hard block: page types agents need and scrapers often get wrong. The
+# categories are fixed here, before any tool has run; the pages inside each
+# one are drawn at random like the rest of the sample.
+_GOV_RE = re.compile(r"(?:^|\.)(?:gov|gob|gouv|go|govt|gv)\.[a-z]{2}$|\.gov$|\.mil$")
+HARD_CATEGORIES: dict[str, dict[str, object]] = {
+    "product": {
+        "pattern": re.compile(r"/(?:products?|p|dp|item|itm|shop|producto|produit|artikel)/", re.I)
+    },
+    "news": {
+        "pattern": re.compile(
+            r"/(?:news|article|articles|story|noticias?|nachrichten)/|/20[12]\d/", re.I
+        )
+    },
+    "forum": {
+        "pattern": re.compile(
+            r"/(?:threads?|forums?|topics?|t|questions|discussions?|comments)/", re.I
+        )
+    },
+    "government": {"domains": _GOV_RE},
+    "pdf": {"mime": "application/pdf", "pattern": re.compile(r"\.pdf$", re.I)},
+}
+
+
 def _get(url: str, *, timeout: float = 30.0) -> bytes:
     request = urllib.request.Request(url, headers={"user-agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -117,15 +141,26 @@ def latest_cc_index() -> str:
     return collections[0]["cdx-api"]
 
 
-def inner_page(domain: str, index_api: str, rng: random.Random) -> str | None:
-    """A random HTML page of ``domain`` that Common Crawl fetched with a 200."""
+def inner_page(
+    domain: str,
+    index_api: str,
+    rng: random.Random,
+    *,
+    mime: str = "text/html",
+    pattern: re.Pattern[str] | None = None,
+) -> str | None:
+    """A random page of ``domain`` that Common Crawl fetched with a 200.
+
+    ``pattern``, when given, must match the URL's path (a product page, a
+    forum thread...).
+    """
     query = urllib.parse.urlencode(
         {
             "url": domain,
             "matchType": "domain",
             "output": "json",
             "limit": "200",
-            "filter": ["status:200", "mime:text/html"],
+            "filter": ["status:200", f"mime:{mime}"],
         },
         doseq=True,
     )
@@ -151,19 +186,81 @@ def inner_page(domain: str, index_api: str, rng: random.Random) -> str | None:
             continue
         parsed = urllib.parse.urlsplit(url)
         depth = len([part for part in parsed.path.split("/") if part])
-        if parsed.scheme == "https" and not parsed.query and 1 <= depth <= 5:
+        if parsed.scheme != "https" or parsed.query or not 1 <= depth <= 6:
+            continue
+        if pattern is None or pattern.search(parsed.path):
             candidates.append(url)
     candidates = sorted(set(candidates))
     return rng.choice(candidates) if candidates else None
 
 
-def build_sample(size: int, seed: int, *, workers: int = 2) -> dict[str, object]:
+def hard_block(
+    count: int,
+    seed: int,
+    ranked: list[tuple[int, str]],
+    index_api: str,
+    *,
+    workers: int = 2,
+) -> list[dict[str, object]]:
+    """``count`` pages split evenly over :data:`HARD_CATEGORIES`.
+
+    For each category, domains are drawn at random from the ranking and asked
+    for a matching page until the category is full or the draws run out.
+    """
+    rng = random.Random(f"{seed}-hard")
+    per_category = max(1, count // len(HARD_CATEGORIES))
+    used: set[str] = set()
+    pages: list[dict[str, object]] = []
+    for category, rule in HARD_CATEGORIES.items():
+        domains = [row for row in ranked if row[1] not in used]
+        if "domains" in rule:
+            domains = [row for row in domains if rule["domains"].search(row[1])]  # type: ignore[union-attr]
+        order = rng.sample(domains, min(len(domains), per_category * 8))
+        found: list[dict[str, object]] = []
+
+        def lookup(
+            row: tuple[int, str], category: str = category
+        ) -> tuple[tuple[int, str], str | None]:
+            rule = HARD_CATEGORIES[category]
+            url = inner_page(
+                row[1],
+                index_api,
+                random.Random(f"{seed}-{category}-{row[1]}"),
+                mime=str(rule.get("mime", "text/html")),
+                pattern=rule.get("pattern"),  # type: ignore[arg-type]
+            )
+            return row, url
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for start in range(0, len(order), workers * 4):
+                for (rank, domain), url in pool.map(lookup, order[start : start + workers * 4]):
+                    if url and len(found) < per_category:
+                        used.add(domain)
+                        found.append(
+                            {
+                                "domain": domain,
+                                "rank": rank,
+                                "stratum": "hard",
+                                "tld": domain.rsplit(".", 1)[-1],
+                                "url": url,
+                                "kind": category,
+                                "block": "hard",
+                            }
+                        )
+                if len(found) >= per_category:
+                    break
+        print(f"hard block: {category} {len(found)}/{per_category}", file=sys.stderr)
+        pages += found
+    return pages
+
+
+def build_sample(size: int, seed: int, *, hard: int = 0, workers: int = 2) -> dict[str, object]:
     rng = random.Random(seed)
     ranked = [row for row in load_tranco() if is_candidate(row[1])]
     chosen: list[tuple[int, str, str]] = []
     for first, last, share in STRATA:
         pool = [row for row in ranked if first <= row[0] <= last]
-        count = round(size * share)
+        count = round((size - hard) * share)
         label = f"{first}-{last}"
         chosen += [
             (rank, domain, label) for rank, domain in rng.sample(pool, min(count, len(pool)))
@@ -179,6 +276,7 @@ def build_sample(size: int, seed: int, *, workers: int = 2) -> dict[str, object]
             "rank": rank,
             "stratum": stratum,
             "tld": domain.rsplit(".", 1)[-1],
+            "block": "random",
         }
         if position % 2:
             url = inner_page(domain, index_api, random.Random(f"{seed}-{domain}"))
@@ -188,6 +286,10 @@ def build_sample(size: int, seed: int, *, workers: int = 2) -> dict[str, object]
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         pages = list(pool.map(page, enumerate(chosen)))
+    if hard:
+        taken = {domain for _, domain, _ in chosen}
+        extra = hard_block(hard, seed, [r for r in ranked if r[1] not in taken], index_api)
+        pages += [{"id": f"{len(pages) + i:04d}-{p['domain']}", **p} for i, p in enumerate(extra)]
     return {
         "seed": seed,
         "size": len(pages),
@@ -202,13 +304,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--size", type=int, default=500)
     parser.add_argument("--seed", type=int, default=2026)
+    parser.add_argument("--hard", type=int, default=0, help="Pages in the hard block.")
     parser.add_argument("--out", default="sample.json")
     args = parser.parse_args(argv)
-    sample = build_sample(args.size, args.seed)
+    sample = build_sample(args.size, args.seed, hard=args.hard)
     Path(args.out).write_text(json.dumps(sample, indent=1) + "\n", encoding="utf-8")
     kinds = [page["kind"] for page in sample["pages"]]
     print(
-        f"{len(kinds)} pages: {kinds.count('homepage')} homepages, {kinds.count('inner')} inner",
+        f"{len(kinds)} pages: {kinds.count('homepage')} homepages, {kinds.count('inner')} inner, "
+        f"{len(kinds) - kinds.count('homepage') - kinds.count('inner')} hard",
         file=sys.stderr,
     )
     return 0
