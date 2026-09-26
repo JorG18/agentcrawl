@@ -49,7 +49,7 @@ AgentCrawl Community is a serious self-hosted alpha surface. The core paths work
 - SQLite-backed scheduling lease cross-process — multi-worker uvicorn no longer enqueues the same job twice.
 - Audit trail now reaches the document on terminal fetch failure, not just on success.
 - Blocked-page heuristic strips HTML chrome before matching — fewer false negatives on `nginx default 403` and friends.
-- `CrawlConfig.__post_init__` warns when `llm` is a dict (Enhanced-pool shape) instead of silently accepting it.
+- `CrawlConfig.__post_init__` warns when `llm` is a dict rather than an import path, instead of silently accepting it.
 - `list_crawl_failures` domain filter uses 3-pattern LIKE in SQL (no Python post-filter).
 - `_pop_ready_item` no busy-spins when nothing is ready yet.
 - `SQLiteStore._migrated_paths` per-process cache, `:memory:`-aware.
@@ -102,6 +102,6 @@ Public announcements only go out after:
 2. `pytest` + `ruff check` + `ruff format --check` are clean on the release commit.
 3. The GitHub Release for the tagged version has explicit release notes (not auto-generated).
 4. The GHCR workflow for the tag is green.
-5. No `from agentcrawl.enhanced` import exists in any public source file.
+5. No proprietary or non-Community code exists in any public source file.
 
 Comparative claims follow the benchmark policy in [docs/QUALITY_BENCHMARKS.md](docs/QUALITY_BENCHMARKS.md): no numbers without a reproducible run on a neutral corpus.

@@ -13,7 +13,7 @@ AgentCrawl is small on purpose. Help us keep it that way. 🕷️
    .venv/bin/ruff check agentcrawl tests examples
    .venv/bin/ruff format --check agentcrawl tests examples
    ```
-5. **Do not commit credentials, deployment addresses, databases, scraped content, or private Enhanced modules.** The Community surface stays public; Enhanced lives in a private mirror that has no remote.
+5. **Do not commit credentials, deployment addresses, databases, scraped content, or proprietary modules.** This repository is the public Community edition.
 6. **In the PR, write the *why*, not just the *what*.** What changed, what you tested, anything you couldn't test locally (e.g. browser-specific behaviour), and which surfaces you touched. Three sentences is fine. A wall of pasted diff is not.
 
 ## Picking up an issue
