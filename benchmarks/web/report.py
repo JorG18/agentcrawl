@@ -44,7 +44,8 @@ _JUNK_RE = re.compile(
     r"just a moment|verify(?:ing)? (?:that )?you are (?:a )?human|checking your browser|"
     r"enable javascript and cookies|are you a robot|press (?:&|and) hold|captcha|"
     r"access denied|access to this page has been denied|403 forbidden|request blocked|"
-    r"unusual traffic|pardon our interruption|client challenge|attention required",
+    r"unusual traffic|pardon our interruption|client challenge|attention required|"
+    r"performing security verification|verif(?:y|ies) you are not a bot",
     re.I,
 )
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+|\n+")
@@ -60,6 +61,10 @@ def classify(result: dict[str, Any]) -> str:
     # Challenge wording on a short page is a challenge; a long article may quote it.
     if len(readable) < 3000 and _JUNK_RE.search(readable):
         return "junk"
+    # Text returned next to an error the tool itself reported (a block page,
+    # an error body) is not content.
+    if result.get("error") and len(readable) < 3000:
+        return "failed"
     if len(readable) < MIN_CONTENT_CHARS:
         return "thin"
     return "content"

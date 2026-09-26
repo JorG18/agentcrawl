@@ -71,4 +71,15 @@ def test_infrastructure_and_adult_domains_are_not_sampled() -> None:
     assert not is_candidate("fonts.googleapis.com")
     assert not is_candidate("d1.cloudfront.net")
     assert not is_candidate("xvideos.com")
+    assert not is_candidate("javhd.today")
     assert is_candidate("wikipedia.org")
+
+
+def test_block_pages_are_not_content() -> None:
+    cloudflare = (
+        "# carid.com\n## Performing security verification\nThis website uses a security service "
+        "to protect against malicious bots. This page is displayed while the website verifies "
+        "you are not a bot.\n## Verification successful. Waiting for carid.com to respond"
+    )
+    assert classify({"markdown": cloudflare}) == "junk"
+    assert classify({"markdown": ARTICLE, "error": "Blocked by anti-bot protection"}) == "failed"

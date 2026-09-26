@@ -21,6 +21,7 @@ import json
 import random
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -70,7 +71,23 @@ _NOT_A_SITE = (
     "ntp",
     "dns",
 )
-_ADULT = ("porn", "xxx", "xvideos", "xhamster", "sex", "hentai", "onlyfans", "cam4", "chaturbate")
+_ADULT = (
+    "porn",
+    "xxx",
+    "xvideos",
+    "xhamster",
+    "sex",
+    "hentai",
+    "onlyfans",
+    "cam4",
+    "chaturbate",
+    "javhd",
+    "javmost",
+    "javlibrary",
+    "missav",
+    "stripchat",
+    "spankbang",
+)
 
 
 def _get(url: str, *, timeout: float = 30.0) -> bytes:
@@ -112,12 +129,18 @@ def inner_page(domain: str, index_api: str, rng: random.Random) -> str | None:
         },
         doseq=True,
     )
-    for attempt in range(3):
+    # The index server sheds load with 503s; back off instead of giving up,
+    # or the sample silently turns into homepages only.
+    for attempt in range(6):
         try:
             body = _get(f"{index_api}?{query}", timeout=60).decode("utf-8", "replace")
             break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:  # the index has no page of this domain
+                return None
+            time.sleep(5 * 2**attempt)
         except Exception:
-            time.sleep(2 + attempt * 3)
+            time.sleep(5 * 2**attempt)
     else:
         return None
     candidates = []
@@ -134,7 +157,7 @@ def inner_page(domain: str, index_api: str, rng: random.Random) -> str | None:
     return rng.choice(candidates) if candidates else None
 
 
-def build_sample(size: int, seed: int, *, workers: int = 6) -> dict[str, object]:
+def build_sample(size: int, seed: int, *, workers: int = 2) -> dict[str, object]:
     rng = random.Random(seed)
     ranked = [row for row in load_tranco() if is_candidate(row[1])]
     chosen: list[tuple[int, str, str]] = []
