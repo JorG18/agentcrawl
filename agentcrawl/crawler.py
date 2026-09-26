@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 from .airgap import AirgapViolation, AuditTrail
 from .airgap import _match as _airgap_match
+from .challenge import ChallengeVerdict, detect_challenge
 from .config import CrawlConfig
 from .documents import markdown_from_fetched_content
 from .errors import classify_error, error_metadata, sanitize_error_message
@@ -52,11 +53,6 @@ _COOKIE_CONSENT_LINE_RE = re.compile(
     r"cookie\s+(policy|settings|preferences|notice)|"
     r"accept\s+(all\s+)?cookies|manage\s+cookies?|"
     r"by\s+continuing\s+you\s+accept|consent\s+to\s+cookies)\b.*$"
-)
-_BLOCKED_PAGE_PATTERNS = (
-    re.compile(r"client challenge", re.IGNORECASE),
-    re.compile(r"required part of this site (?:couldn[’']t|could not) load", re.IGNORECASE),
-    re.compile(r"disable any ad blockers", re.IGNORECASE),
 )
 
 # Sitemap discovery limits. ``_read_sitemap`` recurses into sitemap-index
@@ -167,7 +163,8 @@ class AgentCrawl:
 
         try:
             html, fetch_metadata = fetch_source(source, self._fetch_config(source, requested))
-            blocked_reason = _blocked_page_reason(html)
+            verdict = _challenge_verdict(html)
+            blocked_reason = verdict.reason
             if blocked_reason:
                 # If the user opted into the local browser fallback, try once
                 # with a browser fetcher before giving up. The retry only
@@ -206,6 +203,7 @@ class AgentCrawl:
                             f"Blocked or challenge page detected: {blocked_reason}"
                         ),
                         "blocked_reason": blocked_reason,
+                        "challenge_signals": list(verdict.signals),
                         "source_url": source,
                         "final_url": str(fetch_metadata.get("final_url") or source),
                     },
@@ -1032,23 +1030,22 @@ def _pop_ready_item(
 
 
 def _blocked_page_reason(html: str) -> str:
-    # ``_markdown_to_text`` only strips markdown markers; it does not strip
-    # HTML tags. Passing raw HTML to ``_BLOCKED_PAGE_PATTERNS`` makes them
-    # hit script contents (``<script>client challenge</script>``) or DOM
-    # scaffolding rather than the user-facing challenge text. Strip the
-    # ``<script>`` / ``<style>`` blocks first, then drop remaining tags,
-    # then collapse whitespace before running the regex patterns. The
-    # cookie-banner filter inside ``_markdown_to_text`` still runs because
-    # markers there fire on plain-text lines, which is what we have now.
+    """First challenge signal for ``html``, or ``""`` for a real page.
+
+    See :mod:`agentcrawl.challenge`: a known interstitial title, or a short
+    page with challenge wording or a vendor challenge script. Challenge wording
+    inside a real article never counts. Cookie-consent lines are dropped from
+    the readable text first so a banner cannot look like a challenge.
+    """
+    return _challenge_verdict(html).reason
+
+
+def _challenge_verdict(html: str) -> ChallengeVerdict:
     text = _html_to_plain_text(html)
-    for line in text.splitlines():
-        cleaned = line.strip()
-        if _COOKIE_CONSENT_LINE_RE.match(cleaned):
-            continue
-        for pattern in _BLOCKED_PAGE_PATTERNS:
-            if pattern.search(cleaned):
-                return pattern.pattern
-    return ""
+    readable = "\n".join(
+        line for line in text.splitlines() if not _COOKIE_CONSENT_LINE_RE.match(line.strip())
+    )
+    return detect_challenge(html, readable)
 
 
 _HTML_SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
