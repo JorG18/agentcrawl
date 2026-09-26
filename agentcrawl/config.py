@@ -381,6 +381,10 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
     user_agent = os.getenv("AGENTCRAWL_USER_AGENT", "").strip()
     if user_agent:
         config["user_agent"] = user_agent
+    # Web search is opt-in: a query leaves the machine for a third-party engine.
+    search_engine = os.getenv("AGENTCRAWL_SEARCH_ENGINE", "").strip().lower()
+    if search_engine:
+        config["search_engine"] = search_engine
     timeout_ms = os.getenv("AGENTCRAWL_TIMEOUT_MS", "").strip()
     if timeout_ms.isdigit():
         config["timeout_ms"] = int(timeout_ms)

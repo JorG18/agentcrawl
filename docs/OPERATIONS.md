@@ -149,14 +149,16 @@ AGENTCRAWL_BASE_URL=https://agentcrawl.internal.example AGENTCRAWL_API_KEY=<clie
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `AGENTCRAWL_RATE_LIMIT_PER_MINUTE` | `60` | Units per key per minute. A request costs 1; `/v1/scrape_many` costs 1 per URL and a `wait=true` crawl 1 per page (capped at the window). Owner keys are exempt. |
+| `AGENTCRAWL_RATE_LIMIT_PER_MINUTE` | `60` | Units per key per minute. A request costs 1; `/v1/scrape_many` costs 1 per URL, `/v1/search` 1 plus 1 per result page when it scrapes, and a `wait=true` crawl 1 per page (capped at the window). Owner keys are exempt. |
 | `AGENTCRAWL_SYNC_CRAWL_MAX_PAGES` | `25` | Largest `wait=true` crawl; bigger crawls must run as durable jobs. |
 | `AGENTCRAWL_SCRAPE_MANY_CONCURRENCY` | `8` | Parallel pages per `/v1/scrape_many` call; per-domain limits still apply. |
+| `AGENTCRAWL_SEARCH_ENGINE` | `none` | Enables `/v1/search`, MCP `search_web` and CLI `search`: `duckduckgo`, or `serper` with `SERPER_API_KEY`. Queries leave the host for that engine, so it is off by default and a request cannot choose it. |
 | `AGENTCRAWL_TIMEOUT_MS` | `30000` | Per socket operation. A whole body must also arrive within 3 × this value. |
 
 `usage_events` rows (`GET /v1/usage`, `GET /v1/stats` → `usage_by_endpoint`) are the metering record:
 
 - `/v1/scrape`, `/v1/scrape.cache_hit`, `/v1/map`, `/v1/extract`, `/v1/extract_css`: 1 unit per call (per URL for `scrape_many`).
+- `/v1/search`: 1 unit per search; each scraped result page is also metered as `/v1/scrape`.
 - `/v1/crawl`: 1 unit per document produced.
 - `/v1/extract.llm_calls`: model requests made by an extraction, reattempts included.
 - `/v1/jobs.failures.retry` and the re-run it triggers are billed to the **job owner**, whoever pressed retry.

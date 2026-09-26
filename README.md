@@ -44,7 +44,7 @@ agentcrawl doctor
 agentcrawl mcp
 ```
 
-MCP tools cover `scrape_url`, `map_site`, `crawl_site`, job status, cancellation, event history, failure inspection, selective retries, usage, and cache control. Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
+MCP tools cover `scrape_url`, `search_web`, `map_site`, `crawl_site`, job status, cancellation, event history, failure inspection, selective retries, usage, and cache control. Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
 
 The MCP only fetches URLs by default: local file paths are refused, because an agent can be steered by the pages it reads. To let it read a docs folder, set `AGENTCRAWL_ALLOW_LOCAL_FILES=true` and `AGENTCRAWL_LOCAL_FILES_ROOT=/path/to/docs`. The Python library and the CLI still read local files by default.
 
@@ -119,6 +119,7 @@ AgentCrawl Community is the self-hosted trust layer:
 | Durable crawls | SQLite jobs, events, checkpoints, retries, and failure records. |
 | Local dashboard | Read-only static HTML over SQLite via `agentcrawl dashboard` and `/dashboard`; the HTTP view follows the API auth setting. |
 | Quality extraction | Markdown, links, metadata, JSON-LD/provenance, tables, code blocks. |
+| Web search | `search` in the library, API (`/v1/search`), MCP (`search_web`) and CLI: search, then read the top results with the query as the relevance query. Opt-in with `AGENTCRAWL_SEARCH_ENGINE=duckduckgo` (or `serper` + `SERPER_API_KEY`). |
 | Batch scraping | `scrape_many` in the library, API (`/v1/scrape_many`), MCP and CLI (`scrape-many`). |
 | Structured extraction without an LLM | CSS schemas (`extract-css`, `/v1/extract_css`, MCP `extract_structured`): deterministic, zero tokens. |
 | Query-aware budgets | `query=` keeps the passages that matter (BM25) when a page is larger than the output budget. |
@@ -183,6 +184,7 @@ GET    /dashboard                  (see AGENTCRAWL_DASHBOARD_PUBLIC)
 GET    /api/dashboard/summary      (see AGENTCRAWL_DASHBOARD_PUBLIC)
 POST   /v1/scrape
 POST   /v1/scrape_many
+POST   /v1/search
 POST   /v1/map
 POST   /v1/crawl
 GET    /v1/jobs/{job_id}
@@ -202,6 +204,7 @@ Several pages at once, and structured data without an LLM:
 
 ```bash
 agentcrawl scrape-many https://example.com/a https://example.com/b
+AGENTCRAWL_SEARCH_ENGINE=duckduckgo agentcrawl search "fastapi dependency injection" --limit 3
 agentcrawl scrape https://example.com/docs/faq --query "refund policy"
 
 cat > products.json <<'JSON'

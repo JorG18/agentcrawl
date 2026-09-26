@@ -4,6 +4,14 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## Unreleased
+
+### Added
+
+- **Web search on every surface.** `AgentCrawl.search()`, `POST /v1/search`, MCP `search_web`, CLI `agentcrawl search QUERY [--limit N] [--no-scrape]`.
+  *What this means:* an agent can go from a question to cited pages without a second tool. Each result carries title, URL and snippet and, by default, the page's Markdown with the query used as the relevance query, so long pages keep their best passages.
+  *Detail:* opt-in through `AGENTCRAWL_SEARCH_ENGINE` (`duckduckgo`, or `serper` with `SERPER_API_KEY`); with none set, every surface says how to enable it instead of returning an empty list. On the API the engine is operator-only and result pages go through the `/v1/scrape_many` path (SSRF checks, cache, politeness, metering). Under `airgap`, only allowlisted result hosts are scraped and the rest are listed in `airgap_skipped`.
+
 ## 0.2.1 - 2026-09-24
 
 A security patch, plus honest error reporting. **Upgrade if an agent uses the local MCP server.**

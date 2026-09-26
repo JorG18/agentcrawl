@@ -63,6 +63,28 @@ class AgentCrawlClient:
             },
         )
 
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        scrape: bool = True,
+        formats: list[str] | None = None,
+        only_main_content: bool | None = None,
+        cache: bool = True,
+    ) -> dict[str, Any]:
+        return self._post(
+            "/v1/search",
+            {
+                "query": query,
+                "limit": limit,
+                "scrape": scrape,
+                "formats": formats or ["markdown", "metadata"],
+                "only_main_content": only_main_content,
+                "cache": cache,
+            },
+        )
+
     def extract_css(
         self, url: str, schema: dict[str, Any], config: dict[str, Any] | None = None
     ) -> dict[str, Any]:

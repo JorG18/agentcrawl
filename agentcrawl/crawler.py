@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextvars
+import dataclasses
 import json
 import re
 import threading
@@ -15,6 +16,7 @@ from contextlib import contextmanager
 from typing import Any, Callable
 
 from .airgap import AirgapViolation, AuditTrail
+from .airgap import _match as _airgap_match
 from .config import CrawlConfig
 from .documents import markdown_from_fetched_content
 from .errors import classify_error, error_metadata, sanitize_error_message
@@ -29,6 +31,7 @@ from .parsing import (
     markdown_structure_metrics,
 )
 from .security import validate_remote_url
+from .serializers import to_jsonable
 from .utils import estimate_tokens
 
 
@@ -377,6 +380,79 @@ class AgentCrawl:
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             return list(executor.map(run, source_list))
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int | None = None,
+        scrape: bool = True,
+        formats: list[str] | None = None,
+        only_main_content: bool | None = None,
+    ) -> dict[str, Any]:
+        """Search the web, then (by default) scrape the result pages.
+
+        The engine comes from ``config.search_engine`` (``duckduckgo`` or
+        ``serper``); ``none`` refuses with a message saying how to enable it,
+        instead of returning an empty list an agent would read as "no results".
+        The query doubles as the relevance query of every scrape, so long
+        result pages keep their best-matching passages (BM25).
+
+        Under ``airgap`` only allowlisted result hosts are scraped: otherwise
+        the search engine, not the caller, would choose which hosts an
+        airgapped run contacts. Skipped URLs are listed, never dropped silently.
+        """
+        from .search import search_web
+
+        query = (query or "").strip()
+        if not query:
+            raise ValueError("search needs a non-empty query.")
+        if self.config.search_engine not in {"duckduckgo", "serper"}:
+            raise ValueError(
+                "Web search is disabled (search_engine='none'). Set search_engine "
+                "(AGENTCRAWL_SEARCH_ENGINE) to 'duckduckgo' or 'serper' to enable it."
+            )
+        config = self.config
+        if limit is not None:
+            if not 1 <= int(limit) <= 20:
+                raise ValueError("search limit must be between 1 and 20.")
+            config = dataclasses.replace(config, search_limit=int(limit))
+        trail = AuditTrail() if config.audit else None
+        hits = search_web(query, config, trail)[: config.search_limit]
+        airgap_skipped: list[str] = []
+        if config.airgap:
+            allowed = []
+            for hit in hits:
+                host = (urllib.parse.urlsplit(hit.url).hostname or "").lower()
+                if host and any(_airgap_match(host, entry) for entry in config.allowlist_domains):
+                    allowed.append(hit)
+                else:
+                    airgap_skipped.append(hit.url)
+            hits = allowed
+        results: list[dict[str, Any]] = [
+            {"title": hit.title, "url": hit.url, "snippet": hit.snippet} for hit in hits
+        ]
+        if scrape and results:
+            documents = self.scrape_many(
+                [item["url"] for item in results],
+                formats=formats or ["markdown", "metadata"],
+                only_main_content=only_main_content,
+                query=query,
+            )
+            for item, document in zip(results, documents):
+                data = to_jsonable(document)
+                item["success"] = not data.get("errors")
+                item["data"] = data
+        payload: dict[str, Any] = {
+            "query": query,
+            "engine": config.search_engine,
+            "results": results,
+        }
+        if airgap_skipped:
+            payload["airgap_skipped"] = airgap_skipped
+        if trail is not None:
+            payload["audit"] = trail.to_metadata()
+        return payload
 
     def map(
         self,
