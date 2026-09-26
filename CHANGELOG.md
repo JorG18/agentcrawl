@@ -4,6 +4,32 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## 0.4.5 - 2026-09-26
+
+Pages behind a login, infinite and virtualized lists, iframes and web components can now be read in the local browser. A neutral 12-page corpus of real sites found several extraction defects, which are fixed here.
+
+### Added
+
+- **Saved logins.** `agentcrawl login URL --session NAME` opens a visible browser; you sign in by hand and the session's cookies and storage are saved under `~/.agentcrawl/sessions` (`AGENTCRAWL_SESSIONS_DIR`) with owner-only permissions. `--session NAME` in the CLI, `browser_session` in the library and `session` in the MCP `scrape_url` tool read pages with it, and refreshed cookies are written back. Sessions are addressed by name, never by path. `agentcrawl sessions` lists them (domains only) and `agentcrawl logout --session NAME` deletes one. The HTTP API does not accept a session per request; an operator can set `AGENTCRAWL_BROWSER_SESSION` for the whole server.
+- **Scrolling.** Two browser actions: `scroll_to_end` scrolls until the page stops growing (at most `max_scrolls`, default 20), and `virtual_scroll` scrolls a recycled list one screen at a time and keeps every row it saw, since such lists only ever hold the visible rows. Both report what they did in `browser_actions_log`.
+- **Shadow DOM and iframes.** In the browser, open shadow roots are copied into their hosts (slots filled) and visible iframes are inlined before the page is read, with scripts and inline handlers removed. Tracking pixels, ad and captcha frames are skipped; at most 10 frames. `browser_shadow_dom` and `browser_iframes` turn them off; `browser_dom` in the metadata says what was done.
+- **Browser CI job** running these features against a local site in a real Chromium.
+
+### Fixed
+
+- **Code block languages.** Languages were matched to fences by counting every `<code>` element, so a single inline code span before the first block moved every language to the wrong fence (on the Rust book, all of them). They are now counted per `<pre>`, and Sphinx (`highlight-python3`) and MDN (`brush: js`) classes are read.
+- **Code indentation.** Code inside fences kept html2text's four-space indent and surrounding blank lines.
+- **Emphasis spacing.** `**web crawler** , sometimes` is now `**web crawler**, sometimes`.
+- **RFC appendices.** Every `appendix-*` section was dropped as if it were the index, losing acknowledgements and authors. Only a section headed "Index" is dropped now.
+- **GitHub Docs parameter tables** lost their header row, which is marked screen-reader-only on the page.
+- **Main content selection.** A page's own `<main>` / `role="main"` wins over the `<body>` around it when it holds most of the text, so sidebars such as "Report a bug / Show source" on the Python docs no longer leak. "Jump to content" links are removed like "Skip to content".
+- **Live smoke test.** PyPI was replaced by the Django docs: PyPI serves a Fastly challenge or the real page depending on the network, so it made the test flaky. The 0.4.0 entry below no longer credits request headers for PyPI content.
+
+### Benchmark
+
+- `benchmarks/corpus/neutral.json` now has reviewed signals for its 12 pages, written from each snapshot's HTML. The benchmark workflow runs on pull requests that touch it, installs Crawl4AI's browser, and uploads the snapshots and every tool's Markdown for review (`compare --dump-dir`, `--include-unreviewed`).
+- Text signals are matched on the output with inline Markdown removed, so a tool that keeps links or inline code is not penalised against one that drops them.
+
 ## 0.4.0 - 2026-09-26
 
 AgentCrawl now reads the real pages it used to get wrong: its own GitHub page and JavaScript-rendered sites, checked on every change against 16 live public sites. Output is about a third smaller on table-heavy pages, the MCP costs agents ~1.5k tokens of context instead of ~4k, and install instructions point at GitHub while PyPI publishing is being set up.
