@@ -12,7 +12,7 @@ AgentCrawl gives agents a simple way to read normal web pages without pasting ra
 The project is early, intentionally modest, and being worked on steadily: accessible pages first, clean output, local state, honest failures.
 
 ```bash
-pip install "agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+pip install "agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
@@ -23,7 +23,7 @@ returns `error_type: "client_challenge"` and the signals it saw, never the
 challenge page as content. Getting past protected sites is not a Community goal.
 
 Every change is checked against real public sites (docs, Wikipedia, GitHub,
-Hacker News, PyPI, a JavaScript-rendered page) by the
+Hacker News, Django docs, a JavaScript-rendered page) by the
 [live smoke workflow](.github/workflows/live-smoke.yml).
 
 ## Pick your path 🚀
@@ -31,7 +31,7 @@ Hacker News, PyPI, a JavaScript-rendered page) by the
 ### Agents: MCP 🤖
 
 ```bash
-python -m pip install "agentcrawl-ai[mcp] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[mcp] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 agentcrawl doctor
 agentcrawl mcp
 ```
@@ -43,7 +43,7 @@ The MCP only fetches URLs by default: local file paths are refused, because an a
 ### Developers: Python + CLI 🧪
 
 ```bash
-pip install "agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+pip install "agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
@@ -114,7 +114,9 @@ AgentCrawl Community is the self-hosted trust layer:
 | Web search | `search` in the library, API (`/v1/search`), MCP (`search_web`) and CLI: search, then read the top results with the query as the relevance query. Opt-in with `AGENTCRAWL_SEARCH_ENGINE=duckduckgo` (or `serper` + `SERPER_API_KEY`). |
 | llms.txt | `map` reads a site's `/llms.txt` links; `agentcrawl llms-txt URL` generates one from a bounded crawl. |
 | Citable chunks | `formats=["chunks"]`: pieces of about `chunk_tokens` (default 400) that keep tables and code whole, with the heading path, a `cite_url` text-fragment link and, with `query`, a BM25 score. |
-| Browser actions and screenshots | `browser_actions` (click, type, press, scroll, wait, wait_for; at most 25 bounded steps) run before the page is read, and `formats=["screenshot"]` returns a full-page PNG. Local Playwright only; a failed step fails the scrape with the step named. |
+| Browser actions and screenshots | `browser_actions` (click, type, press, scroll, scroll_to_end, virtual_scroll, wait, wait_for; at most 25 bounded steps) run before the page is read, and `formats=["screenshot"]` returns a full-page PNG. Local Playwright only; a failed step fails the scrape with the step named. |
+| Logged-in pages | `agentcrawl login URL --session NAME` opens a browser where you sign in by hand; `--session NAME` (library `browser_session`, MCP `session`) then reads pages with that login. Sessions are stored locally with owner-only permissions. |
+| Web components and iframes | In the browser, text inside open Shadow DOM and visible iframes is copied into the page before it is read (`browser_shadow_dom`, `browser_iframes`, both on). |
 | Adaptive crawl | `crawl(query=...)` (API/MCP/CLI `--query`) visits the most relevant links first and stops after `stop_after_irrelevant` pages in a row that do not match. |
 | Change tracking | Every page carries `markdown_sha256`, `etag` and `last_modified`; `diff()` / `agentcrawl diff URL --previous FILE` / MCP `check_changes` send conditional requests and return a unified diff; `crawl(previous_hashes=...)` marks pages `new`, `changed` or `unchanged`. |
 | Batch scraping | `scrape_many` in the library, API (`/v1/scrape_many`), MCP and CLI (`scrape-many`). |
@@ -155,7 +157,7 @@ Authentication is enabled by default. Configure at least one API key before expo
 
 ```bash
 export AGENTCRAWL_API_KEYS="replace-with-a-long-random-key"
-python -m pip install "agentcrawl-ai[server] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[server] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 agentcrawl serve --host 0.0.0.0 --port 8000
 ```
 
@@ -290,7 +292,7 @@ agentcrawl scrape ./notes.md
 agentcrawl scrape ./data.json
 agentcrawl scrape ./feed.xml
 agentcrawl scrape ./report.docx      # also .xlsx and .pptx, no extra needed
-python -m pip install "agentcrawl-ai[docs] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[docs] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 agentcrawl scrape ./report.pdf
 agentcrawl scrape ./scanned.pdf --ocr # needs the Tesseract binary
 ```
@@ -315,8 +317,30 @@ PDF and Office files fetched from URLs are converted the same way, detected by c
 The default package and default Docker image use HTTP extraction. Add browser rendering only when a site needs JavaScript:
 
 ```bash
-python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 python -m playwright install chromium
+```
+
+Pages behind a login: sign in once in a visible browser, then read as that user.
+Passwords and 2FA never pass through AgentCrawl; only the resulting cookies are
+saved, under `~/.agentcrawl/sessions` (or `AGENTCRAWL_SESSIONS_DIR`), readable
+only by you.
+
+```bash
+agentcrawl login https://wiki.example.org --session work
+agentcrawl scrape https://wiki.example.org/team/roadmap --session work
+agentcrawl sessions            # list; agentcrawl logout --session work deletes
+```
+
+Infinite feeds and virtualized lists (only the visible rows exist in the page):
+
+```python
+from agentcrawl import AgentCrawl
+
+feed = AgentCrawl({"fetcher": "browser", "browser_actions": [
+    {"type": "scroll_to_end", "max_scrolls": 20},
+    # or, for a recycled list: {"type": "virtual_scroll", "selector": "#rows"},
+]}).scrape("https://example.org/feed")
 ```
 
 AgentCrawl also supports an optional external Camofox REST backend:

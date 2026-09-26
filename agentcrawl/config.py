@@ -59,6 +59,13 @@ class CrawlConfig:
     # Bounded steps (click, scroll, type, ...) run before the page is read; see
     # ``browser_actions.py``. Needs the local Playwright backend.
     browser_actions: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    # Name of a saved login (``agentcrawl login``); see ``sessions.py``. Pages
+    # are then read in the local browser with that session's cookies.
+    browser_session: str | None = None
+    # Copy iframe bodies and open shadow roots into the page before reading it
+    # (``browser_dom.py``); without this their text never reaches the Markdown.
+    browser_iframes: bool = True
+    browser_shadow_dom: bool = True
     # Capture a full-page PNG (the ``screenshot`` output format sets this).
     screenshot: bool = False
     # OCR image-only PDF pages (needs the docs extra plus the Tesseract binary).
@@ -217,6 +224,8 @@ _BOOL_FIELDS = frozenset(
         "auto_reattempt",
         "verbose",
         "relevance_chunking",
+        "browser_iframes",
+        "browser_shadow_dom",
     }
 )
 
@@ -321,6 +330,12 @@ def _validate_config_value(key: str, value: Any) -> Any:
                 f"{key} must be a string or null, got {type(value).__name__} ({value!r})"
             )
         return value
+    if key == "browser_session":
+        if value is None:
+            return None
+        from .sessions import validate_session_name
+
+        return validate_session_name(value)
     if key == "browser_actions":
         from .browser_actions import validate_actions
 
@@ -418,6 +433,9 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
     backend = os.getenv("AGENTCRAWL_BROWSER_BACKEND", "").strip()
     if backend:
         config["browser_backend"] = backend
+    browser_session = os.getenv("AGENTCRAWL_BROWSER_SESSION", "").strip()
+    if browser_session:
+        config["browser_session"] = browser_session
     user_agent = os.getenv("AGENTCRAWL_USER_AGENT", "").strip()
     if user_agent:
         config["user_agent"] = user_agent

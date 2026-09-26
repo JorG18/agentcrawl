@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Real public pages for the live smoke test. expect=ok needs usable Markdown with the listed strings; expect=challenge needs an honest challenge/blocked error instead of content.",
+  "description": "Real public pages (no site that serves challenges depending on the network, such as PyPI) for the live smoke test. expect=ok needs usable Markdown with the listed strings; expect=challenge needs an honest challenge/blocked error instead of content.",
   "pages": [
     {"id": "python-json", "url": "https://docs.python.org/3/library/json.html", "expect": "ok", "must_contain": ["json.dumps", "JSONDecodeError"]},
     {"id": "fastapi-first-steps", "url": "https://fastapi.tiangolo.com/tutorial/first-steps/", "expect": "ok", "must_contain": ["FastAPI", "uvicorn"]},
@@ -17,6 +17,6 @@
     {"id": "github-repo-agentcrawl", "url": "https://github.com/JorG18/agentcrawl", "expect": "ok", "must_contain": ["AgentCrawl", "self-hosted"]},
     {"id": "hacker-news", "url": "https://news.ycombinator.com/", "expect": "ok", "must_contain": ["comments"], "min_chars": 1000},
     {"id": "quotes-js-rendered", "url": "https://quotes.toscrape.com/js/", "expect": "ok", "must_contain": ["Einstein"], "min_chars": 300},
-    {"id": "pypi-project", "url": "https://pypi.org/project/requests/", "expect": "ok", "must_contain": ["Requests", "pip install"]}
+    {"id": "django-overview", "url": "https://docs.djangoproject.com/en/stable/intro/overview/", "expect": "ok", "must_contain": ["Django", "models"]}
   ]
 }

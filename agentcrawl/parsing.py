@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html as html_module
 import re
+import textwrap
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any, Iterator
@@ -49,7 +50,11 @@ _CONTENT_HINTS = re.compile(
     r"doc-content|page-content)\b",
     re.IGNORECASE,
 )
-_INDEX_HINTS = re.compile(r"\b(index|appendix-[a-z]|appendix-[0-9]|toc)\b", re.IGNORECASE)
+_INDEX_HINTS = re.compile(r"\b(index|toc)\b", re.IGNORECASE)
+# Generated back-of-document indexes (RFCs put theirs in "appendix-D") are
+# recognised by their heading, not by the appendix id: the other appendices
+# (acknowledgements, changes, authors) are content.
+_INDEX_HEADING_RE = re.compile(r"^(?:[A-Z]\.\s*|Appendix [A-Z]\.?\s*)?Index$", re.IGNORECASE)
 _CONTENT_CONTAINER_TAGS = {"article", "main", "section", "div", "td", "body"}
 _MIN_CONTENT_CANDIDATE_CHARS = 120
 
@@ -305,13 +310,36 @@ def _looks_like_content_candidate(node: _HTMLNode) -> bool:
     paragraphs = sum(1 for child in descendants if child.tag in {"p", "li", "pre", "table"})
     if paragraphs < 2:
         return False
+    if _is_main_landmark(node):
+        return True  # declared by the page; link-heavy articles (Wikipedia) count
     links = sum(1 for child in descendants if child.tag == "a")
     link_density = links / max(1, paragraphs)
     return link_density <= 2.0
 
 
 def _select_content_node(candidates: list[_HTMLNode]) -> _HTMLNode:
-    return max(candidates, key=_content_score)
+    best = max(candidates, key=_content_score)
+    # The page's own "main" landmark beats a bigger container around it: the
+    # extra text in <body> is its header, sidebar and footer. Only a landmark
+    # inside the winner, and only when it holds most of the winner's text, so a
+    # tiny mislabeled <main> never wins and a precise <article> is kept.
+    inside_best = {id(node) for node in _walk_nodes(best)}
+    landmarks = [
+        node
+        for node in candidates
+        if _is_main_landmark(node)
+        and id(node) in inside_best
+        and not _BOILERPLATE_HINTS.search(_node_identity(node))
+    ]
+    if landmarks and not _is_main_landmark(best):
+        landmark = max(landmarks, key=_content_score)
+        if len(_node_text(landmark)) >= 0.5 * len(_node_text(best)):
+            return landmark
+    return best
+
+
+def _is_main_landmark(node: _HTMLNode) -> bool:
+    return node.tag == "main" or node.attr("role").lower() == "main"
 
 
 def _content_hint(node: _HTMLNode) -> str:
@@ -329,7 +357,7 @@ def _content_score(node: _HTMLNode) -> float:
     semantic_bonus = 350 if node.tag in {"main", "article", "body"} else 0
     hint_bonus = 250 if _CONTENT_HINTS.search(_node_identity(node)) else 0
     boilerplate_penalty = 700 if _BOILERPLATE_HINTS.search(_node_identity(node)) else 0
-    index_penalty = 10000 if _INDEX_HINTS.search(_node_identity(node)) else 0
+    index_penalty = 10000 if _is_index_node(node) else 0
     child_boilerplate_penalty = sum(
         120 for child in descendants if _BOILERPLATE_HINTS.search(_node_identity(child))
     )
@@ -352,7 +380,7 @@ def _serialize_node(node: _HTMLNode, *, only_main_content: bool) -> str:
     if node.tag != "document":
         if _BOILERPLATE_HINTS.search(_node_identity(node)):
             return ""
-        if only_main_content and _INDEX_HINTS.search(_node_identity(node)):
+        if only_main_content and _is_index_node(node):
             return ""
         if only_main_content and node.tag in _BOILERPLATE_TAGS:
             return ""
@@ -377,6 +405,28 @@ def _serialize_node(node: _HTMLNode, *, only_main_content: bool) -> str:
     if node.tag in _VOID_TAGS:
         return f"<{node.tag}{attrs}>"
     return f"<{node.tag}{attrs}>{children}</{node.tag}>"
+
+
+def _is_index_node(node: _HTMLNode) -> bool:
+    if _INDEX_HINTS.search(_node_identity(node)):
+        return True
+    if node.tag not in {"section", "div"}:
+        return False
+    heading = _first_heading(node, depth=2)
+    return heading is not None and bool(_INDEX_HEADING_RE.match(_node_text(heading)))
+
+
+def _first_heading(node: _HTMLNode, *, depth: int) -> _HTMLNode | None:
+    for child in node.children:
+        if not isinstance(child, _HTMLNode):
+            continue
+        if child.tag in {"h1", "h2", "h3"}:
+            return child
+        if depth > 1 and child.tag not in {"section", "article"}:
+            found = _first_heading(child, depth=depth - 1)
+            if found is not None:
+                return found
+    return None
 
 
 def _walk_nodes(node: _HTMLNode) -> Iterator[_HTMLNode]:
@@ -426,11 +476,16 @@ def _is_hidden(node: _HTMLNode) -> bool:
     # until a click; their content is real, so keep it.
     if node.attr("role").lower() == "tabpanel":
         return False
-    if node.attr("hidden") or node.attr("aria-hidden").lower() == "true":
-        return True
     identity = _node_identity(node).lower()
     hidden_tokens = {"hidden", "sr-only", "visually-hidden", "screen-reader-only"}
-    if any(token in identity.replace("_", "-").split() for token in hidden_tokens):
+    visually_hidden = any(token in identity.replace("_", "-").split() for token in hidden_tokens)
+    # A table header kept only for screen readers (GitHub Docs) still names the
+    # columns; without it the Markdown table has no header row at all.
+    if node.tag in {"thead", "caption"} and visually_hidden and not node.attr("hidden"):
+        return False
+    if node.attr("hidden") or node.attr("aria-hidden").lower() == "true":
+        return True
+    if visually_hidden:
         return True
     style = node.attr("style").replace(" ", "").lower()
     return "display:none" in style or "visibility:hidden" in style
@@ -451,50 +506,68 @@ def _clean_markdown(markdown: str, code_lang_map: dict[int, str] | None = None) 
     cleaned: list[str] = []
     blank = False
     code_block_index = 0
-    in_fenced_code = False
+    code: list[str] | None = None  # lines of the fenced block being read
+
+    def open_fence(native_lang: str = "") -> list[str]:
+        nonlocal code_block_index, blank
+        lang = code_lang_map.get(code_block_index, "") if code_lang_map else ""
+        cleaned.append(f"```{native_lang or lang}")
+        code_block_index += 1
+        blank = False
+        return []
+
+    def close_fence(block: list[str]) -> None:
+        nonlocal blank
+        # html2text indents ``<pre>`` content by four spaces and keeps the
+        # blank lines around it; inside a fence both are just wrong code.
+        cleaned.extend(textwrap.dedent("\n".join(block)).strip("\n").split("\n") if block else [])
+        cleaned.append("```")
+        blank = False
 
     for line in lines:
-        if line.strip() == "[code]":
-            lang = code_lang_map.get(code_block_index, "") if code_lang_map else ""
-            cleaned.append(f"```{lang}")
-            code_block_index += 1
-            in_fenced_code = True
-            blank = False
+        marker = line.strip()
+        if code is None and marker in {"[code]", "```"}:
+            code = open_fence()
             continue
-        if line.strip() == "[/code]":
-            cleaned.append("```")
-            in_fenced_code = False
-            blank = False
+        if code is None and _NATIVE_FENCE_RE.match(marker):
+            # A fence that already names its language keeps it and still
+            # takes its slot in the <pre> order.
+            code = open_fence(marker[3:])
             continue
-        if line.strip() == "```":
-            if in_fenced_code:
-                cleaned.append("```")
-                in_fenced_code = False
-            else:
-                lang = code_lang_map.get(code_block_index, "") if code_lang_map else ""
-                cleaned.append(f"```{lang}")
-                code_block_index += 1
-                in_fenced_code = True
-            blank = False
+        if code is not None and marker in {"[/code]", "```"}:
+            close_fence(code)
+            code = None
             continue
-        if not line.strip():
+        if code is not None:
+            code.append(line)
+            continue
+        if not marker:
             if cleaned and not blank:
                 cleaned.append("")
             blank = True
             continue
-        cleaned.append(line)
+        cleaned.append(_EMPHASIS_GAP_RE.sub(r"\1\2", line))
         blank = False
+    if code is not None:
+        close_fence(code)
 
     compact = _compact_tables(_strip_link_titles("\n".join(cleaned)))
     return _EXTRA_BLANK_LINES_RE.sub("\n\n", compact).strip()
 
 
+# html2text leaves a space between closing emphasis and punctuation
+# ("**web crawler** , sometimes"): a visible defect, and a phrase search
+# for "web crawler, sometimes" fails on it.
+_NATIVE_FENCE_RE = re.compile(r"^```[A-Za-z0-9_+#.-]+$")
+_EMPHASIS_GAP_RE = re.compile(r"(\S(?:\*\*|__|\*|_)) ([,.;:!?)\]])")
+
+
 # ``[text](url "title")``: link titles are tooltips ("This path skips through
 # empty directories"), pure token cost for an agent.
 _EXTRA_BLANK_LINES_RE = re.compile(r"\n{3,}")
-# Accessibility skip links ("Skip to main content") are navigation, not content.
+# Accessibility skip links ("Skip to main content", "Jump to content") are navigation, not content.
 _SKIP_LINK_RE = re.compile(
-    r"^\s*\[?skip to (?:main )?(?:content|navigation)\]?(?:\([^)]*\))?\s*$", re.I
+    r"^\s*\[?(?:skip|jump) to (?:main )?(?:content|navigation)\]?(?:\([^)]*\))?\s*$", re.I
 )
 # ``[](url)``: a link whose only content was an image (badges, logos) once
 # images are dropped. Nothing for an agent to read; the bare URL is noise.
@@ -593,24 +666,57 @@ def _compact_table(rows: list[str]) -> list[str]:
     return rendered
 
 
-def _extract_code_language_tags(html: str) -> dict[int, str]:
-    """Extract language tags from code elements in document order.
+_PRE_RE = re.compile(r"<pre\b([^>]*)>", re.IGNORECASE)
+_CLASS_ATTR_RE = re.compile(r"\sclass=[\"']([^\"']*)[\"']", re.IGNORECASE)
+_CODE_OPEN_RE = re.compile(r"\s*<code\b([^>]*)>", re.IGNORECASE)
+# Wrapper classes that name the language one level up: Sphinx
+# (``highlight-python3``), Pygments/Rouge (``language-ruby highlighter-rouge``).
+_WRAPPER_LANG_RE = re.compile(r"class=[\"'][^\"']*\bhighlight-([a-z0-9+#-]+)", re.IGNORECASE)
 
-    Returns a mapping from code block index to language string. Blocks without a
-    language still advance the index so later tagged blocks stay aligned with
-    html2text's generated fences.
+
+def _extract_code_language_tags(html: str) -> dict[int, str]:
+    """Language of each ``<pre>`` block, by its position among ``<pre>`` blocks.
+
+    html2text turns every ``<pre>`` (and only ``<pre>``) into a fenced block, so
+    the index has to count ``<pre>`` elements. It used to count every
+    ``<code>``, so one inline ``code`` span before the first block shifted
+    every language onto the wrong fence (or off the page). The language comes
+    from the ``<pre>`` class (MDN: ``brush: js``), its ``<code>`` child
+    (``language-rust``), or a wrapper just before it (Sphinx:
+    ``highlight-python3``).
     """
-    pattern = re.compile(r"<code\b([^>]*)>", re.IGNORECASE)
     lang_map: dict[int, str] = {}
-    for index, match in enumerate(pattern.finditer(html)):
-        attrs = match.group(1)
-        class_match = re.search(r"\sclass=[\"']([^\"']*)[\"']", attrs, re.IGNORECASE)
-        if not class_match:
-            continue
-        language = _language_from_classes(class_match.group(1).split())
+    for index, match in enumerate(_PRE_RE.finditer(html)):
+        classes: list[str] = []
+        pre_class = _CLASS_ATTR_RE.search(match.group(1))
+        if pre_class:
+            classes += pre_class.group(1).replace(":", " ").split()
+        code = _CODE_OPEN_RE.match(html, match.end())
+        if code:
+            code_class = _CLASS_ATTR_RE.search(code.group(1))
+            if code_class:
+                classes = code_class.group(1).split() + classes
+        language = _language_from_classes(classes)
+        if not language:
+            window = html[max(0, match.start() - 300) : match.start()]
+            wrappers = _WRAPPER_LANG_RE.findall(window)
+            if wrappers:
+                language = _language_from_classes([f"language-{wrappers[-1]}"])
         if language:
             lang_map[index] = language
     return lang_map
+
+
+_LANGUAGE_ALIASES = {
+    "python3": "python",
+    "py": "python",
+    "pycon": "python",
+    "sh": "bash",
+    "console": "console",
+    "shell-session": "console",
+    "javascript": "javascript",
+}
+_NOT_A_LANGUAGE = {"default", "none", "plain", "plaintext", "notranslate", "nohighlight"}
 
 
 def _language_from_classes(classes: list[str]) -> str:
@@ -640,11 +746,13 @@ def _language_from_classes(classes: list[str]) -> str:
         "yaml",
     }
     for cls in classes:
-        if cls.startswith("language-"):
-            return cls.removeprefix("language-")
-        if cls.startswith("lang-"):
-            return cls.removeprefix("lang-")
+        for prefix in ("language-", "lang-"):
+            if cls.startswith(prefix):
+                language = cls.removeprefix(prefix).lower()
+                if language in _NOT_A_LANGUAGE:
+                    return ""
+                return _LANGUAGE_ALIASES.get(language, language)
     for cls in classes:
-        if cls in known_languages:
-            return cls
+        if cls.lower() in known_languages:
+            return _LANGUAGE_ALIASES.get(cls.lower(), cls.lower())
     return ""

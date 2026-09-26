@@ -35,6 +35,24 @@ jobs:
       - name: Compile
         run: python -m compileall -q agentcrawl benchmarks
 
+  browser:
+    # Shadow DOM, iframes, scroll and saved sessions in a real Chromium
+    # (tests/test_browser_rendering.py skips itself without one).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install with the browser extra
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[browser,server,dev]"
+          python -m playwright install --with-deps chromium
+      - name: Real-browser tests
+        run: python -m pytest -q tests/test_browser_rendering.py tests/test_sessions.py
+
   docker:
     runs-on: ubuntu-latest
     steps:

@@ -4,9 +4,36 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## 0.4.5 - 2026-09-26
+
+Pages behind a login, infinite and virtualized lists, iframes and web components can now be read in the local browser. A neutral 12-page corpus of real sites found several extraction defects, which are fixed here.
+
+### Added
+
+- **Saved logins.** `agentcrawl login URL --session NAME` opens a visible browser; you sign in by hand and the session's cookies and storage are saved under `~/.agentcrawl/sessions` (`AGENTCRAWL_SESSIONS_DIR`) with owner-only permissions. `--session NAME` in the CLI, `browser_session` in the library and `session` in the MCP `scrape_url` tool read pages with it, and refreshed cookies are written back. Sessions are addressed by name, never by path. `agentcrawl sessions` lists them (domains only) and `agentcrawl logout --session NAME` deletes one. The HTTP API does not accept a session per request; an operator can set `AGENTCRAWL_BROWSER_SESSION` for the whole server.
+- **Scrolling.** Two browser actions: `scroll_to_end` scrolls until the page stops growing (at most `max_scrolls`, default 20), and `virtual_scroll` scrolls a recycled list one screen at a time and keeps every row it saw, since such lists only ever hold the visible rows. Both report what they did in `browser_actions_log`.
+- **Shadow DOM and iframes.** In the browser, open shadow roots are copied into their hosts (slots filled) and visible iframes are inlined before the page is read, with scripts and inline handlers removed. Tracking pixels, ad and captcha frames are skipped; at most 10 frames. `browser_shadow_dom` and `browser_iframes` turn them off; `browser_dom` in the metadata says what was done.
+- **Browser CI job** running these features against a local site in a real Chromium.
+
+### Fixed
+
+- **Code block languages.** Languages were matched to fences by counting every `<code>` element, so a single inline code span before the first block moved every language to the wrong fence (on the Rust book, all of them). They are now counted per `<pre>`, and Sphinx (`highlight-python3`) and MDN (`brush: js`) classes are read.
+- **Code indentation.** Code inside fences kept html2text's four-space indent and surrounding blank lines.
+- **Emphasis spacing.** `**web crawler** , sometimes` is now `**web crawler**, sometimes`.
+- **RFC appendices.** Every `appendix-*` section was dropped as if it were the index, losing acknowledgements and authors. Only a section headed "Index" is dropped now.
+- **GitHub Docs parameter tables** lost their header row, which is marked screen-reader-only on the page.
+- **Main content selection.** A page's own `<main>` / `role="main"` wins over the `<body>` around it when it holds most of the text, so sidebars such as "Report a bug / Show source" on the Python docs no longer leak. "Jump to content" links are removed like "Skip to content".
+- **Live smoke test.** PyPI was replaced by the Django docs: PyPI serves a Fastly challenge or the real page depending on the network, so it made the test flaky. The 0.4.0 entry below no longer credits request headers for PyPI content.
+
+### Benchmark
+
+- `benchmarks/corpus/neutral.json` now has reviewed signals for its 12 pages, written from each snapshot's HTML. The benchmark workflow runs on pull requests that touch it, installs Crawl4AI's browser, and uploads the snapshots and every tool's Markdown for review (`compare --dump-dir`, `--include-unreviewed`).
+- Text signals are matched on the output with inline Markdown removed, so a tool that keeps links or inline code is not penalised against one that drops them.
+- First results, in `docs/QUALITY_BENCHMARKS.md`: AgentCrawl and Crawl4AI both keep every checked sentence; AgentCrawl's output is about 40% smaller than Crawl4AI's `fit_markdown` with similar noise. The signals were written by this project and the same review drove the fixes above, so read it as a first data point, not a ranking.
+
 ## 0.4.0 - 2026-09-26
 
-AgentCrawl now reads the real pages it used to get wrong: its own GitHub page, JavaScript-rendered sites and PyPI, checked on every change against 16 live public sites. Output is about a third smaller on table-heavy pages, the MCP costs agents ~1.5k tokens of context instead of ~4k, and install instructions point at GitHub while PyPI publishing is being set up.
+AgentCrawl now reads the real pages it used to get wrong: its own GitHub page and JavaScript-rendered sites, checked on every change against 16 live public sites. Output is about a third smaller on table-heavy pages, the MCP costs agents ~1.5k tokens of context instead of ~4k, and install instructions point at GitHub while PyPI publishing is being set up.
 
 ### Fixed
 
@@ -21,7 +48,7 @@ AgentCrawl now reads the real pages it used to get wrong: its own GitHub page, J
 ### Changed
 
 - **Compact Markdown.** Tables are not padded with spaces; a column that repeats its neighbour or holds no data is dropped; link tooltips, image-only links (`[](url)`), skip links and runs of blank lines are removed; links and images are absolute URLs. On the GitHub repository page the output shrinks from 37k to 25k characters with the same content; offline quality fixtures still score 100%.
-- **HTTP transfer.** Requests send `Accept` and `Accept-Encoding: gzip, deflate` and inflate under the same `max_response_bytes` ceiling (a decompression bomb is refused). Pages that declare their charset only in `<meta>` decode correctly, and latin-1 labels decode as windows-1252 like browsers do. With these headers PyPI serves real project pages to the HTTP fetcher.
+- **HTTP transfer.** Requests send `Accept` and `Accept-Encoding: gzip, deflate` and inflate under the same `max_response_bytes` ceiling (a decompression bomb is refused). Pages that declare their charset only in `<meta>` decode correctly, and latin-1 labels decode as windows-1252 like browsers do. (PyPI answers the HTTP fetcher with real pages from some networks and a Fastly challenge from others; AgentCrawl reports the challenge either way.)
 - **User-Agent** is `Mozilla/5.0 (compatible; AgentCrawl/<version>; +https://github.com/JorG18/agentcrawl)` instead of `AgentCrawl/0.1` with a `.local` address.
 - **Lean MCP by default.** The core profile exposes `scrape_url`, `scrape_many`, `map_site`, `crawl_site` and `extract_structured`, plus `search_web` when a search engine is configured and `get_job` when a server is. `AGENTCRAWL_MCP_PROFILE=full` restores the operator tools (`check_changes`, `job_events`, `cancel_job`, `inspect_failures`, `retry_failures`, `usage`, `cache_stats`, `clear_cache`). Tool descriptions were shortened.
 - **Install from GitHub.** README, agent guide and examples install `agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.0`; the PyPI badge is gone for now. The release workflow publishes to PyPI only when the repository variable `PUBLISH_PYPI` is `true`.

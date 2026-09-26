@@ -139,6 +139,8 @@ agentcrawl mcp
 
 Local mode (MCP and the CLI without `--remote`) reads the same variables: `AGENTCRAWL_FETCHER`, `AGENTCRAWL_BROWSER_BACKEND`, `AGENTCRAWL_USER_AGENT`, `AGENTCRAWL_TIMEOUT_MS`, `AGENTCRAWL_ALLOW_PRIVATE_NETWORK`, `AGENTCRAWL_RESPECT_ROBOTS_TXT`, `AGENTCRAWL_BROWSER_FALLBACK`, `AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AIRGAP_ALLOWLIST`, `AGENTCRAWL_AUDIT`, `AGENTCRAWL_OCR`. CLI flags override them per command.
 
+Browser sessions (0.4.5): a request cannot choose a saved login. The operator can run the whole server as one with `AGENTCRAWL_BROWSER_SESSION=<name>` (created with `agentcrawl login` on the host; files live in `AGENTCRAWL_SESSIONS_DIR`, default `~/.agentcrawl/sessions`, mode 0600). Every API key then reads pages as that user, so only do this on a server whose keys you all trust. `browser_iframes` and `browser_shadow_dom` (default on) are per-request overrides.
+
 Per-request API overrides added in 0.3.0: `browser_actions` (bounded steps run before the page is read; needs the Playwright backend in the image) and `ocr` (image-only PDF pages; needs the docs extra and Tesseract). `POST /v1/crawl` also accepts `query` and `stop_after_irrelevant` for adaptive crawls.
 
 Remote API-backed MCP mode uses:

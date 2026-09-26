@@ -19,17 +19,17 @@ Install AgentCrawl, verify direct scraping, register its standards-based stdio M
 Install from the tagged GitHub release (the `mcp` extra is required for the MCP server):
 
 ```bash
-python -m pip install "agentcrawl-ai[mcp] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[mcp] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 ```
 
 Add capabilities only when needed:
 
 ```bash
 # JavaScript-rendered pages, browser_actions and screenshots
-python -m pip install "agentcrawl-ai[mcp,browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[mcp,browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 python -m playwright install chromium
 # local PDF ingestion
-python -m pip install "agentcrawl-ai[docs] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[docs] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 ```
 
 From a repository checkout use `python -m pip install -e ".[mcp]"` instead.

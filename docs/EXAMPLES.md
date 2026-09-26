@@ -19,7 +19,7 @@ AgentCrawl works as a local Python library, CLI tool, HTTP API, Docker service, 
 ### CLI
 
 ```bash
-python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
 ```
 
@@ -44,7 +44,7 @@ print(document.markdown)
 
 ```bash
 export AGENTCRAWL_API_KEYS="exampl...-key"
-python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 agentcrawl serve --host 127.0.0.1 --port 8000
 ```
 
@@ -66,7 +66,7 @@ docker run --rm -p 8000:8000 \
 ### MCP
 
 ```bash
-python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 agentcrawl doctor
 agentcrawl mcp
 ```
@@ -109,7 +109,7 @@ curl http://127.0.0.1:8000/v1/crawl \
 agentcrawl scrape ./notes.md
 agentcrawl scrape ./data.json
 agentcrawl scrape ./feed.xml
-python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.0"
+python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
 agentcrawl scrape ./report.pdf
 ```
 
