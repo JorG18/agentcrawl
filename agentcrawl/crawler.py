@@ -21,7 +21,7 @@ from .airgap import AirgapViolation, AuditTrail
 from .airgap import _match as _airgap_match
 from .challenge import ChallengeVerdict, detect_challenge
 from .challenge import html_to_plain_text as _html_to_plain_text
-from .config import CrawlConfig
+from .config import DEFAULT_USER_AGENT, CrawlConfig
 from .documents import markdown_from_fetched_content
 from .errors import classify_error, error_metadata, sanitize_error_message
 from .exceptions import FetchError
@@ -90,7 +90,7 @@ def _guarded_urlopen(url: str, config: CrawlConfig, *, allow_private: bool | Non
     allow_private_network = config.allow_private_network if allow_private is None else allow_private
     validate_remote_url(url, allow_private_network=allow_private_network)
     request = urllib.request.Request(
-        url, headers={"user-agent": config.user_agent or "AgentCrawl/0.1"}
+        url, headers={"user-agent": config.user_agent or DEFAULT_USER_AGENT}
     )
     context = _DISCOVERY.get()
     trail, target_host = context if context else (None, None)

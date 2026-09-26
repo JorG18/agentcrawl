@@ -14,7 +14,7 @@ import urllib.parse
 from typing import Any, NamedTuple
 
 from . import __version__
-from .config import CrawlConfig, local_files_root_from_env
+from .config import DEFAULT_USER_AGENT, CrawlConfig, local_files_root_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
 from .crawler import AgentCrawl
@@ -324,7 +324,7 @@ class AgentCrawlServer:
             "domain_min_delay": float(os.getenv("AGENTCRAWL_DOMAIN_MIN_DELAY", "0.0")),
             "user_agent": os.getenv(
                 "AGENTCRAWL_USER_AGENT",
-                "Mozilla/5.0 (compatible; AgentCrawl/0.1; +https://agentcrawl.local)",
+                DEFAULT_USER_AGENT,
             ),
             "allow_private_network": self.allow_private_network,
             "crawl_depth": int(os.getenv("AGENTCRAWL_CRAWL_DEPTH", "1")),

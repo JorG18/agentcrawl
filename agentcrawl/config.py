@@ -7,6 +7,23 @@ import warnings
 from typing import Any
 
 
+def _package_version() -> str:
+    try:
+        from importlib.metadata import version
+
+        return version("agentcrawl-ai")
+    except Exception:
+        return "dev"
+
+
+# An honest, contactable identity: sites (Wikipedia among them) ask crawlers
+# for a real URL, and the old "+https://agentcrawl.local" pointed nowhere.
+DEFAULT_USER_AGENT = (
+    f"Mozilla/5.0 (compatible; AgentCrawl/{_package_version()}; "
+    "+https://github.com/JorG18/agentcrawl)"
+)
+
+
 @dataclass(slots=True)
 class CrawlConfig:
     """Single configuration object accepted as a dict by AgentCrawler."""
@@ -30,7 +47,7 @@ class CrawlConfig:
     browser_fallback_statuses: tuple[int, ...] = (403, 429, 500, 502, 503, 504)
     domain_min_delay: float = 0.0
     wait_until: str = "domcontentloaded"
-    user_agent: str | None = "Mozilla/5.0 (compatible; AgentCrawl/0.1; +https://agentcrawl.local)"
+    user_agent: str | None = DEFAULT_USER_AGENT
     proxy: str | None = None
     geoip: bool = False
     humanize: bool = False
