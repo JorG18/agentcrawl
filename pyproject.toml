@@ -71,7 +71,7 @@ mcp = [
   "mcp>=1.27.1,<2.0.0",
   "pydantic>=2.13.4,<3.0.0",
 ]
-dev = ["httpx>=0.28.0,<1.0.0", "pytest>=8.0.0", "ruff>=0.13.0,<0.17"]
+dev = ["httpx2>=2.0.0,<3.0.0", "pytest>=8.0.0", "ruff>=0.13.0,<0.17"]
 
 [project.scripts]
 agentcrawl = "agentcrawl.cli:main"
