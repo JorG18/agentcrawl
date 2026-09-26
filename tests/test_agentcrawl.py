@@ -580,7 +580,10 @@ def test_scrape_marks_client_challenge_pages_as_blocked(monkeypatch) -> None:
 
     monkeypatch.setattr("agentcrawl.crawler.fetch_source", fake_fetch_source)
 
-    doc = AgentCrawl({"fetcher": "http"}).scrape("https://pypi.org/project/example/")
+    # No browser retry: with Playwright installed it would load the real site.
+    doc = AgentCrawl({"fetcher": "http", "browser_fallback": False}).scrape(
+        "https://pypi.org/project/example/"
+    )
 
     assert not doc.ok
     assert doc.markdown == ""
