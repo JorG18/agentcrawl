@@ -10,5 +10,6 @@ These examples mirror the workflows linked from [docs/EXAMPLES.md](../docs/EXAMP
 | [docker.md](docker.md) | You want the API through the published GHCR image. |
 | [mcp.md](mcp.md) | You want an agent client to use AgentCrawl tools. |
 | [browser_rendered.md](browser_rendered.md) | A page needs local JavaScript rendering. |
+| [graph_extraction.py](graph_extraction.py) | You want an LLM to answer a prompt about a page (set `AGENTCRAWL_LLM_MODEL`). |
 
 Use `https://pypi.org/project/agentcrawl-ai/` for normal smoke examples. Keep `https://example.com` for boundary/challenge documentation only.
