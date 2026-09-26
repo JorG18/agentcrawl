@@ -498,6 +498,7 @@ def _doctor() -> dict[str, Any]:
         "agentcrawl_command": _check_command("agentcrawl"),
         "python": _check_bool((shutil.which("python") or shutil.which("python3")) is not None),
         "local_scrape": _check_local_scrape(),
+        "browser": _check_browser(extras["browser"]),
         "remote_config": _check_remote_config(),
         "remote_health": _check_remote_health(),
     }
@@ -542,6 +543,34 @@ def _check_local_scrape() -> dict[str, Any]:
         return _check_bool("AgentCrawl Doctor" in markdown)
     except Exception as exc:
         return {"ok": False, "detail": str(exc)}
+
+
+def _check_browser(installed: bool) -> dict[str, Any]:
+    """Can the browser fallback actually start?
+
+    Having the ``playwright`` package is not enough: each Playwright release
+    needs its own browser build, and without it every JavaScript page and every
+    fallback silently fails with "Executable doesn't exist".
+    """
+    if not installed:
+        return {
+            "ok": True,
+            "skipped": True,
+            "detail": 'browser extra not installed; JavaScript pages need: pip install "agentcrawl-ai[browser]"',
+        }
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, timeout=20_000)
+            browser.close()
+        return {"ok": True, "detail": "chromium starts"}
+    except Exception as exc:
+        first_line = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
+        return {
+            "ok": False,
+            "detail": f"{first_line[:200]} -> run: python -m playwright install chromium",
+        }
 
 
 def _check_remote_config() -> dict[str, Any]:

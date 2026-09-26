@@ -188,3 +188,11 @@ def test_version_fallback_stays_in_sync_with_pyproject() -> None:
     ).group(1)
 
     assert agentcrawl._pyproject_version() == expected
+
+
+def test_doctor_browser_check_without_the_extra_is_skipped() -> None:
+    from agentcrawl.cli import _check_browser
+
+    check = _check_browser(False)
+    assert check["skipped"] is True
+    assert "agentcrawl-ai[browser]" in check["detail"]
