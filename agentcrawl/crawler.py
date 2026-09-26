@@ -572,7 +572,22 @@ class AgentCrawl:
         | None = None,
         before_fetch: Callable[[str], Any] | None = None,
         max_run_pages: int | None = None,
+        query: str | None = None,
+        stop_after_irrelevant: int = 3,
     ) -> CrawlRun:
+        """Crawl from ``source``. With ``query`` the crawl is adaptive.
+
+        Adaptive means two things. The queue is ordered by how promising each
+        link looks for the query (words in its URL, plus the relevance of the
+        page that linked to it) instead of first-in-first-out. And the crawl
+        stops early once ``stop_after_irrelevant`` pages in a row matched less
+        than a third of the query terms (0 disables stopping): at that point
+        it has stopped finding anything new about the question, and every
+        further page costs a request without adding context.
+        """
+        from .relevance import tokenize
+
+        query_terms = set(tokenize(query)) if query else set()
         page_limit = max_pages or self.config.crawl_max_pages
         depth_limit = max_depth if max_depth is not None else self.config.crawl_depth
         include_patterns = include if include is not None else self.config.crawl_include
@@ -598,6 +613,7 @@ class AgentCrawl:
                 str(url): int(attempt)
                 for url, attempt in resume_state.get("retry_attempts", {}).items()
             }
+            irrelevant_streak = int(resume_state.get("irrelevant_streak", 0))
         else:
             queue = deque([_queue_item(root, 0)])
             queued = {root}
@@ -608,7 +624,9 @@ class AgentCrawl:
             failed_urls = []
             terminal_failures = []
             retry_attempts = {}
+            irrelevant_streak = 0
         cancelled = False
+        stopped_early = False
         retry_scheduled = False
         fairness_yielded = False
         next_retry_at: float | None = None
@@ -651,6 +669,7 @@ class AgentCrawl:
                         "failed_urls": failed_urls,
                         "terminal_failures": terminal_failures,
                         "retry_attempts": retry_attempts,
+                        "irrelevant_streak": irrelevant_streak,
                     },
                     progress,
                     document,
@@ -739,12 +758,21 @@ class AgentCrawl:
                     )
                 )
 
+            page_relevance = 0.0
+            if query_terms and not doc.errors:
+                page_relevance = _term_coverage(query_terms, doc.markdown)
+                doc.metadata["query_relevance"] = round(page_relevance, 3)
+                irrelevant_streak = 0 if page_relevance >= 1 / 3 else irrelevant_streak + 1
             documents.append(doc)
             visited.add(url)
             run_pages += 1
             errors.extend(f"{url}: {error}" for error in doc.errors)
             if doc.errors:
                 failed_urls.append(url)
+            if query_terms and stop_after_irrelevant and irrelevant_streak >= stop_after_irrelevant:
+                stopped_early = True
+                report(checkpoint=True, document=doc)
+                break
 
             if depth >= depth_limit:
                 report(checkpoint=True, document=doc)
@@ -763,7 +791,12 @@ class AgentCrawl:
                     continue
                 discovered.add(normalized)
                 queued.add(normalized)
-                queue.append(_queue_item(normalized, depth + 1))
+                score = (
+                    _term_coverage(query_terms, _url_words(normalized)) + 0.5 * page_relevance
+                    if query_terms
+                    else 0.0
+                )
+                queue.append(_queue_item(normalized, depth + 1, score=score))
             report(checkpoint=True, document=doc)
             if max_run_pages and run_pages >= max_run_pages and queue:
                 fairness_yielded = True
@@ -791,6 +824,7 @@ class AgentCrawl:
                 "next_retry_at": next_retry_at,
                 "cancelled": cancelled,
                 "robots_txt": self.config.respect_robots_txt,
+                **({"query": query, "stopped_early": stopped_early} if query_terms else {}),
                 **(
                     {"discovery_audit": discovery_trail.to_metadata()}
                     if discovery_trail is not None
@@ -814,13 +848,32 @@ def _queue_item(
     depth: int,
     attempt: int = 0,
     ready_at: float = 0.0,
+    score: float = 0.0,
 ) -> dict[str, Any]:
-    return {
+    item: dict[str, Any] = {
         "url": url,
         "depth": depth,
         "attempt": attempt,
         "ready_at": ready_at,
     }
+    if score:
+        # Only adaptive crawls set it; the queue then pops the best ready item.
+        item["score"] = round(score, 4)
+    return item
+
+
+def _term_coverage(terms: set[str], text: str) -> float:
+    """Share of the query ``terms`` that occur in ``text`` (0.0-1.0)."""
+    from .relevance import tokenize
+
+    if not terms:
+        return 0.0
+    return len(terms & set(tokenize(text))) / len(terms)
+
+
+def _url_words(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    return re.sub(r"[/_.\-+=&?]+", " ", urllib.parse.unquote(parsed.path + " " + parsed.query))
 
 
 def _terminal_failure(
@@ -848,6 +901,7 @@ def _decode_queue_item(item: Any) -> dict[str, Any]:
             int(item.get("depth", 0)),
             int(item.get("attempt", 0)),
             float(item.get("ready_at", 0.0)),
+            float(item.get("score", 0.0)),
         )
     return _queue_item(str(item[0]), int(item[1]))
 
@@ -868,6 +922,17 @@ def _pop_ready_item(
     earliest = min(float(item.get("ready_at", 0.0)) for item in queue)
     if earliest > now:
         return None, earliest
+    if any("score" in item for item in queue):
+        # Adaptive crawl: the most promising ready item first (FIFO on ties).
+        best_index, best_score = None, -1.0
+        for index, item in enumerate(queue):
+            score = float(item.get("score", 0.0))
+            if float(item.get("ready_at", 0.0)) <= now and score > best_score:
+                best_index, best_score = index, score
+        if best_index is not None:
+            item = queue[best_index]
+            del queue[best_index]
+            return item, earliest
     for _ in range(len(queue)):
         item = queue.popleft()
         ready_at = float(item.get("ready_at", 0.0))

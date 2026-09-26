@@ -307,6 +307,12 @@ def crawl_site(
             description="Server mode only: stable key that prevents duplicate asynchronous crawl jobs. Ignored by the local engine, which starts no jobs."
         ),
     ] = None,
+    query: Annotated[
+        str | None,
+        Field(
+            description="Optional: what you are looking for. Follows the most relevant links first and stops once pages stop matching, instead of reading the site in order."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Scrape multiple same-site pages with bounded depth and page count.
 
@@ -323,8 +329,9 @@ def crawl_site(
             max_depth=max_depth,
             wait=wait,
             idempotency_key=idempotency_key,
+            **({"query": query} if query else {}),
         )
-    return to_jsonable(_crawler().crawl(url, max_pages=max_pages, max_depth=max_depth))
+    return to_jsonable(_crawler().crawl(url, max_pages=max_pages, max_depth=max_depth, query=query))
 
 
 @mcp.tool()

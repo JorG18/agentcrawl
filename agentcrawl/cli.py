@@ -133,6 +133,9 @@ def main(argv: list[str] | None = None) -> int:
     crawl.add_argument("--wait", action="store_true")
     crawl.add_argument("--idempotency-key")
     crawl.add_argument(
+        "--query", help="Adaptive crawl: most relevant links first, stop when pages stop matching."
+    )
+    crawl.add_argument(
         "--alert-on-failure",
         action="store_true",
         help="Run --cmd after crawl completion when terminal failures exist.",
@@ -679,7 +682,9 @@ def _run_local(args: argparse.Namespace) -> Any:
         return to_jsonable(crawler.map(args.url, max_urls=args.max_urls))
     if args.command == "crawl":
         return to_jsonable(
-            crawler.crawl(args.url, max_pages=args.max_pages, max_depth=args.max_depth)
+            crawler.crawl(
+                args.url, max_pages=args.max_pages, max_depth=args.max_depth, query=args.query
+            )
         )
     raise SystemExit(f"{args.command} requires --remote")
 
@@ -722,6 +727,7 @@ def _run_remote(args: argparse.Namespace) -> Any:
             max_depth=args.max_depth,
             wait=args.wait,
             idempotency_key=args.idempotency_key,
+            query=args.query,
         )
     if args.command == "job":
         return client.job(args.job_id, offset=args.offset, limit=args.limit)
