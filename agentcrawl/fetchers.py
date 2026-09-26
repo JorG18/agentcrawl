@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import codecs
+import contextvars
 import importlib.util
 import json
 import os
@@ -97,7 +99,37 @@ def _browser_backend_available(backend: str) -> bool:
     return False
 
 
+# Per-fetch side outputs of the browser (screenshot bytes, action log). A
+# ContextVar keeps ``_fetch_browser``'s ``-> str`` contract for every caller.
+_CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "agentcrawl_browser_capture", default=None
+)
+
+
 def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
+    """Fetch ``source``; browser side outputs are added to the metadata."""
+    if (config.browser_actions or config.screenshot) and is_probably_url(source):
+        if config.fetcher == "camofox" or (
+            config.fetcher != "http" and config.browser_backend == "camofox"
+        ):
+            raise FetchError(
+                "browser_actions and screenshots need the local Playwright backend, not camofox.",
+                error_type="config_error",
+            )
+    capture: dict[str, Any] = {}
+    token = _CAPTURE.set(capture)
+    try:
+        content, metadata = _fetch_source(source, config)
+    finally:
+        _CAPTURE.reset(token)
+    if "screenshot" in capture:
+        metadata["screenshot_png_base64"] = base64.b64encode(capture["screenshot"]).decode("ascii")
+    if "actions" in capture:
+        metadata["browser_actions_log"] = capture["actions"]
+    return content, metadata
+
+
+def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     if not is_probably_url(source):
         check_local_source(source, allow=config.allow_local_files, root=config.local_files_root)
         return _fetch_local_file(source)
@@ -613,7 +645,19 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                     page.wait_for_timeout(config.browser_wait_ms)
                 if config.network_idle:
                     page.wait_for_load_state("networkidle", timeout=config.timeout_ms)
+                capture = _CAPTURE.get()
+                if config.browser_actions:
+                    from .browser_actions import run_actions
+
+                    try:
+                        log = run_actions(page, config.browser_actions, config.timeout_ms)
+                    except RuntimeError as exc:
+                        raise FetchError(str(exc), error_type="browser_error") from exc
+                    if capture is not None:
+                        capture["actions"] = log
                 validate_remote_url(page.url, allow_private_network=config.allow_private_network)
+                if config.screenshot and capture is not None:
+                    capture["screenshot"] = page.screenshot(full_page=True, type="png")
                 return page.content()
             finally:
                 for resource in (context, browser):

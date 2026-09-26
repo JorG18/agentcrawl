@@ -164,7 +164,7 @@ class AgentCrawl:
         from .browser_retry import attempt_browser_retry  # local import keeps scrape() cheap
 
         try:
-            html, fetch_metadata = fetch_source(source, self.config)
+            html, fetch_metadata = fetch_source(source, self._fetch_config(source, requested))
             blocked_reason = _blocked_page_reason(html)
             if blocked_reason:
                 # If the user opted into the local browser fallback, try once
@@ -299,6 +299,22 @@ class AgentCrawl:
             if formats is None:
                 return document
             return _format_document(document, requested)
+
+    def _fetch_config(self, source: str, requested: list[str]) -> CrawlConfig:
+        """Config for fetching ``source``: screenshots and actions need a browser.
+
+        Asking for them with the default HTTP fetcher switches that one fetch to
+        local Playwright instead of silently returning a page without them.
+        """
+        wants_screenshot = "screenshot" in requested
+        if not (wants_screenshot or self.config.browser_actions) or "://" not in source:
+            return self.config
+        changes: dict[str, Any] = {}
+        if wants_screenshot:
+            changes["screenshot"] = True
+        if self.config.fetcher == "http":
+            changes["fetcher"] = self.config.browser_backend
+        return dataclasses.replace(self.config, **changes)
 
     def extract_css(self, source: str, schema: dict[str, Any]) -> dict[str, Any]:
         """Deterministic structured extraction: CSS schema in, JSON out, no LLM.
@@ -920,16 +936,22 @@ def _format_document(
     query: str | None = None,
     chunk_tokens: int = 400,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {"url": document.url, "metadata": document.metadata}
+    metadata = document.metadata
+    if "screenshot_png_base64" in metadata:
+        # The image is its own output field, not metadata to scroll past.
+        metadata = {k: v for k, v in metadata.items() if k != "screenshot_png_base64"}
+    payload: dict[str, Any] = {"url": document.url, "metadata": metadata}
     for output_format in formats:
-        if output_format == "chunks":
+        if output_format == "screenshot":
+            payload["screenshot"] = document.metadata.get("screenshot_png_base64")
+        elif output_format == "chunks":
             from .chunks import chunk_markdown
 
             cite = str(document.metadata.get("final_url") or document.url)
             payload["chunks"] = chunk_markdown(
                 document.markdown, cite, max_tokens=chunk_tokens, query=query
             )
-        if output_format == "markdown":
+        elif output_format == "markdown":
             payload["markdown"] = document.markdown
         elif output_format == "text":
             payload["text"] = document.text
@@ -938,7 +960,7 @@ def _format_document(
         elif output_format == "links":
             payload["links"] = document.links
         elif output_format == "metadata":
-            payload["metadata"] = document.metadata
+            payload["metadata"] = metadata
     if document.errors:
         payload["errors"] = document.errors
     return payload

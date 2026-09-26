@@ -39,6 +39,11 @@ class CrawlConfig:
     browser_wait_ms: int = 0
     browser_block_resources: tuple[str, ...] = field(default_factory=tuple)
     browser_init_script: str | None = None
+    # Bounded steps (click, scroll, type, ...) run before the page is read; see
+    # ``browser_actions.py``. Needs the local Playwright backend.
+    browser_actions: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    # Capture a full-page PNG (the ``screenshot`` output format sets this).
+    screenshot: bool = False
     allow_private_network: bool = False
     # Local-file sources (a path instead of a URL). On for the library and the
     # CLI, where a human typed the path; the MCP turns it off (see
@@ -183,6 +188,7 @@ _BOOL_FIELDS = frozenset(
         "geoip",
         "humanize",
         "network_idle",
+        "screenshot",
         "reasoning",
         "auto_reattempt",
         "verbose",
@@ -289,6 +295,10 @@ def _validate_config_value(key: str, value: Any) -> Any:
                 f"{key} must be a string or null, got {type(value).__name__} ({value!r})"
             )
         return value
+    if key == "browser_actions":
+        from .browser_actions import validate_actions
+
+        return validate_actions(value)
     if key in _INT_SEQUENCE_FIELDS:
         return _validate_int_sequence(key, value)
     if key in _STR_SEQUENCE_FIELDS:
