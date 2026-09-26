@@ -235,6 +235,10 @@ def _fetch_local_file(source: str) -> tuple[str, dict[str, Any]]:
 
 def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     headers = {"user-agent": config.user_agent or "AgentCrawl/0.1"}
+    if config.if_none_match:
+        headers["if-none-match"] = config.if_none_match
+    if config.if_modified_since:
+        headers["if-modified-since"] = config.if_modified_since
     request = urllib.request.Request(url, headers=headers)
     from urllib.parse import urlparse
 
@@ -279,6 +283,11 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     "fetcher": "http",
                     "final_url": final_url,
                 }
+                # Validators for the next conditional fetch (``AgentCrawl.diff``).
+                for header, key in (("ETag", "etag"), ("Last-Modified", "last_modified")):
+                    value = response.headers.get(header)
+                    if value:
+                        fetch_metadata[key] = value
                 charset = _response_charset(response.headers)
                 content_type = _response_content_type(response.headers)
                 if audit_trail is not None:
@@ -309,6 +318,12 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     bytes_count=0,
                     target_host=target_host,
                 )
+            if exc.code == 304:
+                raise FetchError(
+                    f"{url} not modified since the previous fetch",
+                    error_type="not_modified",
+                    status_code=304,
+                ) from exc
             if exc.code not in {429, 500, 502, 503, 504} or attempt >= config.http_retries:
                 break
             retry_after = exc.headers.get("Retry-After")

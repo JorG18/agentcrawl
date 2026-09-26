@@ -44,6 +44,10 @@ class CrawlConfig:
     browser_actions: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     # Capture a full-page PNG (the ``screenshot`` output format sets this).
     screenshot: bool = False
+    # Conditional-request validators from a previous fetch (``AgentCrawl.diff``
+    # sets them): a 304 answer becomes ``error_type='not_modified'``.
+    if_none_match: str | None = None
+    if_modified_since: str | None = None
     allow_private_network: bool = False
     # Local-file sources (a path instead of a URL). On for the library and the
     # CLI, where a human typed the path; the MCP turns it off (see
@@ -220,6 +224,8 @@ _STR_OR_NONE_FIELDS = frozenset(
         "wait_until",
         "serper_api_key",
         "local_files_root",
+        "if_none_match",
+        "if_modified_since",
     }
 )
 

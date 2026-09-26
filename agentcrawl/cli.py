@@ -122,6 +122,14 @@ def main(argv: list[str] | None = None) -> int:
     llms_txt.add_argument("url")
     llms_txt.add_argument("--max-pages", type=int, default=25)
     llms_txt.add_argument("--output", help="Write the file here instead of stdout.")
+    diff = sub.add_parser(
+        "diff",
+        help="Re-read a page and show what changed since a saved scrape (local only).",
+        parents=[engine],
+    )
+    diff.add_argument("url")
+    diff.add_argument("--previous", help="JSON of an earlier scrape (or diff --save output).")
+    diff.add_argument("--save", help="Write the current page here, for the next diff.")
     map_cmd = sub.add_parser("map", parents=[engine])
     map_cmd.add_argument("url")
     map_cmd.add_argument("--max-urls", type=int, default=None)
@@ -278,6 +286,20 @@ def main(argv: list[str] | None = None) -> int:
         else:
             sys.stdout.write(result["llms_txt"])
         return 0 if result["pages"] else 1
+    if args.command == "diff":
+        previous = None
+        if args.previous:
+            try:
+                previous = json.loads(Path(args.previous).read_text("utf-8"))
+            except (OSError, ValueError) as exc:
+                parser.error(f"--previous: {exc}")
+            previous = previous.get("data", previous) if isinstance(previous, dict) else None
+        result = AgentCrawl(_local_config(args)).diff(args.url, previous)
+        document = result.pop("document", None)
+        if args.save and document is not None:
+            Path(args.save).write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("errors") else 0
     if args.command == "mcp":
         from .mcp_server import main as mcp_main
 

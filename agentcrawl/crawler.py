@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import contextvars
+import difflib
+import hashlib
 import dataclasses
 import json
 import re
@@ -254,6 +256,7 @@ class AgentCrawl:
                     "only_main_content": main_content,
                     "content_format": "markdown",
                     "markdown_chars": len(markdown),
+                    "markdown_sha256": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
                     "markdown_chars_full": markdown_chars_full,
                     "markdown_truncated": chars_omitted > 0,
                     "chars_omitted": chars_omitted,
@@ -299,6 +302,67 @@ class AgentCrawl:
             if formats is None:
                 return document
             return _format_document(document, requested)
+
+    def diff(
+        self,
+        source: str,
+        previous: ScrapeDocument | dict[str, Any] | None = None,
+        *,
+        max_diff_lines: int = 400,
+    ) -> dict[str, Any]:
+        """Re-read ``source`` and say whether (and how) it changed since ``previous``.
+
+        ``previous`` is an earlier scrape of the page (a ``ScrapeDocument`` or
+        its JSON). Its ``etag``/``last_modified`` make the fetch conditional, so
+        an unchanged page can answer ``304`` without sending the body; otherwise
+        the new Markdown is hashed and compared, and a unified diff (at most
+        ``max_diff_lines`` lines) shows what changed.
+        """
+        prev = to_jsonable(previous) if previous is not None else {}
+        prev_meta = prev.get("metadata") or {}
+        prev_markdown = str(prev.get("markdown") or "")
+        prev_hash = prev_meta.get("markdown_sha256") or (
+            hashlib.sha256(prev_markdown.encode("utf-8")).hexdigest() if prev_markdown else None
+        )
+        config = dataclasses.replace(
+            self.config,
+            if_none_match=prev_meta.get("etag"),
+            if_modified_since=prev_meta.get("last_modified"),
+        )
+        document = AgentCrawl(config).scrape(source)
+        result: dict[str, Any] = {"url": source, "previous_sha256": prev_hash}
+        if document.metadata.get("error_type") == "not_modified":
+            return {**result, "changed": False, "not_modified": True, "sha256": prev_hash}
+        if document.errors:
+            return {**result, "changed": None, "errors": document.errors}
+        new_hash = document.metadata["markdown_sha256"]
+        changed = new_hash != prev_hash
+        result.update(
+            changed=changed,
+            new=prev_hash is None,
+            sha256=new_hash,
+            document=to_jsonable(document),
+        )
+        if changed and prev_markdown:
+            lines = list(
+                difflib.unified_diff(
+                    prev_markdown.splitlines(),
+                    document.markdown.splitlines(),
+                    "previous",
+                    "current",
+                    lineterm="",
+                    n=1,
+                )
+            )
+            result["added_lines"] = sum(
+                1 for line in lines if line.startswith("+") and not line.startswith("+++")
+            )
+            result["removed_lines"] = sum(
+                1 for line in lines if line.startswith("-") and not line.startswith("---")
+            )
+            result["diff"] = "\n".join(lines[:max_diff_lines])
+            result["diff_truncated"] = len(lines) > max_diff_lines
+        return result
 
     def _fetch_config(self, source: str, requested: list[str]) -> CrawlConfig:
         """Config for fetching ``source``: screenshots and actions need a browser.
@@ -574,6 +638,7 @@ class AgentCrawl:
         max_run_pages: int | None = None,
         query: str | None = None,
         stop_after_irrelevant: int = 3,
+        previous_hashes: dict[str, str] | None = None,
     ) -> CrawlRun:
         """Crawl from ``source``. With ``query`` the crawl is adaptive.
 
@@ -584,6 +649,11 @@ class AgentCrawl:
         than a third of the query terms (0 disables stopping): at that point
         it has stopped finding anything new about the question, and every
         further page costs a request without adding context.
+
+        ``previous_hashes`` maps URL -> ``markdown_sha256`` from an earlier run;
+        each page then reports ``change`` (``new``, ``changed`` or
+        ``unchanged``) and the run metadata counts them, so a re-crawl says
+        what moved instead of handing back the whole site again.
         """
         from .relevance import tokenize
 
@@ -763,6 +833,15 @@ class AgentCrawl:
                 page_relevance = _term_coverage(query_terms, doc.markdown)
                 doc.metadata["query_relevance"] = round(page_relevance, 3)
                 irrelevant_streak = 0 if page_relevance >= 1 / 3 else irrelevant_streak + 1
+            if previous_hashes is not None and not doc.errors:
+                before = previous_hashes.get(url)
+                doc.metadata["change"] = (
+                    "new"
+                    if before is None
+                    else "unchanged"
+                    if before == doc.metadata.get("markdown_sha256")
+                    else "changed"
+                )
             documents.append(doc)
             visited.add(url)
             run_pages += 1
@@ -825,6 +904,16 @@ class AgentCrawl:
                 "cancelled": cancelled,
                 "robots_txt": self.config.respect_robots_txt,
                 **({"query": query, "stopped_early": stopped_early} if query_terms else {}),
+                **(
+                    {
+                        "changes": {
+                            kind: sum(1 for d in documents if d.metadata.get("change") == kind)
+                            for kind in ("new", "changed", "unchanged")
+                        }
+                    }
+                    if previous_hashes is not None
+                    else {}
+                ),
                 **(
                     {"discovery_audit": discovery_trail.to_metadata()}
                     if discovery_trail is not None

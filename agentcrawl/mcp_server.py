@@ -231,6 +231,45 @@ def search_web(
 
 
 @mcp.tool()
+def check_changes(
+    url: Annotated[str, Field(description="Public HTTP(S) page URL to re-read.")],
+    previous_markdown: Annotated[
+        str | None,
+        Field(description="Markdown from your earlier read of this page, to get a diff."),
+    ] = None,
+    previous_sha256: Annotated[
+        str | None,
+        Field(description="metadata.markdown_sha256 from the earlier read, if you kept only that."),
+    ] = None,
+    etag: Annotated[
+        str | None, Field(description="metadata.etag from the earlier read (enables a 304).")
+    ] = None,
+    last_modified: Annotated[
+        str | None, Field(description="metadata.last_modified from the earlier read.")
+    ] = None,
+) -> dict[str, Any]:
+    """Check whether a page changed since you last read it, and what changed.
+
+    Returns changed true/false, a unified diff when previous_markdown is given,
+    and the current document when it changed. Cheaper than re-reading and
+    comparing yourself; with etag/last_modified an unchanged page may not even
+    send its body. Runs on the local engine.
+    """
+    metadata = {
+        key: value
+        for key, value in {
+            "markdown_sha256": previous_sha256,
+            "etag": etag,
+            "last_modified": last_modified,
+        }.items()
+        if value
+    }
+    previous = {"markdown": previous_markdown or "", "metadata": metadata}
+    has_previous = bool(previous_markdown or metadata)
+    return _crawler().diff(url, previous if has_previous else None)
+
+
+@mcp.tool()
 def extract_structured(
     url: Annotated[str, Field(description="Public HTTP(S) page URL to extract from.")],
     schema: Annotated[
