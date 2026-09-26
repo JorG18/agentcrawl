@@ -116,7 +116,38 @@ python -m benchmarks.snapshot                      # fetch each page once, recor
 python -m benchmarks.compare --corpus benchmarks/corpus/neutral.json
 ```
 
-Snapshots are third-party content: they stay out of git (`benchmarks/corpus/snapshots/`), and `snapshots/index.json` records URL, final URL, status, size, SHA-256 and fetch time. `compare --corpus` prints those hashes with the results, so a published number names the exact bytes it was scored on. A page is scored only once someone has reviewed its snapshot and filled in its `expected` (and optionally `excluded`) signals; until then it is listed as `unscored` instead of counting as a perfect recall.
+Snapshots are third-party content: they stay out of git (`benchmarks/corpus/snapshots/`), and `snapshots/index.json` records URL, final URL, status, size, SHA-256 and fetch time. `compare --corpus` prints those hashes with the results, so a published number names the exact bytes it was scored on. A page is scored only once someone has reviewed its snapshot and filled in its `expected` (and optionally `excluded`) signals; until then it is listed as `unscored` instead of counting as a perfect recall. Text signals are matched after removing inline Markdown (links, inline code, emphasis, escapes) from the output, so keeping formatting never costs a tool recall.
+
+### Results on the neutral corpus (0.4.5)
+
+Run in GitHub Actions on 2026-09-26 ([benchmark workflow](../.github/workflows/benchmark.yml), Python 3.12, AgentCrawl 0.4.5, Crawl4AI 0.9.4, trafilatura 2.2.0, html2text 2025.4.15), 12 pages, same snapshot bytes for every tool (SHA-256 in the run's `benchmark-corpus.json`):
+
+| tool | text recall | structure recall | code language | noise leakage | clean pages | total tokens |
+|---|---|---|---|---|---|---|
+| AgentCrawl | 100% | 100% | 100% | 8.3% | 11/12 | 207,358 |
+| Crawl4AI `fit_markdown` | 100% | 100% | 0% | 7.6% | 9/12 | 341,773 |
+| Crawl4AI `raw_markdown` | 100% | 100% | 0% | 83.3% | 2/12 | 379,196 |
+| trafilatura | 91.7% | 90% | 0% | 0% | 10/12 | 127,584 |
+| html2text (plain) | 100% | 25% | 0% | 83.3% | 1/12 | 289,343 |
+
+"Clean pages" means every signal found and nothing excluded leaked.
+
+How to read this, including where it favours AgentCrawl:
+
+- **The signals were written by this project**, from each snapshot's HTML, before looking at any tool's output. They are not independent. The same review also found six AgentCrawl extraction bugs, which 0.4.5 fixes, so AgentCrawl was improved against this corpus and its score here is optimistic.
+- **Text recall ties.** AgentCrawl, Crawl4AI and plain html2text keep every checked sentence; trafilatura drops RFC 9110's body and a PostgreSQL passage.
+- **Noise:** Crawl4AI's `fit_markdown` and AgentCrawl leak about the same amount of site chrome; Crawl4AI's `raw_markdown` is the whole page by design.
+- **Tokens:** AgentCrawl's output is about 40% smaller than Crawl4AI's `fit_markdown` for the same content kept; trafilatura's is smaller still, because it drops code, tables and whole sections.
+- **Code language tags:** only two pages declare a language, so that column rests on two fences.
+- **What this does not measure:** JavaScript-heavy pages, crawling, speed at scale, or any of Crawl4AI's browser features. Latency here excludes browser start-up and is not a fair speed comparison.
+- 12 pages is a small sample. Treat this as "competitive on accessible docs pages", not as a ranking.
+
+Reproduce it with the benchmark workflow (it runs on pull requests that touch the benchmark and uploads the snapshots and every tool's output) or locally:
+
+```bash
+python -m benchmarks.snapshot
+python -m benchmarks.compare --corpus benchmarks/corpus/neutral.json --dump-dir outputs
+```
 
 ### Offline comparison lane (`benchmarks/compare.py`)
 

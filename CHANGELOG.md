@@ -29,6 +29,7 @@ Pages behind a login, infinite and virtualized lists, iframes and web components
 
 - `benchmarks/corpus/neutral.json` now has reviewed signals for its 12 pages, written from each snapshot's HTML. The benchmark workflow runs on pull requests that touch it, installs Crawl4AI's browser, and uploads the snapshots and every tool's Markdown for review (`compare --dump-dir`, `--include-unreviewed`).
 - Text signals are matched on the output with inline Markdown removed, so a tool that keeps links or inline code is not penalised against one that drops them.
+- First results, in `docs/QUALITY_BENCHMARKS.md`: AgentCrawl and Crawl4AI both keep every checked sentence; AgentCrawl's output is about 40% smaller than Crawl4AI's `fit_markdown` with similar noise. The signals were written by this project and the same review drove the fixes above, so read it as a first data point, not a ranking.
 
 ## 0.4.0 - 2026-09-26
 
