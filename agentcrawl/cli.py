@@ -556,7 +556,7 @@ def _check_browser(installed: bool) -> dict[str, Any]:
         return {
             "ok": True,
             "skipped": True,
-            "detail": 'browser extra not installed; JavaScript pages need: pip install "agentcrawl-ai[browser]"',
+            "detail": "browser extra not installed; JavaScript pages need the [browser] extra and: python -m playwright install chromium",
         }
     try:
         from playwright.sync_api import sync_playwright

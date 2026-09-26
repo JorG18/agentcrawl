@@ -195,4 +195,4 @@ def test_doctor_browser_check_without_the_extra_is_skipped() -> None:
 
     check = _check_browser(False)
     assert check["skipped"] is True
-    assert "agentcrawl-ai[browser]" in check["detail"]
+    assert "playwright install chromium" in check["detail"]

@@ -38,7 +38,7 @@ python -m venv /tmp/agentcrawl-smoke
 /tmp/agentcrawl-smoke/bin/python -m pip install dist/agentcrawl_ai-<version>-py3-none-any.whl
 /tmp/agentcrawl-smoke/bin/agentcrawl --version
 /tmp/agentcrawl-smoke/bin/agentcrawl doctor
-/tmp/agentcrawl-smoke/bin/agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
+/tmp/agentcrawl-smoke/bin/agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
 Also smoke optional extras when they changed:
@@ -108,6 +108,6 @@ Releases are cut by `.github/workflows/release.yml`:
 1. Bump `version` in `pyproject.toml` and turn `## Unreleased` in `CHANGELOG.md` into `## X.Y.Z - YYYY-MM-DD`; merge to `main` with CI green.
 2. Push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The workflow checks the tag matches the package version, runs lint and tests, builds and `twine check`s the artifacts, publishes to PyPI and creates the GitHub Release with that version's CHANGELOG section as notes. `docker.yml` publishes the GHCR image for the tag.
 3. Without push access for tags, run **Release** by hand on `main` with the tag name: it creates the tag at that commit. Then run **Build and Push Docker Image** by hand on the new tag, because a tag created by a workflow does not start other workflows.
-4. PyPI uses trusted publishing: the `agentcrawl-ai` project on pypi.org must list this repository, workflow `release.yml` and environment `pypi` as a trusted publisher. Until then the PyPI job fails and the GitHub Release is still created.
+4. PyPI uses trusted publishing: the `agentcrawl-ai` project on pypi.org must list this repository, workflow `release.yml` and environment `pypi` as a trusted publisher, and the repository variable `PUBLISH_PYPI` must be `true`. Until then the PyPI job is skipped and the GitHub Release and Docker image are still published.
 5. Run the post-release install smoke from PyPI and GHCR (sections 3 and 4).
 6. Deploy hosted instances only as a separate, explicit step with a fresh backup and smoke tests.
