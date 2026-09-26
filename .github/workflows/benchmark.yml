@@ -1,9 +1,17 @@
 name: Benchmark
 
-# Manual run of the public comparison: snapshot the neutral corpus once, then
-# score every extractor on the same bytes and on the offline fixtures. Results
-# are uploaded as an artifact; nothing is published automatically.
+# Public comparison: snapshot the neutral corpus once, then score every
+# extractor on the same bytes and on the offline fixtures. Runs on demand and
+# on pull requests that touch the benchmark. Results, snapshots and every
+# tool's Markdown are uploaded as artifacts; nothing is published automatically.
 on:
+  pull_request:
+    paths:
+      - "benchmarks/compare.py"
+      - "benchmarks/snapshot.py"
+      - "benchmarks/quality_report.py"
+      - "benchmarks/corpus/neutral.json"
+      - ".github/workflows/benchmark.yml"
   workflow_dispatch:
     inputs:
       tools:
@@ -36,6 +44,15 @@ jobs:
           set -o pipefail
           python -m benchmarks.compare ${TOOLS:+--tools "$TOOLS"} \
             --json benchmark-fixtures.json | tee benchmark-fixtures.md
+      # Every tool's output on every snapshot, reviewed or not, so the expected
+      # signals can be written from what the page really says.
+      - name: Dump outputs for review
+        env:
+          TOOLS: ${{ inputs.tools }}
+        run: |
+          python -m benchmarks.compare ${TOOLS:+--tools "$TOOLS"} \
+            --corpus benchmarks/corpus/neutral.json --include-unreviewed \
+            --dump-dir benchmark-outputs > /dev/null
       # Fails with "no scorable corpus pages" until each snapshot's expected
       # signals have been reviewed and written into neutral.json.
       - name: Neutral corpus lane
@@ -54,3 +71,12 @@ jobs:
             benchmark-*.json
             benchmark-*.md
             benchmarks/corpus/snapshots/index.json
+      # Third-party content: kept as a short-lived artifact, never committed.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-review
+          retention-days: 7
+          path: |
+            benchmarks/corpus/snapshots/*.html
+            benchmark-outputs/

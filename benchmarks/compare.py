@@ -256,12 +256,16 @@ def fixture_pages() -> list[Page]:
     ]
 
 
-def corpus_pages(manifest_path: Path) -> tuple[list[Page], dict[str, str]]:
+def corpus_pages(
+    manifest_path: Path, *, include_unreviewed: bool = False
+) -> tuple[list[Page], dict[str, str]]:
     """Snapshotted pages of a neutral corpus manifest, plus the ones left out and why.
 
     A page counts only once it has a snapshot (``benchmarks.snapshot``) *and*
     reviewed ``expected`` signals: scoring a page on no signals would report a
-    perfect recall that means nothing.
+    perfect recall that means nothing. ``include_unreviewed`` keeps those
+    pages anyway (still listed as unscored) so ``--dump-dir`` can write every
+    tool's output for the review that fills in the signals.
     """
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     snapshots = manifest_path.parent / "snapshots"
@@ -271,9 +275,11 @@ def corpus_pages(manifest_path: Path) -> tuple[list[Page], dict[str, str]]:
         path = snapshots / f"{entry['id']}.html"
         if not path.exists():
             unscored[entry["id"]] = "no snapshot (run python -m benchmarks.snapshot)"
-        elif not entry.get("expected"):
-            unscored[entry["id"]] = "no reviewed expected signals yet"
         else:
+            if not entry.get("expected"):
+                unscored[entry["id"]] = "no reviewed expected signals yet"
+                if not include_unreviewed:
+                    continue
             pages.append(
                 Page(
                     entry["id"],
@@ -286,7 +292,7 @@ def corpus_pages(manifest_path: Path) -> tuple[list[Page], dict[str, str]]:
 
 
 def run(
-    tools: list[str], pages: list[Page] | None = None
+    tools: list[str], pages: list[Page] | None = None, *, dump_dir: Path | None = None
 ) -> tuple[list[Row], dict[str, str], dict[str, str]]:
     pages = fixture_pages() if pages is None else pages
     rows: list[Row] = []
@@ -313,6 +319,10 @@ def run(
                 except Exception as exc:
                     markdown, error = "", f"{type(exc).__name__}: {exc}"[:300]
                 elapsed = (time.perf_counter() - started) * 1000
+                if dump_dir is not None:
+                    target = dump_dir / tool / f"{page.name}.md"
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(markdown, encoding="utf-8")
                 row = score(
                     tool,
                     page.name,
@@ -430,6 +440,15 @@ def main(argv: list[str] | None = None) -> int:
         "--corpus",
         help="Neutral corpus manifest (e.g. benchmarks/corpus/neutral.json) instead of fixtures.",
     )
+    parser.add_argument(
+        "--dump-dir",
+        help="Write each tool's Markdown per page here (tool/page.md) for review.",
+    )
+    parser.add_argument(
+        "--include-unreviewed",
+        action="store_true",
+        help="With --corpus, also run pages whose expected signals are not written yet.",
+    )
     args = parser.parse_args(argv)
     tools = [tool.strip() for tool in args.tools.split(",") if tool.strip()]
     unknown = sorted(set(tools) - set(ADAPTERS))
@@ -438,11 +457,15 @@ def main(argv: list[str] | None = None) -> int:
 
     pages, unscored = None, {}
     if args.corpus:
-        pages, unscored = corpus_pages(Path(args.corpus))
+        pages, unscored = corpus_pages(
+            Path(args.corpus), include_unreviewed=args.include_unreviewed
+        )
         if not pages:
             print("no scorable corpus pages: " + json.dumps(unscored, indent=2))
             return 1
-    rows, versions, skipped = run(tools, pages)
+    rows, versions, skipped = run(
+        tools, pages, dump_dir=Path(args.dump_dir) if args.dump_dir else None
+    )
     summary = summarize(rows)
     environment = _environment()
     if args.corpus:
