@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .exceptions import FetchError
+from .office import OFFICE_SUFFIXES, office_to_markdown
 
 _TEXT_SUFFIXES = {".txt", ".text"}
 _MARKDOWN_SUFFIXES = {".md", ".markdown", ".mdown", ".mkd"}
@@ -29,11 +30,13 @@ _MAX_PDF_PAGES = 500
 _MAX_DOCUMENT_BYTES = 50 * 1024 * 1024
 
 
-def read_local_document(path: Path) -> tuple[str, dict[str, Any]]:
+def read_local_document(path: Path, *, ocr: bool = False) -> tuple[str, dict[str, Any]]:
     suffix = path.suffix.lower()
     if suffix in _PDF_SUFFIXES:
-        return _read_pdf(path)
+        return _read_pdf(path, ocr=ocr)
     _reject_oversized_document(path)
+    if suffix in OFFICE_SUFFIXES:
+        return office_to_markdown(path.read_bytes(), OFFICE_SUFFIXES[suffix])
     if suffix in _MARKDOWN_SUFFIXES:
         return path.read_text(encoding="utf-8", errors="replace"), {
             "content_format": "markdown",
@@ -136,30 +139,49 @@ def _reject_oversized_document(path: Path) -> None:
         )
 
 
-def _read_pdf(path: Path) -> tuple[str, dict[str, Any]]:
+def _read_pdf(path: Path, *, ocr: bool = False) -> tuple[str, dict[str, Any]]:
     size = path.stat().st_size
     if size > _MAX_PDF_BYTES:
         raise FetchError(f"PDF exceeds the {_MAX_PDF_BYTES // (1024 * 1024)} MB size limit: {path}")
+    fitz = _import_pymupdf()
+    try:
+        document = fitz.open(path)
+    except Exception as exc:
+        raise FetchError(f"PDF open failed for {path}: {exc}") from exc
+    return _pdf_markdown(document, size, ocr=ocr)
 
+
+def pdf_bytes_to_markdown(data: bytes, *, ocr: bool = False) -> tuple[str, dict[str, Any]]:
+    """Convert a downloaded PDF (HTTP response body) to Markdown."""
+    if len(data) > _MAX_PDF_BYTES:
+        raise FetchError(f"PDF exceeds the {_MAX_PDF_BYTES // (1024 * 1024)} MB size limit")
+    fitz = _import_pymupdf()
+    try:
+        document = fitz.open(stream=data, filetype="pdf")
+    except Exception as exc:
+        raise FetchError(f"PDF open failed: {exc}") from exc
+    return _pdf_markdown(document, len(data), ocr=ocr)
+
+
+def _import_pymupdf() -> Any:
     try:
         import fitz  # PyMuPDF
     except ImportError as exc:
         raise FetchError(
             "PDF ingestion requires the docs extra. Install with: "
-            "python -m pip install 'agentcrawl[docs]'"
+            "python -m pip install 'agentcrawl-ai[docs]'"
         ) from exc
+    return fitz
 
-    try:
-        document = fitz.open(path)
-    except Exception as exc:
-        raise FetchError(f"PDF open failed for {path}: {exc}") from exc
 
+def _pdf_markdown(document: Any, size: int, *, ocr: bool) -> tuple[str, dict[str, Any]]:
     pages: list[str] = []
     metadata: dict[str, Any] = {
         "content_format": "markdown",
         "document_type": "pdf",
         "source_bytes": size,
     }
+    ocr_pages: list[int] = []
     try:
         if getattr(document, "is_encrypted", False) or getattr(document, "needs_pass", False):
             raise FetchError("Encrypted PDF documents are not supported.")
@@ -172,13 +194,34 @@ def _read_pdf(path: Path) -> tuple[str, dict[str, Any]]:
         metadata["page_count"] = page_count
         for index, page in enumerate(document, start=1):
             text = page.get_text("text").strip()
+            if not text and ocr:
+                text = _ocr_page(page, index)
+                if text:
+                    ocr_pages.append(index)
             if text:
                 pages.append(f"## Page {index}\n\n{text}")
         metadata["has_text"] = bool(pages)
+        if ocr_pages:
+            metadata["ocr_pages"] = ocr_pages
+        elif not pages and page_count and not ocr:
+            # Scanned PDF: say why it is empty instead of returning nothing.
+            metadata["warning"] = "PDF has no text layer; it looks scanned. Retry with ocr=true."
     finally:
         document.close()
 
     return "\n\n".join(pages).strip(), metadata
+
+
+def _ocr_page(page: Any, index: int) -> str:
+    """OCR one image-only page with PyMuPDF's Tesseract bridge."""
+    try:
+        textpage = page.get_textpage_ocr(full=True)
+        return page.get_text("text", textpage=textpage).strip()
+    except Exception as exc:
+        raise FetchError(
+            f"OCR failed on PDF page {index}: {exc}. OCR needs the Tesseract binary "
+            "installed and TESSDATA_PREFIX set."
+        ) from exc
 
 
 def _format_json_markdown(text: str) -> str:

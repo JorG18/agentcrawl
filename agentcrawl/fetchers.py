@@ -16,7 +16,13 @@ import uuid
 from typing import Any
 
 from .config import CrawlConfig
-from .documents import CSV_CONTENT_TYPES, csv_to_markdown, read_local_document
+from .documents import (
+    CSV_CONTENT_TYPES,
+    csv_to_markdown,
+    pdf_bytes_to_markdown,
+    read_local_document,
+)
+from .office import OFFICE_CONTENT_TYPES, OFFICE_SUFFIXES, office_to_markdown
 from .errors import status_code_of
 from .exceptions import FetchError
 from .security import check_local_source, pinned_handlers, validate_remote_url
@@ -132,7 +138,7 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
 def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     if not is_probably_url(source):
         check_local_source(source, allow=config.allow_local_files, root=config.local_files_root)
-        return _fetch_local_file(source)
+        return _fetch_local_file(source, ocr=config.ocr)
     validate_remote_url(source, allow_private_network=config.allow_private_network)
     if config.fetcher == "http":
         try:
@@ -219,12 +225,12 @@ def _should_browser_fallback(message: str, config: CrawlConfig) -> bool:
     )
 
 
-def _fetch_local_file(source: str) -> tuple[str, dict[str, Any]]:
+def _fetch_local_file(source: str, *, ocr: bool = False) -> tuple[str, dict[str, Any]]:
     path = pathlib.Path(source).expanduser()
     if not path.exists():
         raise FetchError(f"Local file not found: {source}", error_type="not_found")
     resolved = str(path.resolve())
-    content, metadata = read_local_document(path)
+    content, metadata = read_local_document(path, ocr=ocr)
     return content, {
         "fetcher": "file",
         "source_path": str(path),
@@ -300,6 +306,15 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                         target_host=target_host,
                     )
                     fetch_metadata.update(audit_trail.to_metadata())
+                binary_kind = _binary_document_kind(content_type, final_url)
+                if binary_kind:
+                    # PDFs and Office files decoded as text were garbage.
+                    if binary_kind == "pdf":
+                        body, doc_metadata = pdf_bytes_to_markdown(html_bytes, ocr=config.ocr)
+                    else:
+                        body, doc_metadata = office_to_markdown(html_bytes, binary_kind)
+                    fetch_metadata.update(doc_metadata)
+                    return body, fetch_metadata
                 body = _decode_http_body(html_bytes, charset)
                 if content_type in CSV_CONTENT_TYPES:
                     # Data URLs serve CSV; parsed as HTML they became one
@@ -447,6 +462,24 @@ def _read_bounded(
                 + f" (read deadline is {READ_DEADLINE_FACTOR}x timeout_ms)."
             )
     return b"".join(chunks)
+
+
+def _binary_document_kind(content_type: str, url: str) -> str | None:
+    """``pdf``/``docx``/``xlsx``/``pptx`` for a document response, else None.
+
+    The content type decides; a generic binary type falls back to the URL's
+    file extension, which is how many file servers label downloads.
+    """
+    if content_type == "application/pdf":
+        return "pdf"
+    if content_type in OFFICE_CONTENT_TYPES:
+        return OFFICE_CONTENT_TYPES[content_type]
+    if content_type in {"application/octet-stream", "binary/octet-stream", ""}:
+        suffix = pathlib.PurePosixPath(urllib.parse.urlsplit(url).path).suffix.lower()
+        if suffix == ".pdf":
+            return "pdf"
+        return OFFICE_SUFFIXES.get(suffix)
+    return None
 
 
 def _response_content_type(headers: Any) -> str:

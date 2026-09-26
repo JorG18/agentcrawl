@@ -68,6 +68,14 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
     )
 
+    engine_group.add_argument(
+        "--ocr",
+        action="store_const",
+        const=True,
+        default=None,
+        help="OCR image-only PDF pages (docs extra plus the Tesseract binary).",
+    )
+
     scrape = sub.add_parser("scrape", parents=[engine])
     scrape.add_argument("url")
     scrape.add_argument("--format", action="append", dest="formats", default=None)
@@ -651,6 +659,7 @@ def _local_config(args: argparse.Namespace) -> dict[str, Any]:
         "timeout_ms": getattr(args, "timeout_ms", None),
         "respect_robots_txt": getattr(args, "respect_robots_txt", None),
         "browser_fallback": getattr(args, "browser_fallback", None),
+        "ocr": getattr(args, "ocr", None),
     }
     config.update({key: value for key, value in overrides.items() if value is not None})
     allowlist = getattr(args, "allowlist", None)

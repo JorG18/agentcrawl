@@ -59,6 +59,7 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
         "max_input_chars",
         "chunk_tokens",
         "browser_actions",
+        "ocr",
         "max_response_bytes",
         "crawl_depth",
         "crawl_max_pages",

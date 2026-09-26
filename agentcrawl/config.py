@@ -44,6 +44,8 @@ class CrawlConfig:
     browser_actions: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     # Capture a full-page PNG (the ``screenshot`` output format sets this).
     screenshot: bool = False
+    # OCR image-only PDF pages (needs the docs extra plus the Tesseract binary).
+    ocr: bool = False
     # Conditional-request validators from a previous fetch (``AgentCrawl.diff``
     # sets them): a 304 answer becomes ``error_type='not_modified'``.
     if_none_match: str | None = None
@@ -193,6 +195,7 @@ _BOOL_FIELDS = frozenset(
         "humanize",
         "network_idle",
         "screenshot",
+        "ocr",
         "reasoning",
         "auto_reattempt",
         "verbose",
@@ -391,6 +394,7 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
         "allow_private_network": _env_flag("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", False),
         "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
         "browser_fallback": _env_flag("AGENTCRAWL_BROWSER_FALLBACK", True),
+        "ocr": _env_flag("AGENTCRAWL_OCR", False),
         "allow_local_files": _env_flag("AGENTCRAWL_ALLOW_LOCAL_FILES", allow_local_files_default),
         "local_files_root": local_files_root_from_env(),
     }
