@@ -98,8 +98,12 @@ def html_to_markdown(
     config: CrawlConfig,
     *,
     only_main_content: bool = True,
+    base_url: str | None = None,
 ) -> str:
     """Convert HTML to Markdown **without** applying any output budget.
+
+    ``base_url`` (the page's final http(s) URL) turns relative links and image
+    sources into absolute ones, so an agent can follow them as written.
 
     The parser deliberately does not truncate: only the caller can record a
     truncation in the document metadata, and a silent cap here made the
@@ -117,7 +121,11 @@ def html_to_markdown(
         converter.ignore_images = not config.include_images
         converter.body_width = 0
         converter.unicode_snob = True
-        converter.pad_tables = True
+        # Padding aligned table columns with spaces for human eyes; on real
+        # pages (GitHub file lists) that was a third of the output characters.
+        converter.pad_tables = False
+        if base_url and base_url.startswith(("http://", "https://")):
+            converter.baseurl = base_url
         converter.mark_code = True
         markdown = converter.handle(html)
     except Exception:
@@ -477,7 +485,86 @@ def _clean_markdown(markdown: str, code_lang_map: dict[int, str] | None = None) 
         cleaned.append(line)
         blank = False
 
-    return "\n".join(cleaned).strip()
+    return _compact_tables(_strip_link_titles("\n".join(cleaned))).strip()
+
+
+# ``[text](url "title")``: link titles are tooltips ("This path skips through
+# empty directories"), pure token cost for an agent.
+_LINK_TITLE_RE = re.compile(r'(\]\((?:[^()\s]|\([^()\s]*\))+) "[^"\n]*"\)')
+_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+_CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
+
+
+def _strip_link_titles(markdown: str) -> str:
+    out: list[str] = []
+    in_code = False
+    for line in markdown.split("\n"):
+        if line.startswith("```"):
+            in_code = not in_code
+        out.append(line if in_code else _LINK_TITLE_RE.sub(r"\1)", line))
+    return "\n".join(out)
+
+
+def _compact_tables(markdown: str) -> str:
+    """Trim cell whitespace and drop a column that repeats its left neighbour.
+
+    Sites often render one column twice (a desktop and a mobile variant, one of
+    them hidden with CSS); the reader sees one, the Markdown got both.
+    """
+    lines = markdown.split("\n")
+    out: list[str] = []
+    index = 0
+    while index < len(lines):
+        if (
+            index + 1 < len(lines)
+            and "|" in lines[index]
+            and _TABLE_SEPARATOR_RE.match(lines[index + 1])
+        ):
+            end = index + 2
+            while end < len(lines) and "|" in lines[end] and lines[end].strip():
+                end += 1
+            out.extend(_compact_table(lines[index:end]))
+            index = end
+            continue
+        out.append(lines[index])
+        index += 1
+    return "\n".join(out)
+
+
+def _split_row(line: str, outer_pipes: bool) -> list[str]:
+    # html2text writes tables without outer pipes, so there a leading "|" is an
+    # empty first cell (GitHub's screen-reader-only header), not decoration.
+    text = line.strip()
+    if outer_pipes:
+        if text.startswith("|"):
+            text = text[1:]
+        if text.endswith("|") and not text.endswith("\\|"):
+            text = text[:-1]
+    return [cell.strip() for cell in _CELL_SPLIT_RE.split(text)]
+
+
+def _compact_table(rows: list[str]) -> list[str]:
+    outer_pipes = rows[1].strip().startswith("|")
+    cells = [_split_row(row, outer_pipes) for row in rows]
+    width = len(cells[1])
+    if any(len(row) != width for row in cells):
+        return [row.rstrip() for row in rows]
+    header, body = cells[0], cells[2:]
+    keep: list[int] = []
+    for column in range(width):
+        if body and all(not row[column] for row in body):
+            continue  # no data at all (often filled in later by JavaScript)
+        if keep and body and all(row[column] == row[keep[-1]] for row in body):
+            if not header[keep[-1]]:
+                header[keep[-1]] = header[column]
+            continue  # the same data twice
+        keep.append(column)
+    if not keep:
+        return [row.rstrip() for row in rows]
+    rendered = ["| " + " | ".join(header[column] for column in keep) + " |"]
+    rendered.append("|" + "|".join("---" for _ in keep) + "|")
+    rendered.extend("| " + " | ".join(row[column] for column in keep) + " |" for row in body)
+    return rendered
 
 
 def _extract_code_language_tags(html: str) -> dict[int, str]:

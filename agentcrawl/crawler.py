@@ -221,6 +221,7 @@ class AgentCrawl:
                     html,
                     self.config,
                     only_main_content=main_content,
+                    base_url=str(fetch_metadata.get("final_url") or source),
                 )
                 provenance = extraction_provenance(html, only_main_content=main_content)
             else:
