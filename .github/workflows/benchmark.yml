@@ -1,0 +1,56 @@
+name: Benchmark
+
+# Manual run of the public comparison: snapshot the neutral corpus once, then
+# score every extractor on the same bytes and on the offline fixtures. Results
+# are uploaded as an artifact; nothing is published automatically.
+on:
+  workflow_dispatch:
+    inputs:
+      tools:
+        description: Comma-separated adapters (empty = all installed)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install AgentCrawl and the compared extractors
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" html2text trafilatura crawl4ai
+      - name: Snapshot the neutral corpus
+        run: python -m benchmarks.snapshot
+      - name: Offline fixtures lane
+        env:
+          TOOLS: ${{ inputs.tools }}
+        run: |
+          set -o pipefail
+          python -m benchmarks.compare ${TOOLS:+--tools "$TOOLS"} \
+            --json benchmark-fixtures.json | tee benchmark-fixtures.md
+      # Fails with "no scorable corpus pages" until each snapshot's expected
+      # signals have been reviewed and written into neutral.json.
+      - name: Neutral corpus lane
+        env:
+          TOOLS: ${{ inputs.tools }}
+        run: |
+          set -o pipefail
+          python -m benchmarks.compare ${TOOLS:+--tools "$TOOLS"} \
+            --corpus benchmarks/corpus/neutral.json \
+            --json benchmark-corpus.json | tee benchmark-corpus.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: |
+            benchmark-*.json
+            benchmark-*.md
+            benchmarks/corpus/snapshots/index.json
