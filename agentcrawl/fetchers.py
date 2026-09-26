@@ -142,7 +142,8 @@ def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]
     validate_remote_url(source, allow_private_network=config.allow_private_network)
     if config.fetcher == "http":
         try:
-            return _fetch_http(source, config)
+            content, http_metadata = _fetch_http(source, config)
+            return _render_if_js_shell(source, content, http_metadata, config)
         except FetchError as exc:
             if not (config.browser_fallback and _should_browser_fallback(str(exc), config)):
                 raise
@@ -182,6 +183,46 @@ def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]
             metadata.update(browser_trail.to_metadata())
         return html, metadata
     raise FetchError(f"Unknown fetcher: {config.fetcher}", error_type="config_error")
+
+
+def _render_if_js_shell(
+    source: str,
+    content: str,
+    metadata: dict[str, Any],
+    config: CrawlConfig,
+) -> tuple[str, dict[str, Any]]:
+    """Re-read a script-rendered shell in the local browser.
+
+    An HTTP 200 whose body is only a JavaScript mount point used to come back
+    as a near-empty document. With ``browser_fallback`` on and a browser
+    installed, render it once; if rendering fails, keep the HTTP result and say
+    why in ``browser_render_error`` so nothing is hidden.
+    """
+    from .challenge import needs_javascript
+
+    if not config.browser_fallback or not needs_javascript(content):
+        return content, metadata
+    backend = config.browser_backend
+    if not _browser_backend_available(backend):
+        return content, {**metadata, "javascript_required": True}
+    audit_kwargs, browser_trail = _browser_audit_kwargs(config)
+    try:
+        html = _fetch_browser(source, config, **audit_kwargs)
+    except FetchError as exc:
+        return content, {
+            **metadata,
+            "javascript_required": True,
+            "browser_render_error": str(exc),
+        }
+    rendered: dict[str, Any] = {
+        **metadata,
+        "fetcher": backend,
+        "fallback_from": "http",
+        "fallback_reason": "javascript_required",
+    }
+    if browser_trail is not None:
+        rendered.update(browser_trail.to_metadata())
+    return html, rendered
 
 
 def _fetch_browser(

@@ -20,6 +20,7 @@ from typing import Any, Callable
 from .airgap import AirgapViolation, AuditTrail
 from .airgap import _match as _airgap_match
 from .challenge import ChallengeVerdict, detect_challenge
+from .challenge import html_to_plain_text as _html_to_plain_text
 from .config import CrawlConfig
 from .documents import markdown_from_fetched_content
 from .errors import classify_error, error_metadata, sanitize_error_message
@@ -1046,38 +1047,6 @@ def _challenge_verdict(html: str) -> ChallengeVerdict:
         line for line in text.splitlines() if not _COOKIE_CONSENT_LINE_RE.match(line.strip())
     )
     return detect_challenge(html, readable)
-
-
-_HTML_SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
-_HTML_WHITESPACE_RE = re.compile(r"\s+")
-# Block-level tags become line breaks. ``_blocked_page_reason`` is line-oriented
-# on purpose (it skips cookie-consent lines first), but the old implementation
-# collapsed every newline before splitting lines, so that loop saw a single line:
-# the skip was dead code and the challenge patterns matched anywhere in the page.
-_HTML_BLOCK_TAG_RE = re.compile(
-    r"</?(?:p|div|section|article|main|aside|header|footer|nav|ul|ol|li|table|tr|td|th|"
-    r"h[1-6]|br|hr|form|figure|figcaption|blockquote|pre|dl|dt|dd)\b[^>]*>",
-    re.IGNORECASE,
-)
-
-
-def _html_to_plain_text(html: str) -> str:
-    """Best-effort HTML -> plain-text for blocked-page detection.
-
-    Drops ``<script>`` / ``<style>`` contents entirely (they're noise for a
-    Cloudflare / interstitial heuristic), turns block-level tags into line
-    breaks, strips the rest, and collapses intra-line whitespace so the regex
-    patterns see contiguous tokens on the line they came from. Not intended for
-    general markdown extraction; ``parsing.py`` owns that path.
-    """
-    if not html:
-        return ""
-    cleaned = _HTML_SCRIPT_STYLE_RE.sub("\n", html)
-    cleaned = _HTML_BLOCK_TAG_RE.sub("\n", cleaned)
-    cleaned = _HTML_TAG_RE.sub(" ", cleaned)
-    lines = (_HTML_WHITESPACE_RE.sub(" ", part).strip() for part in cleaned.splitlines())
-    return "\n".join(line for line in lines if line)
 
 
 def _format_document(

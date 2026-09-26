@@ -122,7 +122,7 @@ def detect_challenge(html: str, visible_text: str) -> ChallengeVerdict:
     """Classify a page from its raw HTML and its readable text.
 
     ``visible_text`` is the page without scripts, styles or tags, one block per
-    line, and without cookie-banner lines (see ``crawler._html_to_plain_text``).
+    line, and without cookie-banner lines (see :func:`html_to_plain_text`).
     """
     text_chars = len(re.sub(r"\s+", "", visible_text or ""))
     verdict = ChallengeVerdict(text_chars=text_chars)
@@ -151,3 +151,56 @@ def detect_challenge(html: str, visible_text: str) -> ChallengeVerdict:
     if kinds >= 2 or (phrases and text_chars <= VERY_SHORT_PAGE_CHARS):
         verdict.signals.extend(titles + vendors + phrases)
     return verdict
+
+
+_HTML_SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_HTML_WHITESPACE_RE = re.compile(r"\s+")
+# Block-level tags become line breaks. Challenge detection is line-oriented
+# on purpose (it skips cookie-consent lines first), but the old implementation
+# collapsed every newline before splitting lines, so that loop saw a single line:
+# the skip was dead code and the challenge patterns matched anywhere in the page.
+_HTML_BLOCK_TAG_RE = re.compile(
+    r"</?(?:p|div|section|article|main|aside|header|footer|nav|ul|ol|li|table|tr|td|th|"
+    r"h[1-6]|br|hr|form|figure|figcaption|blockquote|pre|dl|dt|dd)\b[^>]*>",
+    re.IGNORECASE,
+)
+
+
+def html_to_plain_text(html: str) -> str:
+    """Best-effort HTML -> plain-text for blocked-page detection.
+
+    Drops ``<script>`` / ``<style>`` contents entirely (they're noise for a
+    Cloudflare / interstitial heuristic), turns block-level tags into line
+    breaks, strips the rest, and collapses intra-line whitespace so the regex
+    patterns see contiguous tokens on the line they came from. Not intended for
+    general markdown extraction; ``parsing.py`` owns that path.
+    """
+    if not html:
+        return ""
+    cleaned = _HTML_SCRIPT_STYLE_RE.sub("\n", html)
+    cleaned = _HTML_BLOCK_TAG_RE.sub("\n", cleaned)
+    cleaned = _HTML_TAG_RE.sub(" ", cleaned)
+    lines = (_HTML_WHITESPACE_RE.sub(" ", part).strip() for part in cleaned.splitlines())
+    return "\n".join(line for line in lines if line)
+
+
+# Below this much readable text a page that ships scripts is an app shell
+# (React/Vue/Angular mount point, "loading..."), not an article.
+JS_SHELL_MAX_CHARS = 250
+_SCRIPT_TAG_RE = re.compile(r"<script\b", re.IGNORECASE)
+_NOSCRIPT_RE = re.compile(r"<noscript\b[^>]*>.*?</noscript\s*>", re.IGNORECASE | re.DOTALL)
+
+
+def needs_javascript(html: str) -> bool:
+    """True when ``html`` is a script-rendered shell with no readable content.
+
+    The HTTP fetcher cannot run JavaScript, so such a page scrapes to a menu
+    and a footer. The caller renders it in the local browser instead, when the
+    user allowed the browser fallback. ``<noscript>`` text ("please enable
+    JavaScript") does not count as content.
+    """
+    if not html or not _SCRIPT_TAG_RE.search(html):
+        return False
+    readable = html_to_plain_text(_NOSCRIPT_RE.sub(" ", html))
+    return len(re.sub(r"\s+", "", readable)) < JS_SHELL_MAX_CHARS
