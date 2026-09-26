@@ -22,7 +22,9 @@ Per fixture and tool it measures:
   recall holds);
 - **latency** — wall time of the extraction call (browser start-up excluded).
 
-Matching is case-sensitive substring search after collapsing whitespace.
+Matching is case-sensitive substring search after collapsing whitespace. Text
+signals are matched on the output with inline Markdown (links, inline code,
+emphasis, backslash escapes) removed, so formatting never costs text recall.
 
 Adapters run only when their package is importable; missing tools are listed
 as ``skipped`` rather than silently dropped. Hosted APIs (Firecrawl, Jina
@@ -77,6 +79,24 @@ class Row:
 
 def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text)
+
+
+_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_ESCAPE_RE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|>~])")
+_UNDERSCORE_EMPHASIS_RE = re.compile(r"(?<![\w\\])_{1,2}(?=\S)(.+?)(?<=\S)_{1,2}(?!\w)")
+
+
+def _plain(markdown: str) -> str:
+    """Markdown with inline markup removed, for matching *text* signals.
+
+    A sentence with a link, inline code or bold in it is still the same
+    sentence: without this, a tool that kept the formatting lost the signal
+    and a tool that dropped it scored higher. Structure is scored separately.
+    """
+    text = _LINK_RE.sub(r"\1", markdown)
+    text = _ESCAPE_RE.sub(r"\1", text)
+    text = text.replace("`", "").replace("*", "")
+    return _UNDERSCORE_EMPHASIS_RE.sub(r"\1", text)
 
 
 def _is_structure(signal: str) -> bool:
@@ -198,7 +218,7 @@ def score(
     excluded: tuple[str, ...] | list[str] | None = None,
 ) -> Row:
     """Score one output. ``expected``/``excluded`` default to the fixture's signals."""
-    output = _norm(markdown)
+    output = _norm(_plain(markdown))
     if expected is None:
         expected = EXPECTED_BY_FIXTURE[fixture]
         excluded = EXCLUDED_BY_FIXTURE.get(fixture, ())
