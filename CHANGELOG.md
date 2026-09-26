@@ -6,7 +6,7 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ## 0.4.0 - 2026-09-26
 
-AgentCrawl now reads the real pages it used to get wrong: its own GitHub page, JavaScript-rendered sites and PyPI, checked on every change against 16 live public sites. Output is about a third smaller on table-heavy pages, the MCP costs agents ~1.5k tokens of context instead of ~4k, and install instructions point at GitHub while PyPI publishing is being set up.
+AgentCrawl now reads the real pages it used to get wrong: its own GitHub page and JavaScript-rendered sites, checked on every change against 16 live public sites. Output is about a third smaller on table-heavy pages, the MCP costs agents ~1.5k tokens of context instead of ~4k, and install instructions point at GitHub while PyPI publishing is being set up.
 
 ### Fixed
 
@@ -21,7 +21,7 @@ AgentCrawl now reads the real pages it used to get wrong: its own GitHub page, J
 ### Changed
 
 - **Compact Markdown.** Tables are not padded with spaces; a column that repeats its neighbour or holds no data is dropped; link tooltips, image-only links (`[](url)`), skip links and runs of blank lines are removed; links and images are absolute URLs. On the GitHub repository page the output shrinks from 37k to 25k characters with the same content; offline quality fixtures still score 100%.
-- **HTTP transfer.** Requests send `Accept` and `Accept-Encoding: gzip, deflate` and inflate under the same `max_response_bytes` ceiling (a decompression bomb is refused). Pages that declare their charset only in `<meta>` decode correctly, and latin-1 labels decode as windows-1252 like browsers do. With these headers PyPI serves real project pages to the HTTP fetcher.
+- **HTTP transfer.** Requests send `Accept` and `Accept-Encoding: gzip, deflate` and inflate under the same `max_response_bytes` ceiling (a decompression bomb is refused). Pages that declare their charset only in `<meta>` decode correctly, and latin-1 labels decode as windows-1252 like browsers do. (PyPI answers the HTTP fetcher with real pages from some networks and a Fastly challenge from others; AgentCrawl reports the challenge either way.)
 - **User-Agent** is `Mozilla/5.0 (compatible; AgentCrawl/<version>; +https://github.com/JorG18/agentcrawl)` instead of `AgentCrawl/0.1` with a `.local` address.
 - **Lean MCP by default.** The core profile exposes `scrape_url`, `scrape_many`, `map_site`, `crawl_site` and `extract_structured`, plus `search_web` when a search engine is configured and `get_job` when a server is. `AGENTCRAWL_MCP_PROFILE=full` restores the operator tools (`check_changes`, `job_events`, `cancel_job`, `inspect_failures`, `retry_failures`, `usage`, `cache_stats`, `clear_cache`). Tool descriptions were shortened.
 - **Install from GitHub.** README, agent guide and examples install `agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.0`; the PyPI badge is gone for now. The release workflow publishes to PyPI only when the repository variable `PUBLISH_PYPI` is `true`.

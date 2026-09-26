@@ -23,7 +23,7 @@ returns `error_type: "client_challenge"` and the signals it saw, never the
 challenge page as content. Getting past protected sites is not a Community goal.
 
 Every change is checked against real public sites (docs, Wikipedia, GitHub,
-Hacker News, PyPI, a JavaScript-rendered page) by the
+Hacker News, Django docs, a JavaScript-rendered page) by the
 [live smoke workflow](.github/workflows/live-smoke.yml).
 
 ## Pick your path 🚀
