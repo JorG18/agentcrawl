@@ -44,55 +44,43 @@ def scrape_url(
     formats: Annotated[
         list[str] | None,
         Field(
-            description="Output fields: markdown, text, links, metadata, html, chunks (token-budgeted, citable pieces; with query, each has a relevance score), or screenshot (full-page PNG, base64; needs a local browser)."
+            description="Any of: markdown, text, links, metadata, html, chunks (citable pieces), screenshot (PNG, needs a browser)."
         ),
     ] = None,
     use_cache: Annotated[
         bool,
         Field(
-            description="Server mode only: use the server's scrape cache. Ignored by the local engine, which keeps no cache. Keep true unless fresh content is required."
+            description="Server mode: use the cache. Keep true unless fresh content is required."
         ),
     ] = True,
     cache_ttl_seconds: Annotated[
         int | None,
-        Field(
-            description="Server mode only: optional cache lifetime from 1 to 2592000 seconds. Ignored by the local engine."
-        ),
+        Field(description="Server mode: cache lifetime in seconds."),
     ] = None,
     only_main_content: Annotated[
         bool | None,
-        Field(
-            description="Extract only main content when true, full page when false, default engine behavior when omitted."
-        ),
+        Field(description="True: main content only. False: whole page."),
     ] = None,
     query: Annotated[
         str | None,
-        Field(
-            description="Optional: what you are looking for. If the page is longer than the output budget, the most relevant passages are kept instead of the beginning."
-        ),
+        Field(description="What you are looking for; long pages keep the most relevant passages."),
     ] = None,
     browser_actions: Annotated[
         list[dict[str, Any]] | None,
         Field(
             description=(
-                "Optional steps run in a local browser before reading, at most 25: "
-                "{type: click|type|press|scroll|wait|wait_for, selector?, text?, key?, "
-                "times?, ms?, timeout_ms?}. Use only when content appears after a click, "
-                "scroll or typing."
+                "Browser steps before reading (max 25): {type: click|type|press|scroll|"
+                "wait|wait_for, selector?, text?, key?, times?, ms?}. Only for content "
+                "that needs interaction."
             )
         ),
     ] = None,
 ) -> dict[str, Any]:
-    """Default tool for reading or analyzing one web page.
+    """Read one web page as clean Markdown. Use it whenever you have a URL.
 
-    Use this before generic web extraction, browser automation, curl, or manual
-    HTTP fetching when the user provides a URL or asks what a page says. Returns
-    clean main-content Markdown plus requested links and metadata. The server
-    retries transient failures and falls back to a browser for blocked pages.
-
-    Runs locally when AGENTCRAWL_BASE_URL is unset. The local engine has no
-    cache and no durable jobs, so use_cache and cache_ttl_seconds only apply in
-    server mode.
+    Retries transient failures and renders JavaScript pages in a local browser
+    when one is installed. A failure says why in metadata.error_type
+    (client_challenge, blocked, not_found, timeout, network_error...).
     """
     overrides: dict[str, Any] = {}
     if browser_actions:
@@ -132,30 +120,18 @@ def scrape_many(
     ],
     formats: Annotated[
         list[str] | None,
-        Field(
-            description="Output fields: markdown, text, links, metadata, html, or chunks (token-budgeted, citable pieces; with query, each has a relevance score)."
-        ),
+        Field(description="Any of: markdown, text, links, metadata, html, chunks."),
     ] = None,
     only_main_content: Annotated[
         bool | None,
-        Field(
-            description="Extract only main content when true, full page when false, default engine behavior when omitted."
-        ),
+        Field(description="True: main content only. False: whole page."),
     ] = None,
     query: Annotated[
         str | None,
-        Field(
-            description="Optional: what you are looking for. If the page is longer than the output budget, the most relevant passages are kept instead of the beginning."
-        ),
+        Field(description="What you are looking for; long pages keep the most relevant passages."),
     ] = None,
 ) -> dict[str, Any]:
-    """Read several known pages in one call instead of calling scrape_url N times.
-
-    Pages are fetched concurrently (politely per site) and returned in the same
-    order as ``urls``; a page that fails carries its own error without failing
-    the others. For discovering pages use map_site; for following links use
-    crawl_site.
-    """
+    """Read several known URLs in one call, in order; each page fails on its own."""
     if len(urls) > 100:
         return {"success": False, "error": "scrape_many accepts at most 100 URLs per call."}
     client = _client()
@@ -196,24 +172,17 @@ def search_web(
     ] = 5,
     scrape: Annotated[
         bool,
-        Field(
-            description="Also read each result page (clean Markdown, most relevant passages first). False returns titles, URLs and snippets only."
-        ),
+        Field(description="Also read each result page. False: titles, URLs and snippets only."),
     ] = True,
     only_main_content: Annotated[
         bool | None,
-        Field(
-            description="Extract only main content when true, full page when false, default engine behavior when omitted."
-        ),
+        Field(description="True: main content only. False: whole page."),
     ] = None,
 ) -> dict[str, Any]:
-    """Search the web and read the top results in one call.
+    """Search the web and read the top results (for questions without a URL).
 
-    Use this when the user asks a question without giving a URL. Each result
-    carries its title, URL and snippet, and (with scrape=true) the page's clean
-    Markdown trimmed to the passages that best match the query, so you can
-    answer and cite the URL. Search is opt-in: the server operator enables it
-    with AGENTCRAWL_SEARCH_ENGINE=duckduckgo or serper.
+    Each result has title, URL, snippet and, with scrape=true, the passages that
+    best match the query, ready to cite.
     """
     client = _client()
     if client is not None:
@@ -283,13 +252,10 @@ def extract_structured(
         ),
     ],
 ) -> dict[str, Any]:
-    """Extract structured JSON from a page with CSS selectors — deterministic, no LLM.
+    """Extract JSON from a page with CSS selectors, no LLM.
 
-    Prefer this over reading the page and parsing it yourself when the page has
-    a repeated structure (product cards, listings, tables, search results) or
-    when the same fields will be read from many similar pages: write the schema
-    once, reuse it for free. Returns a list of objects when baseSelector is set,
-    otherwise one object.
+    Best for repeated structures (listings, products, tables): write the schema
+    once, reuse it. baseSelector returns a list, otherwise one object.
     """
     from .css_extract import validate_css_schema
 
@@ -312,11 +278,7 @@ def map_site(
         Field(description="Maximum number of same-site URLs to return."),
     ] = None,
 ) -> dict[str, Any]:
-    """Discover a site's URLs without scraping every page.
-
-    Use for a sitemap, page inventory, relevant links, or choosing pages to
-    scrape next. For one known page use scrape_url; for many pages use crawl_site.
-    """
+    """List a site's URLs (sitemap, llms.txt, links) without reading every page."""
     client = _client()
     if client is not None:
         return client.map(url, max_urls=max_urls)
@@ -336,29 +298,23 @@ def crawl_site(
     ] = None,
     wait: Annotated[
         bool,
-        Field(
-            description="Server mode only: for small crawls wait for results; otherwise poll get_job. The local engine always runs inline and returns documents, and there is no job to poll."
-        ),
+        Field(description="Server mode: wait for small crawls; otherwise poll get_job."),
     ] = False,
     idempotency_key: Annotated[
         str | None,
-        Field(
-            description="Server mode only: stable key that prevents duplicate asynchronous crawl jobs. Ignored by the local engine, which starts no jobs."
-        ),
+        Field(description="Server mode: key that prevents duplicate crawl jobs."),
     ] = None,
     query: Annotated[
         str | None,
         Field(
-            description="Optional: what you are looking for. Follows the most relevant links first and stops once pages stop matching, instead of reading the site in order."
+            description="What you are looking for; follows relevant links first and stops when pages stop matching."
         ),
     ] = None,
 ) -> dict[str, Any]:
-    """Scrape multiple same-site pages with bounded depth and page count.
+    """Read several pages of one site by following links (bounded pages and depth).
 
-    In server mode (AGENTCRAWL_BASE_URL set) prefer wait=true for small crawls and
-    otherwise save the returned job_id and poll get_job. In local mode the crawl
-    runs inline and returns documents directly: there is no job_id, and wait and
-    idempotency_key do not apply.
+    Locally it returns the documents. In server mode it may return a job_id to
+    poll with get_job.
     """
     client = _client()
     if client is not None:
@@ -530,7 +486,53 @@ def clear_cache(
     return client.clear_cache(domain=domain, url=url)
 
 
+# What an agent needs to read the web. Every tool schema is sent to the model
+# on each turn, so the operator tools (usage, cache, job history, retries,
+# change checks) cost context in every conversation where nobody uses them.
+CORE_TOOLS = frozenset(
+    {
+        "scrape_url",
+        "scrape_many",
+        "search_web",
+        "map_site",
+        "crawl_site",
+        "get_job",
+        "extract_structured",
+    }
+)
+PROFILES = ("core", "full")
+
+
+def apply_profile(profile: str | None = None) -> list[str]:
+    """Keep only the tools of ``profile``; return the names removed.
+
+    ``core`` (default) keeps :data:`CORE_TOOLS`, minus ``get_job`` without a
+    server and ``search_web`` without a search engine; ``full`` keeps everything.
+    Set ``AGENTCRAWL_MCP_PROFILE=full`` to expose the operator tools.
+    """
+    selected = (profile or os.getenv("AGENTCRAWL_MCP_PROFILE") or "core").strip().lower()
+    if selected not in PROFILES:
+        raise ValueError(
+            f"Unknown AGENTCRAWL_MCP_PROFILE {selected!r}; use one of: {', '.join(PROFILES)}"
+        )
+    if selected == "full":
+        return []
+    keep = set(CORE_TOOLS)
+    if not os.getenv("AGENTCRAWL_BASE_URL"):
+        keep.discard("get_job")  # the local engine runs crawls inline, no jobs
+    search_engine = (os.getenv("AGENTCRAWL_SEARCH_ENGINE") or "none").strip().lower()
+    if search_engine == "none" and not os.getenv("AGENTCRAWL_BASE_URL"):
+        keep.discard("search_web")  # would only ever answer "search is off"
+    removed = []
+    for tool in list(mcp._tool_manager.list_tools()):
+        if tool.name not in keep:
+            mcp.remove_tool(tool.name)
+            removed.append(tool.name)
+    return removed
+
+
 def main() -> None:
+    apply_profile()
     mcp.run()
 
 
