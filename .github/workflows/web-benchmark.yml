@@ -28,9 +28,9 @@ permissions:
   contents: read
 
 env:
-  SIZE: ${{ inputs.size || '20' }}
+  SIZE: ${{ inputs.size || '30' }}
   SEED: ${{ inputs.seed || '2026' }}
-  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
+  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai,firecrawl,scrapegraph,tavily' }}
 
 jobs:
   sample:
