@@ -17,6 +17,6 @@
     {"id": "github-repo-agentcrawl", "url": "https://github.com/JorG18/agentcrawl", "expect": "ok", "must_contain": ["AgentCrawl", "self-hosted"]},
     {"id": "hacker-news", "url": "https://news.ycombinator.com/", "expect": "ok", "must_contain": ["comments"], "min_chars": 1000},
     {"id": "quotes-js-rendered", "url": "https://quotes.toscrape.com/js/", "expect": "ok", "must_contain": ["Einstein"], "min_chars": 300},
-    {"id": "pypi-project-challenge", "url": "https://pypi.org/project/requests/", "expect": "challenge"}
+    {"id": "pypi-project", "url": "https://pypi.org/project/requests/", "expect": "ok", "must_contain": ["Requests", "pip install"]}
   ]
 }

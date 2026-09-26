@@ -63,3 +63,24 @@ def test_link_titles_inside_code_are_left_alone() -> None:
 def test_local_documents_keep_relative_links() -> None:
     markdown = _md('<p><a href="other.html">other</a></p>', base_url="/tmp/docs/index.html")
     assert "[other](other.html)" in markdown
+
+
+def test_image_only_links_disappear_when_images_are_off() -> None:
+    html = (
+        '<main><p><a href="https://ci.example.org"><img src="badge.svg" alt=""></a> '
+        '<a href="https://pypi.org/p/x"><img src="v.svg" alt=""></a></p>'
+        "<p>Real text with a <a href='https://example.org/doc'>doc link</a>.</p></main>"
+    )
+    markdown = _md(html)
+    assert "[](" not in markdown
+    assert "\n\n\n" not in markdown
+    assert "[doc link](https://example.org/doc)" in markdown
+
+
+def test_skip_links_are_dropped() -> None:
+    html = (
+        '<body><a href="#main">Skip to main content</a><main id="main"><h1>Title</h1></main></body>'
+    )
+    markdown = _md(html)
+    assert "Skip to" not in markdown
+    assert "# Title" in markdown

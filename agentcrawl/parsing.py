@@ -485,11 +485,20 @@ def _clean_markdown(markdown: str, code_lang_map: dict[int, str] | None = None) 
         cleaned.append(line)
         blank = False
 
-    return _compact_tables(_strip_link_titles("\n".join(cleaned))).strip()
+    compact = _compact_tables(_strip_link_titles("\n".join(cleaned)))
+    return _EXTRA_BLANK_LINES_RE.sub("\n\n", compact).strip()
 
 
 # ``[text](url "title")``: link titles are tooltips ("This path skips through
 # empty directories"), pure token cost for an agent.
+_EXTRA_BLANK_LINES_RE = re.compile(r"\n{3,}")
+# Accessibility skip links ("Skip to main content") are navigation, not content.
+_SKIP_LINK_RE = re.compile(
+    r"^\s*\[?skip to (?:main )?(?:content|navigation)\]?(?:\([^)]*\))?\s*$", re.I
+)
+# ``[](url)``: a link whose only content was an image (badges, logos) once
+# images are dropped. Nothing for an agent to read; the bare URL is noise.
+_EMPTY_LINK_RE = re.compile(r"(?<![!\]])\[\]\((?:[^()\s]|\([^()\s]*\))*\)")
 _LINK_TITLE_RE = re.compile(r'(\]\((?:[^()\s]|\([^()\s]*\))+) "[^"\n]*"\)')
 _TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 _CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
@@ -501,7 +510,16 @@ def _strip_link_titles(markdown: str) -> str:
     for line in markdown.split("\n"):
         if line.startswith("```"):
             in_code = not in_code
-        out.append(line if in_code else _LINK_TITLE_RE.sub(r"\1)", line))
+        if in_code:
+            out.append(line)
+            continue
+        if _SKIP_LINK_RE.match(line):
+            continue
+        line = _LINK_TITLE_RE.sub(r"\1)", line)
+        stripped = _EMPTY_LINK_RE.sub("", line)
+        if stripped != line and not stripped.strip():
+            continue  # the line held nothing but empty links
+        out.append(stripped.rstrip() if stripped != line else line)
     return "\n".join(out)
 
 
