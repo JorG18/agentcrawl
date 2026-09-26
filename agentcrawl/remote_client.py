@@ -103,17 +103,21 @@ class AgentCrawlClient:
         wait: bool = False,
         config: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
+        query: str | None = None,
     ) -> dict[str, Any]:
         headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
+        body: dict[str, Any] = {
+            "url": url,
+            "max_pages": max_pages,
+            "max_depth": max_depth,
+            "wait": wait,
+            "config": config or {},
+        }
+        if query:
+            body["query"] = query
         return self._post(
             "/v1/crawl",
-            {
-                "url": url,
-                "max_pages": max_pages,
-                "max_depth": max_depth,
-                "wait": wait,
-                "config": config or {},
-            },
+            body,
             headers=headers,
         )
 

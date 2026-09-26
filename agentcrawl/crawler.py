@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import contextvars
+import difflib
+import hashlib
 import dataclasses
 import json
 import re
@@ -164,7 +166,7 @@ class AgentCrawl:
         from .browser_retry import attempt_browser_retry  # local import keeps scrape() cheap
 
         try:
-            html, fetch_metadata = fetch_source(source, self.config)
+            html, fetch_metadata = fetch_source(source, self._fetch_config(source, requested))
             blocked_reason = _blocked_page_reason(html)
             if blocked_reason:
                 # If the user opted into the local browser fallback, try once
@@ -254,6 +256,7 @@ class AgentCrawl:
                     "only_main_content": main_content,
                     "content_format": "markdown",
                     "markdown_chars": len(markdown),
+                    "markdown_sha256": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
                     "markdown_chars_full": markdown_chars_full,
                     "markdown_truncated": chars_omitted > 0,
                     "chars_omitted": chars_omitted,
@@ -299,6 +302,83 @@ class AgentCrawl:
             if formats is None:
                 return document
             return _format_document(document, requested)
+
+    def diff(
+        self,
+        source: str,
+        previous: ScrapeDocument | dict[str, Any] | None = None,
+        *,
+        max_diff_lines: int = 400,
+    ) -> dict[str, Any]:
+        """Re-read ``source`` and say whether (and how) it changed since ``previous``.
+
+        ``previous`` is an earlier scrape of the page (a ``ScrapeDocument`` or
+        its JSON). Its ``etag``/``last_modified`` make the fetch conditional, so
+        an unchanged page can answer ``304`` without sending the body; otherwise
+        the new Markdown is hashed and compared, and a unified diff (at most
+        ``max_diff_lines`` lines) shows what changed.
+        """
+        prev = to_jsonable(previous) if previous is not None else {}
+        prev_meta = prev.get("metadata") or {}
+        prev_markdown = str(prev.get("markdown") or "")
+        prev_hash = prev_meta.get("markdown_sha256") or (
+            hashlib.sha256(prev_markdown.encode("utf-8")).hexdigest() if prev_markdown else None
+        )
+        config = dataclasses.replace(
+            self.config,
+            if_none_match=prev_meta.get("etag"),
+            if_modified_since=prev_meta.get("last_modified"),
+        )
+        document = AgentCrawl(config).scrape(source)
+        result: dict[str, Any] = {"url": source, "previous_sha256": prev_hash}
+        if document.metadata.get("error_type") == "not_modified":
+            return {**result, "changed": False, "not_modified": True, "sha256": prev_hash}
+        if document.errors:
+            return {**result, "changed": None, "errors": document.errors}
+        new_hash = document.metadata["markdown_sha256"]
+        changed = new_hash != prev_hash
+        result.update(
+            changed=changed,
+            new=prev_hash is None,
+            sha256=new_hash,
+            document=to_jsonable(document),
+        )
+        if changed and prev_markdown:
+            lines = list(
+                difflib.unified_diff(
+                    prev_markdown.splitlines(),
+                    document.markdown.splitlines(),
+                    "previous",
+                    "current",
+                    lineterm="",
+                    n=1,
+                )
+            )
+            result["added_lines"] = sum(
+                1 for line in lines if line.startswith("+") and not line.startswith("+++")
+            )
+            result["removed_lines"] = sum(
+                1 for line in lines if line.startswith("-") and not line.startswith("---")
+            )
+            result["diff"] = "\n".join(lines[:max_diff_lines])
+            result["diff_truncated"] = len(lines) > max_diff_lines
+        return result
+
+    def _fetch_config(self, source: str, requested: list[str]) -> CrawlConfig:
+        """Config for fetching ``source``: screenshots and actions need a browser.
+
+        Asking for them with the default HTTP fetcher switches that one fetch to
+        local Playwright instead of silently returning a page without them.
+        """
+        wants_screenshot = "screenshot" in requested
+        if not (wants_screenshot or self.config.browser_actions) or "://" not in source:
+            return self.config
+        changes: dict[str, Any] = {}
+        if wants_screenshot:
+            changes["screenshot"] = True
+        if self.config.fetcher == "http":
+            changes["fetcher"] = self.config.browser_backend
+        return dataclasses.replace(self.config, **changes)
 
     def extract_css(self, source: str, schema: dict[str, Any]) -> dict[str, Any]:
         """Deterministic structured extraction: CSS schema in, JSON out, no LLM.
@@ -556,7 +636,28 @@ class AgentCrawl:
         | None = None,
         before_fetch: Callable[[str], Any] | None = None,
         max_run_pages: int | None = None,
+        query: str | None = None,
+        stop_after_irrelevant: int = 3,
+        previous_hashes: dict[str, str] | None = None,
     ) -> CrawlRun:
+        """Crawl from ``source``. With ``query`` the crawl is adaptive.
+
+        Adaptive means two things. The queue is ordered by how promising each
+        link looks for the query (words in its URL, plus the relevance of the
+        page that linked to it) instead of first-in-first-out. And the crawl
+        stops early once ``stop_after_irrelevant`` pages in a row matched less
+        than a third of the query terms (0 disables stopping): at that point
+        it has stopped finding anything new about the question, and every
+        further page costs a request without adding context.
+
+        ``previous_hashes`` maps URL -> ``markdown_sha256`` from an earlier run;
+        each page then reports ``change`` (``new``, ``changed`` or
+        ``unchanged``) and the run metadata counts them, so a re-crawl says
+        what moved instead of handing back the whole site again.
+        """
+        from .relevance import tokenize
+
+        query_terms = set(tokenize(query)) if query else set()
         page_limit = max_pages or self.config.crawl_max_pages
         depth_limit = max_depth if max_depth is not None else self.config.crawl_depth
         include_patterns = include if include is not None else self.config.crawl_include
@@ -582,6 +683,7 @@ class AgentCrawl:
                 str(url): int(attempt)
                 for url, attempt in resume_state.get("retry_attempts", {}).items()
             }
+            irrelevant_streak = int(resume_state.get("irrelevant_streak", 0))
         else:
             queue = deque([_queue_item(root, 0)])
             queued = {root}
@@ -592,7 +694,9 @@ class AgentCrawl:
             failed_urls = []
             terminal_failures = []
             retry_attempts = {}
+            irrelevant_streak = 0
         cancelled = False
+        stopped_early = False
         retry_scheduled = False
         fairness_yielded = False
         next_retry_at: float | None = None
@@ -635,6 +739,7 @@ class AgentCrawl:
                         "failed_urls": failed_urls,
                         "terminal_failures": terminal_failures,
                         "retry_attempts": retry_attempts,
+                        "irrelevant_streak": irrelevant_streak,
                     },
                     progress,
                     document,
@@ -723,12 +828,30 @@ class AgentCrawl:
                     )
                 )
 
+            page_relevance = 0.0
+            if query_terms and not doc.errors:
+                page_relevance = _term_coverage(query_terms, doc.markdown)
+                doc.metadata["query_relevance"] = round(page_relevance, 3)
+                irrelevant_streak = 0 if page_relevance >= 1 / 3 else irrelevant_streak + 1
+            if previous_hashes is not None and not doc.errors:
+                before = previous_hashes.get(url)
+                doc.metadata["change"] = (
+                    "new"
+                    if before is None
+                    else "unchanged"
+                    if before == doc.metadata.get("markdown_sha256")
+                    else "changed"
+                )
             documents.append(doc)
             visited.add(url)
             run_pages += 1
             errors.extend(f"{url}: {error}" for error in doc.errors)
             if doc.errors:
                 failed_urls.append(url)
+            if query_terms and stop_after_irrelevant and irrelevant_streak >= stop_after_irrelevant:
+                stopped_early = True
+                report(checkpoint=True, document=doc)
+                break
 
             if depth >= depth_limit:
                 report(checkpoint=True, document=doc)
@@ -747,7 +870,12 @@ class AgentCrawl:
                     continue
                 discovered.add(normalized)
                 queued.add(normalized)
-                queue.append(_queue_item(normalized, depth + 1))
+                score = (
+                    _term_coverage(query_terms, _url_words(normalized)) + 0.5 * page_relevance
+                    if query_terms
+                    else 0.0
+                )
+                queue.append(_queue_item(normalized, depth + 1, score=score))
             report(checkpoint=True, document=doc)
             if max_run_pages and run_pages >= max_run_pages and queue:
                 fairness_yielded = True
@@ -775,6 +903,17 @@ class AgentCrawl:
                 "next_retry_at": next_retry_at,
                 "cancelled": cancelled,
                 "robots_txt": self.config.respect_robots_txt,
+                **({"query": query, "stopped_early": stopped_early} if query_terms else {}),
+                **(
+                    {
+                        "changes": {
+                            kind: sum(1 for d in documents if d.metadata.get("change") == kind)
+                            for kind in ("new", "changed", "unchanged")
+                        }
+                    }
+                    if previous_hashes is not None
+                    else {}
+                ),
                 **(
                     {"discovery_audit": discovery_trail.to_metadata()}
                     if discovery_trail is not None
@@ -798,13 +937,32 @@ def _queue_item(
     depth: int,
     attempt: int = 0,
     ready_at: float = 0.0,
+    score: float = 0.0,
 ) -> dict[str, Any]:
-    return {
+    item: dict[str, Any] = {
         "url": url,
         "depth": depth,
         "attempt": attempt,
         "ready_at": ready_at,
     }
+    if score:
+        # Only adaptive crawls set it; the queue then pops the best ready item.
+        item["score"] = round(score, 4)
+    return item
+
+
+def _term_coverage(terms: set[str], text: str) -> float:
+    """Share of the query ``terms`` that occur in ``text`` (0.0-1.0)."""
+    from .relevance import tokenize
+
+    if not terms:
+        return 0.0
+    return len(terms & set(tokenize(text))) / len(terms)
+
+
+def _url_words(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    return re.sub(r"[/_.\-+=&?]+", " ", urllib.parse.unquote(parsed.path + " " + parsed.query))
 
 
 def _terminal_failure(
@@ -832,6 +990,7 @@ def _decode_queue_item(item: Any) -> dict[str, Any]:
             int(item.get("depth", 0)),
             int(item.get("attempt", 0)),
             float(item.get("ready_at", 0.0)),
+            float(item.get("score", 0.0)),
         )
     return _queue_item(str(item[0]), int(item[1]))
 
@@ -852,6 +1011,17 @@ def _pop_ready_item(
     earliest = min(float(item.get("ready_at", 0.0)) for item in queue)
     if earliest > now:
         return None, earliest
+    if any("score" in item for item in queue):
+        # Adaptive crawl: the most promising ready item first (FIFO on ties).
+        best_index, best_score = None, -1.0
+        for index, item in enumerate(queue):
+            score = float(item.get("score", 0.0))
+            if float(item.get("ready_at", 0.0)) <= now and score > best_score:
+                best_index, best_score = index, score
+        if best_index is not None:
+            item = queue[best_index]
+            del queue[best_index]
+            return item, earliest
     for _ in range(len(queue)):
         item = queue.popleft()
         ready_at = float(item.get("ready_at", 0.0))
@@ -920,16 +1090,22 @@ def _format_document(
     query: str | None = None,
     chunk_tokens: int = 400,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {"url": document.url, "metadata": document.metadata}
+    metadata = document.metadata
+    if "screenshot_png_base64" in metadata:
+        # The image is its own output field, not metadata to scroll past.
+        metadata = {k: v for k, v in metadata.items() if k != "screenshot_png_base64"}
+    payload: dict[str, Any] = {"url": document.url, "metadata": metadata}
     for output_format in formats:
-        if output_format == "chunks":
+        if output_format == "screenshot":
+            payload["screenshot"] = document.metadata.get("screenshot_png_base64")
+        elif output_format == "chunks":
             from .chunks import chunk_markdown
 
             cite = str(document.metadata.get("final_url") or document.url)
             payload["chunks"] = chunk_markdown(
                 document.markdown, cite, max_tokens=chunk_tokens, query=query
             )
-        if output_format == "markdown":
+        elif output_format == "markdown":
             payload["markdown"] = document.markdown
         elif output_format == "text":
             payload["text"] = document.text
@@ -938,7 +1114,7 @@ def _format_document(
         elif output_format == "links":
             payload["links"] = document.links
         elif output_format == "metadata":
-            payload["metadata"] = document.metadata
+            payload["metadata"] = metadata
     if document.errors:
         payload["errors"] = document.errors
     return payload

@@ -44,7 +44,7 @@ def scrape_url(
     formats: Annotated[
         list[str] | None,
         Field(
-            description="Output fields: markdown, text, links, metadata, html, or chunks (token-budgeted, citable pieces; with query, each has a relevance score)."
+            description="Output fields: markdown, text, links, metadata, html, chunks (token-budgeted, citable pieces; with query, each has a relevance score), or screenshot (full-page PNG, base64; needs a local browser)."
         ),
     ] = None,
     use_cache: Annotated[
@@ -71,6 +71,17 @@ def scrape_url(
             description="Optional: what you are looking for. If the page is longer than the output budget, the most relevant passages are kept instead of the beginning."
         ),
     ] = None,
+    browser_actions: Annotated[
+        list[dict[str, Any]] | None,
+        Field(
+            description=(
+                "Optional steps run in a local browser before reading, at most 25: "
+                "{type: click|type|press|scroll|wait|wait_for, selector?, text?, key?, "
+                "times?, ms?, timeout_ms?}. Use only when content appears after a click, "
+                "scroll or typing."
+            )
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Default tool for reading or analyzing one web page.
 
@@ -83,18 +94,28 @@ def scrape_url(
     cache and no durable jobs, so use_cache and cache_ttl_seconds only apply in
     server mode.
     """
+    overrides: dict[str, Any] = {}
+    if browser_actions:
+        from .browser_actions import validate_actions
+
+        try:
+            overrides["browser_actions"] = list(validate_actions(browser_actions))
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
     client = _client()
     if client is not None:
         return client.scrape(
             url,
             formats=formats or ["markdown", "links", "metadata"],
+            config=overrides or None,
             cache=use_cache,
             cache_ttl_seconds=cache_ttl_seconds,
             only_main_content=only_main_content,
             query=query,
         )
+    crawler = AgentCrawl({**config_from_env(), **overrides}) if overrides else _crawler()
     return to_jsonable(
-        _crawler().scrape(
+        crawler.scrape(
             url,
             formats=formats or ["markdown", "links", "metadata"],
             only_main_content=only_main_content,
@@ -210,6 +231,45 @@ def search_web(
 
 
 @mcp.tool()
+def check_changes(
+    url: Annotated[str, Field(description="Public HTTP(S) page URL to re-read.")],
+    previous_markdown: Annotated[
+        str | None,
+        Field(description="Markdown from your earlier read of this page, to get a diff."),
+    ] = None,
+    previous_sha256: Annotated[
+        str | None,
+        Field(description="metadata.markdown_sha256 from the earlier read, if you kept only that."),
+    ] = None,
+    etag: Annotated[
+        str | None, Field(description="metadata.etag from the earlier read (enables a 304).")
+    ] = None,
+    last_modified: Annotated[
+        str | None, Field(description="metadata.last_modified from the earlier read.")
+    ] = None,
+) -> dict[str, Any]:
+    """Check whether a page changed since you last read it, and what changed.
+
+    Returns changed true/false, a unified diff when previous_markdown is given,
+    and the current document when it changed. Cheaper than re-reading and
+    comparing yourself; with etag/last_modified an unchanged page may not even
+    send its body. Runs on the local engine.
+    """
+    metadata = {
+        key: value
+        for key, value in {
+            "markdown_sha256": previous_sha256,
+            "etag": etag,
+            "last_modified": last_modified,
+        }.items()
+        if value
+    }
+    previous = {"markdown": previous_markdown or "", "metadata": metadata}
+    has_previous = bool(previous_markdown or metadata)
+    return _crawler().diff(url, previous if has_previous else None)
+
+
+@mcp.tool()
 def extract_structured(
     url: Annotated[str, Field(description="Public HTTP(S) page URL to extract from.")],
     schema: Annotated[
@@ -286,6 +346,12 @@ def crawl_site(
             description="Server mode only: stable key that prevents duplicate asynchronous crawl jobs. Ignored by the local engine, which starts no jobs."
         ),
     ] = None,
+    query: Annotated[
+        str | None,
+        Field(
+            description="Optional: what you are looking for. Follows the most relevant links first and stops once pages stop matching, instead of reading the site in order."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Scrape multiple same-site pages with bounded depth and page count.
 
@@ -302,8 +368,9 @@ def crawl_site(
             max_depth=max_depth,
             wait=wait,
             idempotency_key=idempotency_key,
+            **({"query": query} if query else {}),
         )
-    return to_jsonable(_crawler().crawl(url, max_pages=max_pages, max_depth=max_depth))
+    return to_jsonable(_crawler().crawl(url, max_pages=max_pages, max_depth=max_depth, query=query))
 
 
 @mcp.tool()

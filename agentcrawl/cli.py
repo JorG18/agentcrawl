@@ -68,6 +68,14 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
     )
 
+    engine_group.add_argument(
+        "--ocr",
+        action="store_const",
+        const=True,
+        default=None,
+        help="OCR image-only PDF pages (docs extra plus the Tesseract binary).",
+    )
+
     scrape = sub.add_parser("scrape", parents=[engine])
     scrape.add_argument("url")
     scrape.add_argument("--format", action="append", dest="formats", default=None)
@@ -122,6 +130,14 @@ def main(argv: list[str] | None = None) -> int:
     llms_txt.add_argument("url")
     llms_txt.add_argument("--max-pages", type=int, default=25)
     llms_txt.add_argument("--output", help="Write the file here instead of stdout.")
+    diff = sub.add_parser(
+        "diff",
+        help="Re-read a page and show what changed since a saved scrape (local only).",
+        parents=[engine],
+    )
+    diff.add_argument("url")
+    diff.add_argument("--previous", help="JSON of an earlier scrape (or diff --save output).")
+    diff.add_argument("--save", help="Write the current page here, for the next diff.")
     map_cmd = sub.add_parser("map", parents=[engine])
     map_cmd.add_argument("url")
     map_cmd.add_argument("--max-urls", type=int, default=None)
@@ -132,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
     crawl.add_argument("--max-depth", type=int, default=None)
     crawl.add_argument("--wait", action="store_true")
     crawl.add_argument("--idempotency-key")
+    crawl.add_argument(
+        "--query", help="Adaptive crawl: most relevant links first, stop when pages stop matching."
+    )
     crawl.add_argument(
         "--alert-on-failure",
         action="store_true",
@@ -275,6 +294,20 @@ def main(argv: list[str] | None = None) -> int:
         else:
             sys.stdout.write(result["llms_txt"])
         return 0 if result["pages"] else 1
+    if args.command == "diff":
+        previous = None
+        if args.previous:
+            try:
+                previous = json.loads(Path(args.previous).read_text("utf-8"))
+            except (OSError, ValueError) as exc:
+                parser.error(f"--previous: {exc}")
+            previous = previous.get("data", previous) if isinstance(previous, dict) else None
+        result = AgentCrawl(_local_config(args)).diff(args.url, previous)
+        document = result.pop("document", None)
+        if args.save and document is not None:
+            Path(args.save).write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("errors") else 0
     if args.command == "mcp":
         from .mcp_server import main as mcp_main
 
@@ -626,6 +659,7 @@ def _local_config(args: argparse.Namespace) -> dict[str, Any]:
         "timeout_ms": getattr(args, "timeout_ms", None),
         "respect_robots_txt": getattr(args, "respect_robots_txt", None),
         "browser_fallback": getattr(args, "browser_fallback", None),
+        "ocr": getattr(args, "ocr", None),
     }
     config.update({key: value for key, value in overrides.items() if value is not None})
     allowlist = getattr(args, "allowlist", None)
@@ -679,7 +713,9 @@ def _run_local(args: argparse.Namespace) -> Any:
         return to_jsonable(crawler.map(args.url, max_urls=args.max_urls))
     if args.command == "crawl":
         return to_jsonable(
-            crawler.crawl(args.url, max_pages=args.max_pages, max_depth=args.max_depth)
+            crawler.crawl(
+                args.url, max_pages=args.max_pages, max_depth=args.max_depth, query=args.query
+            )
         )
     raise SystemExit(f"{args.command} requires --remote")
 
@@ -722,6 +758,7 @@ def _run_remote(args: argparse.Namespace) -> Any:
             max_depth=args.max_depth,
             wait=args.wait,
             idempotency_key=args.idempotency_key,
+            query=args.query,
         )
     if args.command == "job":
         return client.job(args.job_id, offset=args.offset, limit=args.limit)

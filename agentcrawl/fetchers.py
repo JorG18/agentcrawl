@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import codecs
+import contextvars
 import importlib.util
 import json
 import os
@@ -14,7 +16,13 @@ import uuid
 from typing import Any
 
 from .config import CrawlConfig
-from .documents import CSV_CONTENT_TYPES, csv_to_markdown, read_local_document
+from .documents import (
+    CSV_CONTENT_TYPES,
+    csv_to_markdown,
+    pdf_bytes_to_markdown,
+    read_local_document,
+)
+from .office import OFFICE_CONTENT_TYPES, OFFICE_SUFFIXES, office_to_markdown
 from .errors import status_code_of
 from .exceptions import FetchError
 from .security import check_local_source, pinned_handlers, validate_remote_url
@@ -97,10 +105,40 @@ def _browser_backend_available(backend: str) -> bool:
     return False
 
 
+# Per-fetch side outputs of the browser (screenshot bytes, action log). A
+# ContextVar keeps ``_fetch_browser``'s ``-> str`` contract for every caller.
+_CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "agentcrawl_browser_capture", default=None
+)
+
+
 def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
+    """Fetch ``source``; browser side outputs are added to the metadata."""
+    if (config.browser_actions or config.screenshot) and is_probably_url(source):
+        if config.fetcher == "camofox" or (
+            config.fetcher != "http" and config.browser_backend == "camofox"
+        ):
+            raise FetchError(
+                "browser_actions and screenshots need the local Playwright backend, not camofox.",
+                error_type="config_error",
+            )
+    capture: dict[str, Any] = {}
+    token = _CAPTURE.set(capture)
+    try:
+        content, metadata = _fetch_source(source, config)
+    finally:
+        _CAPTURE.reset(token)
+    if "screenshot" in capture:
+        metadata["screenshot_png_base64"] = base64.b64encode(capture["screenshot"]).decode("ascii")
+    if "actions" in capture:
+        metadata["browser_actions_log"] = capture["actions"]
+    return content, metadata
+
+
+def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     if not is_probably_url(source):
         check_local_source(source, allow=config.allow_local_files, root=config.local_files_root)
-        return _fetch_local_file(source)
+        return _fetch_local_file(source, ocr=config.ocr)
     validate_remote_url(source, allow_private_network=config.allow_private_network)
     if config.fetcher == "http":
         try:
@@ -187,12 +225,12 @@ def _should_browser_fallback(message: str, config: CrawlConfig) -> bool:
     )
 
 
-def _fetch_local_file(source: str) -> tuple[str, dict[str, Any]]:
+def _fetch_local_file(source: str, *, ocr: bool = False) -> tuple[str, dict[str, Any]]:
     path = pathlib.Path(source).expanduser()
     if not path.exists():
         raise FetchError(f"Local file not found: {source}", error_type="not_found")
     resolved = str(path.resolve())
-    content, metadata = read_local_document(path)
+    content, metadata = read_local_document(path, ocr=ocr)
     return content, {
         "fetcher": "file",
         "source_path": str(path),
@@ -203,6 +241,10 @@ def _fetch_local_file(source: str) -> tuple[str, dict[str, Any]]:
 
 def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     headers = {"user-agent": config.user_agent or "AgentCrawl/0.1"}
+    if config.if_none_match:
+        headers["if-none-match"] = config.if_none_match
+    if config.if_modified_since:
+        headers["if-modified-since"] = config.if_modified_since
     request = urllib.request.Request(url, headers=headers)
     from urllib.parse import urlparse
 
@@ -247,6 +289,11 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     "fetcher": "http",
                     "final_url": final_url,
                 }
+                # Validators for the next conditional fetch (``AgentCrawl.diff``).
+                for header, key in (("ETag", "etag"), ("Last-Modified", "last_modified")):
+                    value = response.headers.get(header)
+                    if value:
+                        fetch_metadata[key] = value
                 charset = _response_charset(response.headers)
                 content_type = _response_content_type(response.headers)
                 if audit_trail is not None:
@@ -259,6 +306,15 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                         target_host=target_host,
                     )
                     fetch_metadata.update(audit_trail.to_metadata())
+                binary_kind = _binary_document_kind(content_type, final_url)
+                if binary_kind:
+                    # PDFs and Office files decoded as text were garbage.
+                    if binary_kind == "pdf":
+                        body, doc_metadata = pdf_bytes_to_markdown(html_bytes, ocr=config.ocr)
+                    else:
+                        body, doc_metadata = office_to_markdown(html_bytes, binary_kind)
+                    fetch_metadata.update(doc_metadata)
+                    return body, fetch_metadata
                 body = _decode_http_body(html_bytes, charset)
                 if content_type in CSV_CONTENT_TYPES:
                     # Data URLs serve CSV; parsed as HTML they became one
@@ -277,6 +333,12 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     bytes_count=0,
                     target_host=target_host,
                 )
+            if exc.code == 304:
+                raise FetchError(
+                    f"{url} not modified since the previous fetch",
+                    error_type="not_modified",
+                    status_code=304,
+                ) from exc
             if exc.code not in {429, 500, 502, 503, 504} or attempt >= config.http_retries:
                 break
             retry_after = exc.headers.get("Retry-After")
@@ -400,6 +462,24 @@ def _read_bounded(
                 + f" (read deadline is {READ_DEADLINE_FACTOR}x timeout_ms)."
             )
     return b"".join(chunks)
+
+
+def _binary_document_kind(content_type: str, url: str) -> str | None:
+    """``pdf``/``docx``/``xlsx``/``pptx`` for a document response, else None.
+
+    The content type decides; a generic binary type falls back to the URL's
+    file extension, which is how many file servers label downloads.
+    """
+    if content_type == "application/pdf":
+        return "pdf"
+    if content_type in OFFICE_CONTENT_TYPES:
+        return OFFICE_CONTENT_TYPES[content_type]
+    if content_type in {"application/octet-stream", "binary/octet-stream", ""}:
+        suffix = pathlib.PurePosixPath(urllib.parse.urlsplit(url).path).suffix.lower()
+        if suffix == ".pdf":
+            return "pdf"
+        return OFFICE_SUFFIXES.get(suffix)
+    return None
 
 
 def _response_content_type(headers: Any) -> str:
@@ -613,7 +693,19 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                     page.wait_for_timeout(config.browser_wait_ms)
                 if config.network_idle:
                     page.wait_for_load_state("networkidle", timeout=config.timeout_ms)
+                capture = _CAPTURE.get()
+                if config.browser_actions:
+                    from .browser_actions import run_actions
+
+                    try:
+                        log = run_actions(page, config.browser_actions, config.timeout_ms)
+                    except RuntimeError as exc:
+                        raise FetchError(str(exc), error_type="browser_error") from exc
+                    if capture is not None:
+                        capture["actions"] = log
                 validate_remote_url(page.url, allow_private_network=config.allow_private_network)
+                if config.screenshot and capture is not None:
+                    capture["screenshot"] = page.screenshot(full_page=True, type="png")
                 return page.content()
             finally:
                 for resource in (context, browser):

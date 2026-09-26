@@ -122,7 +122,11 @@ AgentCrawl Community is the self-hosted trust layer:
 | Web search | `search` in the library, API (`/v1/search`), MCP (`search_web`) and CLI: search, then read the top results with the query as the relevance query. Opt-in with `AGENTCRAWL_SEARCH_ENGINE=duckduckgo` (or `serper` + `SERPER_API_KEY`). |
 | llms.txt | `map` reads a site's `/llms.txt` links; `agentcrawl llms-txt URL` generates one from a bounded crawl. |
 | Citable chunks | `formats=["chunks"]`: pieces of about `chunk_tokens` (default 400) that keep tables and code whole, with the heading path, a `cite_url` text-fragment link and, with `query`, a BM25 score. |
+| Browser actions and screenshots | `browser_actions` (click, type, press, scroll, wait, wait_for; at most 25 bounded steps) run before the page is read, and `formats=["screenshot"]` returns a full-page PNG. Local Playwright only; a failed step fails the scrape with the step named. |
+| Adaptive crawl | `crawl(query=...)` (API/MCP/CLI `--query`) visits the most relevant links first and stops after `stop_after_irrelevant` pages in a row that do not match. |
+| Change tracking | Every page carries `markdown_sha256`, `etag` and `last_modified`; `diff()` / `agentcrawl diff URL --previous FILE` / MCP `check_changes` send conditional requests and return a unified diff; `crawl(previous_hashes=...)` marks pages `new`, `changed` or `unchanged`. |
 | Batch scraping | `scrape_many` in the library, API (`/v1/scrape_many`), MCP and CLI (`scrape-many`). |
+| Framework adapters | `agentcrawl.integrations.langchain.AgentCrawlLoader` and `agentcrawl.integrations.llama_index.AgentCrawlReader` yield pages or citable chunks. A zero-dependency TypeScript client for the HTTP API lives in [`sdk/typescript`](sdk/typescript). |
 | Structured extraction without an LLM | CSS schemas (`extract-css`, `/v1/extract_css`, MCP `extract_structured`): deterministic, zero tokens. |
 | Query-aware budgets | `query=` keeps the passages that matter (BM25) when a page is larger than the output budget. |
 | Basic browser fallback | Optional local browser/Camofox path, not required for the default image. |
@@ -293,8 +297,10 @@ Community supports local document ingestion without sending file contents to a h
 agentcrawl scrape ./notes.md
 agentcrawl scrape ./data.json
 agentcrawl scrape ./feed.xml
-python -m pip install "agentcrawl-ai[browser]"
+agentcrawl scrape ./report.docx      # also .xlsx and .pptx, no extra needed
+python -m pip install "agentcrawl-ai[docs]"
 agentcrawl scrape ./report.pdf
+agentcrawl scrape ./scanned.pdf --ocr # needs the Tesseract binary
 ```
 
 Current document support:
@@ -307,7 +313,10 @@ Current document support:
 | JSON | Pretty-printed inside a fenced `json` block. |
 | XML/RSS/Atom | Preserved inside a fenced `xml` block. |
 | CSV/TSV | Rendered as a Markdown table (delimiter sniffed); also for URLs served as `text/csv`. Shape in metadata; rows beyond 5 000 are reported as omitted. |
-| PDF | Extracted page-by-page to Markdown with the optional `docs` extra. Enforces size/page safety limits and rejects encrypted PDFs. |
+| DOCX / XLSX / PPTX | Read with the standard library: headings, lists and tables from Word; one Markdown table per sheet; one section per slide in presentation order. Size-checked before unzipping. |
+| PDF | Extracted page-by-page to Markdown with the optional `docs` extra. Enforces size/page safety limits and rejects encrypted PDFs. A PDF with no text layer says so in `metadata.warning`; `ocr=true` (`--ocr`, `AGENTCRAWL_OCR`) reads it with Tesseract. |
+
+PDF and Office files fetched from URLs are converted the same way, detected by content type or, for generic binary responses, by file extension.
 
 ## Browser rendering
 
@@ -378,7 +387,7 @@ Do not expose the API without authentication, TLS, request limits, and network c
 
 ## Optional LLM extraction
 
-AgentCrawl Community does not require an LLM for scraping, crawling, API, Docker, or MCP usage. The legacy prompt-driven `AgentCrawler.extract()` path is optional: install `agentcrawl-ai[llm]` and configure `llm` or `llm_model` before using it. Built-in web search is disabled by default; keep search in your agent/provider layer unless you explicitly configure a search backend.
+AgentCrawl Community does not require an LLM for scraping, crawling, API, Docker, or MCP usage. Prompt-driven `extract()` (and `POST /v1/extract`) is optional: install `agentcrawl-ai[llm]` and configure `llm` or `llm_model`, or `agentcrawl-ai[ollama]` with `llm_provider="ollama"` to keep extraction on your machine. Pass a Pydantic model or a JSON Schema object as the schema: the answer is validated against it, and a wrong shape is sent back to the model with the failing path (`$.price: expected number, got string`) instead of being returned. Built-in web search is disabled by default; keep search in your agent/provider layer unless you explicitly configure a search backend.
 
 ## Development
 

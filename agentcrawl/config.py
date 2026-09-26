@@ -39,6 +39,17 @@ class CrawlConfig:
     browser_wait_ms: int = 0
     browser_block_resources: tuple[str, ...] = field(default_factory=tuple)
     browser_init_script: str | None = None
+    # Bounded steps (click, scroll, type, ...) run before the page is read; see
+    # ``browser_actions.py``. Needs the local Playwright backend.
+    browser_actions: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    # Capture a full-page PNG (the ``screenshot`` output format sets this).
+    screenshot: bool = False
+    # OCR image-only PDF pages (needs the docs extra plus the Tesseract binary).
+    ocr: bool = False
+    # Conditional-request validators from a previous fetch (``AgentCrawl.diff``
+    # sets them): a 304 answer becomes ``error_type='not_modified'``.
+    if_none_match: str | None = None
+    if_modified_since: str | None = None
     allow_private_network: bool = False
     # Local-file sources (a path instead of a URL). On for the library and the
     # CLI, where a human typed the path; the MCP turns it off (see
@@ -183,6 +194,8 @@ _BOOL_FIELDS = frozenset(
         "geoip",
         "humanize",
         "network_idle",
+        "screenshot",
+        "ocr",
         "reasoning",
         "auto_reattempt",
         "verbose",
@@ -214,6 +227,8 @@ _STR_OR_NONE_FIELDS = frozenset(
         "wait_until",
         "serper_api_key",
         "local_files_root",
+        "if_none_match",
+        "if_modified_since",
     }
 )
 
@@ -289,6 +304,10 @@ def _validate_config_value(key: str, value: Any) -> Any:
                 f"{key} must be a string or null, got {type(value).__name__} ({value!r})"
             )
         return value
+    if key == "browser_actions":
+        from .browser_actions import validate_actions
+
+        return validate_actions(value)
     if key in _INT_SEQUENCE_FIELDS:
         return _validate_int_sequence(key, value)
     if key in _STR_SEQUENCE_FIELDS:
@@ -375,6 +394,7 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
         "allow_private_network": _env_flag("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", False),
         "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
         "browser_fallback": _env_flag("AGENTCRAWL_BROWSER_FALLBACK", True),
+        "ocr": _env_flag("AGENTCRAWL_OCR", False),
         "allow_local_files": _env_flag("AGENTCRAWL_ALLOW_LOCAL_FILES", allow_local_files_default),
         "local_files_root": local_files_root_from_env(),
     }

@@ -58,6 +58,8 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
         "include_images",
         "max_input_chars",
         "chunk_tokens",
+        "browser_actions",
+        "ocr",
         "max_response_bytes",
         "crawl_depth",
         "crawl_max_pages",
@@ -162,6 +164,10 @@ class CrawlRequest(BaseModel):
     exclude: list[str] | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     wait: bool = False
+    # Adaptive crawl: follow the most promising links first, stop when pages
+    # stop matching (see ``AgentCrawl.crawl``).
+    query: str | None = Field(default=None, max_length=1_000)
+    stop_after_irrelevant: int = Field(default=3, ge=0, le=1_000)
 
     @field_validator("include", "exclude")
     @classmethod
@@ -1276,6 +1282,8 @@ def _run_crawl(
         checkpoint_callback=checkpoint_callback,
         before_fetch=server.domain_slot,
         max_run_pages=max_run_pages,
+        query=payload.get("query"),
+        stop_after_irrelevant=payload.get("stop_after_irrelevant", 3),
     )
     return to_jsonable(result)
 

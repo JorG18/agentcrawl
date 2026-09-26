@@ -414,6 +414,10 @@ def _node_identity(node: _HTMLNode) -> str:
 
 
 def _is_hidden(node: _HTMLNode) -> bool:
+    # Inactive tab panels (docs "macOS / Linux / Windows" tabs) are hidden only
+    # until a click; their content is real, so keep it.
+    if node.attr("role").lower() == "tabpanel":
+        return False
     if node.attr("hidden") or node.attr("aria-hidden").lower() == "true":
         return True
     identity = _node_identity(node).lower()

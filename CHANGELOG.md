@@ -4,7 +4,9 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
-## Unreleased
+## 0.3.0 - 2026-09-26
+
+Agents can now go from a question to cited pages (web search, `llms.txt`, citable `chunks`), act on pages before reading them (bounded browser actions, screenshots), crawl by relevance, track what changed, read Office files and scanned PDFs, and get schema-checked LLM extraction. New LangChain and LlamaIndex adapters, a TypeScript client, and releases cut from tags.
 
 ### Added
 
@@ -18,7 +20,43 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 - **`chunks` output format.** `formats=["chunks"]` on scrape, scrape_many, search and MCP returns pieces of at most `chunk_tokens` estimated tokens (config, default 400, 50-8000; also an API override).
   *Detail:* chunks follow sections and keep whole Markdown blocks (tables and code fences are cut only when one alone exceeds the budget, and then at line boundaries). Each carries `id`, `heading` (path like `Guide > Limits`), `url`, `cite_url` (a `#:~:text=` link to its first words, so no element ids are needed) and `estimated_tokens`; with `query` also a BM25 `score`, keeping document order.
 
+- **Bounded browser actions and screenshots.** `browser_actions` (config, API override, MCP `scrape_url`) runs up to 25 steps before the page is read: `click`, `type`, `press`, `scroll`, `wait`, `wait_for`. `formats=["screenshot"]` returns a full-page PNG (base64) as its own field.
+  *Detail:* every step shares the fetch timeout and has its own limits; unknown keys are rejected with the step named. A failing step fails the scrape as `browser_error` naming the step, instead of returning a half-loaded page; `metadata.browser_actions_log` lists what ran. Requesting either switches that fetch to the local Playwright backend; the Camofox backend refuses them with a clear `config_error`.
+
+- **Adaptive crawl.** `crawl(query=..., stop_after_irrelevant=3)` (API, MCP `crawl_site`, CLI `crawl --query`) visits the links most related to the query first and stops after that many irrelevant pages in a row.
+  *Detail:* each page gets `metadata.query_relevance` (share of query terms present); links are scored by the terms in their URL plus the relevance of the page they were found on. The run reports `query` and `stopped_early`; the streak survives checkpoints. Without `query` the crawl order is unchanged.
+
+- **Change tracking.** Pages carry `markdown_sha256`, `etag` and `last_modified`. `AgentCrawl.diff(url, previous)`, CLI `agentcrawl diff URL [--previous FILE] [--save FILE]` and MCP `check_changes` send `If-None-Match`/`If-Modified-Since`, treat a 304 as unchanged without downloading, and otherwise return a unified diff with added and removed line counts. `crawl(previous_hashes={url: sha256})` marks each page `new`, `changed` or `unchanged` and counts them in the run metadata.
+
+- **DOCX, XLSX and PPTX to Markdown** with no new dependency (zip plus XML from the standard library): headings, lists and tables from Word, one table per sheet, one section per slide in presentation order. Archives are size-checked before inflating and parts declaring a DOCTYPE are refused.
+
+- **PDF and Office files from URLs** are converted instead of decoded as text, detected by content type or, for generic binary responses, by extension.
+
+- **OCR for scanned PDFs (opt-in).** A PDF with no text layer now says so in `metadata.warning`; `ocr=true` (API override, `--ocr`, `AGENTCRAWL_OCR`) reads those pages through PyMuPDF with Tesseract and lists them in `metadata.ocr_pages`.
+
+- **Schema-checked LLM extraction.** A JSON Schema object (what the API sends) is now validated: types, required fields, enums, bounds, `anyOf`/`oneOf`, local `$ref`. A wrong answer goes back to the model with the failing path. New `ollama` extra for local models.
+
+- **LangChain and LlamaIndex adapters.** `agentcrawl.integrations.langchain.AgentCrawlLoader` and `agentcrawl.integrations.llama_index.AgentCrawlReader` load pages (scrape or crawl), optionally as citable chunks with `heading` and `cite_url` metadata; failed pages are listed in `.errors`, never returned as empty documents.
+
+- **TypeScript client** (`sdk/typescript`): zero dependencies, `fetch`-based, covers scrape, batch, search, map, crawl, jobs and both extraction endpoints; errors throw `AgentCrawlError` with status and body.
+
+- **Quality fixtures** for tabbed docs, a Q&A thread and an infinite-scroll feed (23 fixtures, all at 100).
+
 - **Neutral benchmark corpus.** `benchmarks/corpus/neutral.json` lists 12 accessible public pages; `python -m benchmarks.snapshot` freezes them with SHA-256 hashes and `python -m benchmarks.compare --corpus ...` scores every tool on the same bytes, printing the hashes. Snapshots are never committed; pages without reviewed signals are reported as `unscored`.
+
+### Fixed
+
+- **`/v1/extract` with a schema** always failed validation, because Pydantic cannot adapt a JSON Schema dict. Fixed by the validator above.
+- **PDF install hint** named the wrong package (`agentcrawl[docs]` instead of `agentcrawl-ai[docs]`).
+
+### Changed
+
+- **Hidden tab panels are kept.** Inactive `role="tabpanel"` content (the "Linux" and "Windows" tabs of install docs) was dropped as hidden; it is real content and is now extracted.
+- **Public benchmark workflow.** `benchmark.yml` (run by hand) snapshots the neutral corpus on a GitHub runner and scores every installed extractor on it and on the fixtures, uploading the results.
+
+- **`examples/graph_extraction.py`** reads a real public page and takes its model from `AGENTCRAWL_LLM_MODEL` instead of a hard-coded one.
+- **Dev extra** pins `httpx2` for the Starlette test client, so the test suite runs without deprecation warnings.
+- **Releases are automated:** pushing a `v*` tag builds the package, publishes it to PyPI and creates the GitHub Release from this changelog.
 
 ## 0.2.1 - 2026-09-24
 

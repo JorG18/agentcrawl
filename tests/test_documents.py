@@ -105,3 +105,49 @@ def test_read_pdf_marks_scanned_or_empty_pdf(tmp_path: Path, monkeypatch) -> Non
 
     assert "First page text" in markdown
     assert metadata["has_text"] is True
+
+
+class FakeScannedPage:
+    def get_text(self, _format: str, textpage=None) -> str:
+        return "Scanned invoice 42" if textpage == "ocr" else ""
+
+    def get_textpage_ocr(self, full: bool = False) -> str:
+        return "ocr"
+
+
+class FakeScannedDocument(FakeDocument):
+    def __iter__(self):
+        return iter([FakeScannedPage()])
+
+
+def test_scanned_pdf_warns_without_ocr_and_reads_with_it(tmp_path: Path, monkeypatch) -> None:
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    monkeypatch.setitem(
+        sys.modules, "fitz", types.SimpleNamespace(open=lambda _path: FakeScannedDocument())
+    )
+
+    content, metadata = _read_pdf(pdf)
+    assert content == "" and "ocr=true" in metadata["warning"]
+
+    content, metadata = _read_pdf(pdf, ocr=True)
+    assert content == "## Page 1\n\nScanned invoice 42"
+    assert metadata["ocr_pages"] == [1] and "warning" not in metadata
+
+
+def test_remote_pdf_bytes_use_the_same_reader(monkeypatch) -> None:
+    from agentcrawl.documents import pdf_bytes_to_markdown
+
+    opened = {}
+
+    def fake_open(*, stream, filetype):
+        opened.update(stream=stream, filetype=filetype)
+        return FakeDocument()
+
+    monkeypatch.setitem(sys.modules, "fitz", types.SimpleNamespace(open=fake_open))
+
+    content, metadata = pdf_bytes_to_markdown(b"%PDF-1.4 bytes")
+
+    assert opened == {"stream": b"%PDF-1.4 bytes", "filetype": "pdf"}
+    assert content == "## Page 1\n\nFirst page text"
+    assert metadata["source_bytes"] == len(b"%PDF-1.4 bytes")
