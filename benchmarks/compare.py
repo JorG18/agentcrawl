@@ -24,7 +24,8 @@ Per fixture and tool it measures:
 
 Matching is case-sensitive substring search after collapsing whitespace. Text
 signals are matched on the output with inline Markdown (links, inline code,
-emphasis, backslash escapes) removed, so formatting never costs text recall.
+emphasis, backslash escapes, a space before punctuation) removed, so
+formatting never costs text recall.
 
 Adapters run only when their package is importable; missing tools are listed
 as ``skipped`` rather than silently dropped. Hosted APIs (Firecrawl, Jina
@@ -81,7 +82,9 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
-_LINK_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+# ``[text](url "title")``; titles may hold escaped or nested parentheses.
+_LINK_RE = re.compile(r"!?\[([^\]]*)\]\((?:[^()\\]|\\.|\([^()]*\))*\)")
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.;:!?])")
 _ESCAPE_RE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|>~])")
 _UNDERSCORE_EMPHASIS_RE = re.compile(r"(?<![\w\\])_{1,2}(?=\S)(.+?)(?<=\S)_{1,2}(?!\w)")
 
@@ -96,7 +99,9 @@ def _plain(markdown: str) -> str:
     text = _LINK_RE.sub(r"\1", markdown)
     text = _ESCAPE_RE.sub(r"\1", text)
     text = text.replace("`", "").replace("*", "")
-    return _UNDERSCORE_EMPHASIS_RE.sub(r"\1", text)
+    text = _UNDERSCORE_EMPHASIS_RE.sub(r"\1", text)
+    # "**term** ," (an html2text habit) is the same words as "term,".
+    return _SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
 
 
 def _is_structure(signal: str) -> bool:
@@ -225,7 +230,7 @@ def score(
     text_signals = [signal for signal in expected if not _is_structure(signal)]
     structure_signals = [signal for signal in expected if _is_structure(signal)]
     table_lines = [line for line in markdown.splitlines() if line.count("|") >= 1]
-    missing = [signal for signal in text_signals if _norm(signal) not in output] + [
+    missing = [signal for signal in text_signals if _norm(_plain(signal)) not in output] + [
         signal
         for signal in structure_signals
         if not _structure_present(signal, markdown, table_lines)
@@ -235,7 +240,7 @@ def score(
         sum(1 for signal in fences if signal in markdown) / len(fences) if fences else None
     )
     excluded = excluded or ()
-    leaked = [signal for signal in excluded if _norm(signal) in output]
+    leaked = [signal for signal in excluded if _norm(_plain(signal)) in output]
 
     def recall(signals: list[str]) -> float:
         return sum(1 for signal in signals if signal not in missing) / len(signals)
