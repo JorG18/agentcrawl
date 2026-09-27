@@ -59,7 +59,8 @@ def why_dropped(html, probe):
             )
             reasons.append(f"hidden:{attr}:{node.tag}:{ident}")
         if parsing._is_boilerplate(node):
-            reasons.append(f"bp-class:{node.tag}:{ident}")
+            word = parsing._BOILERPLATE_HINTS.search(parsing._node_identity(node))
+            reasons.append(f"bp-class:{word.group(0).lower() if word else '?'}:{ident}")
         if node.tag in parsing._BOILERPLATE_TAGS:
             reasons.append(f"bp-tag:{node.tag}")
         if parsing._is_index_node(node):
