@@ -9,6 +9,7 @@ from collections import Counter
 from agentcrawl import parsing
 from agentcrawl.challenge import html_to_plain_text
 from agentcrawl.config import CrawlConfig
+from benchmarks.compare import _plain as parsing_plain
 from benchmarks.web.report import classify, sentences
 
 
@@ -28,7 +29,7 @@ def norm(text):
 
 causes = Counter()
 examples = []
-from benchmarks.compare import _plain as parsing_plain  # noqa: E402
+
 rows = []
 for pid, r in cap.items():
     per = [
@@ -53,8 +54,6 @@ for pid, r in cap.items():
     # Markdown of the whole page, nothing removed.
     everything = sentences(parsing.html_to_markdown(html, cfg, only_main_content=False))
     page_causes = Counter()
-examples = []
-from benchmarks.compare import _plain as parsing_plain  # noqa: E402
     plain_md = norm(parsing_plain(md))
     for sentence in missed:
         probe = sentence[:40]
@@ -64,7 +63,13 @@ from benchmarks.compare import _plain as parsing_plain  # noqa: E402
             page_causes["in_html_but_split_differently"] += 1
             if len(examples) < 40 and kinds[pid] in ("homepage", "inner"):
                 at = plain_md.find(probe[:25])
-                examples.append((pid, sentence[:160], plain_md[max(0, at - 60) : at + 200] if at >= 0 else "<not in md>"))
+                examples.append(
+                    (
+                        pid,
+                        sentence[:160],
+                        plain_md[max(0, at - 60) : at + 200] if at >= 0 else "<not in md>",
+                    )
+                )
         else:
             page_causes["not_in_html (rendered by JS?)"] += 1
     causes.update(page_causes)
