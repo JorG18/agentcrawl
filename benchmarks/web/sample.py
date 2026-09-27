@@ -3,8 +3,9 @@
 Domains come from the Tranco list (a research ranking of popular sites that
 is hard to game), stratified by rank so the long tail is represented, not
 only the top 100. Half of the sampled domains contribute their homepage; the
-other half contribute an inner page that Common Crawl has seen return HTML,
-picked at random. The seed, the Tranco list and the Common Crawl index used
+other half contribute an inner page picked at random from the site's own
+sitemap (or, when it has none, from the Common Crawl index). Each page records
+where its URL came from. The seed, the Tranco list and the Common Crawl index
 are recorded in the output, so the same sample can be drawn again.
 
 Usage::
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import io
 import json
 import random
@@ -132,7 +134,12 @@ def load_tranco(limit: int = 100_000) -> list[tuple[int, str]]:
     return rows
 
 
+_ADULT_RE = re.compile(r"^xh|escort|fap|nsfw|hentai")
+
+
 def is_candidate(domain: str) -> bool:
+    if _ADULT_RE.search(domain):
+        return False
     return not any(token in domain for token in _NOT_A_SITE + _ADULT)
 
 
@@ -141,7 +148,7 @@ def latest_cc_index() -> str:
     return collections[0]["cdx-api"]
 
 
-def inner_page(
+def _cc_page(
     domain: str,
     index_api: str,
     rng: random.Random,
@@ -199,6 +206,76 @@ def inner_page(
     return rng.choice(candidates) if candidates else None
 
 
+_LOC_RE = re.compile(r"<loc>\s*(?:<!\[CDATA\[)?\s*([^<\s\]]+)", re.I)
+_SITEMAP_LINE_RE = re.compile(r"^\s*sitemap:\s*(\S+)", re.I | re.M)
+
+
+def _fetch_text(url: str, *, limit: int = 5_000_000) -> str:
+    request = urllib.request.Request(url, headers={"user-agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        body = response.read(limit)
+    if body[:2] == b"\x1f\x8b":
+        body = gzip.decompress(body)
+    return body.decode("utf-8", "replace")
+
+
+def _usable(url: str, domain: str, pattern: re.Pattern[str] | None) -> bool:
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname or ""
+    depth = len([part for part in parsed.path.split("/") if part])
+    if parsed.scheme != "https" or parsed.query or not 1 <= depth <= 6:
+        return False
+    if host != domain and not host.endswith("." + domain):
+        return False
+    return pattern is None or bool(pattern.search(parsed.path))
+
+
+def sitemap_page(
+    domain: str, rng: random.Random, *, pattern: re.Pattern[str] | None = None
+) -> str | None:
+    """A random URL the site lists in its sitemap(s), or None."""
+    roots: list[str] = []
+    try:
+        roots = _SITEMAP_LINE_RE.findall(_fetch_text(f"https://{domain}/robots.txt", limit=500_000))
+    except Exception:
+        pass
+    roots = roots[:3] or [f"https://{domain}/sitemap.xml", f"https://{domain}/sitemap_index.xml"]
+    queue, seen, urls = list(roots), set(), []
+    while queue and len(seen) < 6 and not urls:
+        sitemap = queue.pop(0)
+        if sitemap in seen:
+            continue
+        seen.add(sitemap)
+        try:
+            locs = _LOC_RE.findall(_fetch_text(sitemap))
+        except Exception:
+            continue
+        children = [loc for loc in locs if re.search(r"\.xml(?:\.gz)?$", loc, re.I)]
+        urls = [loc for loc in locs if loc not in children and _usable(loc, domain, pattern)]
+        if children:
+            queue += rng.sample(children, min(3, len(children)))
+    return rng.choice(sorted(set(urls))) if urls else None
+
+
+def inner_page(
+    domain: str,
+    index_api: str,
+    rng: random.Random,
+    *,
+    mime: str = "text/html",
+    pattern: re.Pattern[str] | None = None,
+    deadline: float | None = None,
+) -> tuple[str, str] | None:
+    """``(url, source)``: from the site's sitemap first, else Common Crawl."""
+    if deadline is not None and time.monotonic() > deadline:
+        return None
+    url = sitemap_page(domain, rng, pattern=pattern)
+    if url:
+        return url, "sitemap"
+    url = _cc_page(domain, index_api, rng, mime=mime, pattern=pattern, deadline=deadline)
+    return (url, "common_crawl") if url else None
+
+
 def hard_block(
     count: int,
     seed: int,
@@ -226,9 +303,9 @@ def hard_block(
 
         def lookup(
             row: tuple[int, str], category: str = category
-        ) -> tuple[tuple[int, str], str | None]:
+        ) -> tuple[tuple[int, str], tuple[str, str] | None]:
             rule = HARD_CATEGORIES[category]
-            url = inner_page(
+            hit = inner_page(
                 row[1],
                 index_api,
                 random.Random(f"{seed}-{category}-{row[1]}"),
@@ -236,12 +313,12 @@ def hard_block(
                 pattern=rule.get("pattern"),  # type: ignore[arg-type]
                 deadline=deadline,
             )
-            return row, url
+            return row, hit
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
             for start in range(0, len(order), workers * 4):
-                for (rank, domain), url in pool.map(lookup, order[start : start + workers * 4]):
-                    if url and len(found) < per_category:
+                for (rank, domain), hit in pool.map(lookup, order[start : start + workers * 4]):
+                    if hit and len(found) < per_category:
                         used.add(domain)
                         found.append(
                             {
@@ -249,7 +326,8 @@ def hard_block(
                                 "rank": rank,
                                 "stratum": "hard",
                                 "tld": domain.rsplit(".", 1)[-1],
-                                "url": url,
+                                "url": hit[0],
+                                "source": hit[1],
                                 "kind": category,
                                 "block": "hard",
                             }
@@ -295,12 +373,12 @@ def build_sample(size: int, seed: int, *, hard: int = 0, workers: int = 4) -> di
             "block": "random",
         }
         if position % 2:
-            url = inner_page(
+            hit = inner_page(
                 domain, index_api, random.Random(f"{seed}-{domain}"), deadline=deadline
             )
-            if url:
-                return {**entry, "url": url, "kind": "inner"}
-        return {**entry, "url": f"https://{domain}/", "kind": "homepage"}
+            if hit:
+                return {**entry, "url": hit[0], "kind": "inner", "source": hit[1]}
+        return {**entry, "url": f"https://{domain}/", "kind": "homepage", "source": "homepage"}
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         pages = list(pool.map(page, enumerate(chosen)))

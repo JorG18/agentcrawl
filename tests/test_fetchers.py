@@ -517,3 +517,29 @@ def test_transient_failures_are_still_retried(monkeypatch) -> None:
 
     assert len(attempts) == 3
     assert sleeps == [0.5, 1.0]
+
+
+def test_certificate_failure_falls_back_to_the_verifying_browser(monkeypatch) -> None:
+    """Sites with an incomplete certificate chain fail in Python but load in a
+    browser, which fetches the missing intermediate (web-sample benchmark)."""
+    monkeypatch.setattr(
+        "agentcrawl.fetchers._fetch_http",
+        lambda url, config: (_ for _ in ()).throw(
+            FetchError(
+                f"HTTP fetch failed for {url}: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]>",
+                error_type="tls_error",
+            )
+        ),
+    )
+    monkeypatch.setattr("agentcrawl.fetchers._browser_backend_available", lambda backend: True)
+    article = "".join(f"<p>Paragraph {i} of a real page.</p>" for i in range(5))
+    monkeypatch.setattr(
+        "agentcrawl.fetchers._fetch_browser",
+        lambda url, config, backend=None: f"<html><body><main>{article}</main></body></html>",
+    )
+
+    document = AgentCrawl({"fetcher": "http"}).scrape("https://example.com/")
+
+    assert document.ok
+    assert "Paragraph 4" in document.markdown
+    assert document.metadata["fallback_from"] == "http"

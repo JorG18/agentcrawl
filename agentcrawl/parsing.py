@@ -50,7 +50,9 @@ _CONTENT_HINTS = re.compile(
     r"doc-content|page-content)\b",
     re.IGNORECASE,
 )
-_INDEX_HINTS = re.compile(r"\b(index|toc)\b", re.IGNORECASE)
+# Whole class/id tokens only: "index-column_main" or "page--index" are layout
+# names, and matching them inside a token emptied real pages.
+_INDEX_TOKENS = {"index", "toc", "genindex"}
 # Generated back-of-document indexes (RFCs put theirs in "appendix-D") are
 # recognised by their heading, not by the appendix id: the other appendices
 # (acknowledgements, changes, authors) are content.
@@ -234,6 +236,13 @@ def chunk_text(text: str, config: CrawlConfig) -> list[str]:
     return chunk_text_stats(text, config)[0]
 
 
+# When the selected main content keeps less than this share of the page's
+# readable text, the selection is treated as wrong (a slider, a modal, a
+# container hidden until scripts run) and a wider extraction is used instead.
+_MIN_SELECTED_SHARE = 0.25
+_MIN_PAGE_CHARS_FOR_FALLBACK = 500
+
+
 def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
     parser = _HTMLTreeParser()
     try:
@@ -244,7 +253,28 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
 
     candidates = _content_candidates(parser.root)
     selected = _select_content_node(candidates) if only_main_content and candidates else parser.root
-    return _serialize_node(selected, only_main_content=only_main_content)
+    serialized = _serialize_node(selected, only_main_content=only_main_content)
+    if not only_main_content:
+        return serialized
+    # Never return (nearly) nothing for a page that has text: fall back to the
+    # whole page without navigation and boilerplate, then to the whole page
+    # with class-based hiding ignored (scripts reveal those containers).
+    page_chars = len(_node_text(parser.root))
+    if page_chars < _MIN_PAGE_CHARS_FOR_FALLBACK:
+        return serialized
+    for node, honor_hidden_classes in ((parser.root, True), (parser.root, False)):
+        if _html_text_chars(serialized) >= _MIN_SELECTED_SHARE * page_chars:
+            break
+        wider = _serialize_node(
+            node, only_main_content=True, honor_hidden_classes=honor_hidden_classes
+        )
+        if _html_text_chars(wider) > _html_text_chars(serialized):
+            serialized = wider
+    return serialized
+
+
+def _html_text_chars(html: str) -> int:
+    return len("".join(re.sub(r"(?s)<[^>]+>", " ", html_module.unescape(html)).split()))
 
 
 def extraction_provenance(html: str, *, only_main_content: bool = True) -> dict[str, Any]:
@@ -297,6 +327,10 @@ def markdown_structure_metrics(markdown: str) -> dict[str, int]:
 def _content_candidates(root: _HTMLNode) -> list[_HTMLNode]:
     scored: list[_HTMLNode] = []
     for node in _walk_nodes(root):
+        # A node the serializer drops (a modal, a cookie banner) can never be
+        # the answer: selecting it returned an empty page.
+        if _BOILERPLATE_HINTS.search(_node_identity(node)) or _is_hidden(node):
+            continue
         if node.tag in _CONTENT_CONTAINER_TAGS and _looks_like_content_candidate(node):
             scored.append(node)
     return scored
@@ -374,8 +408,10 @@ def _content_score(node: _HTMLNode) -> float:
     )
 
 
-def _serialize_node(node: _HTMLNode, *, only_main_content: bool) -> str:
-    if node.tag in _ALWAYS_REMOVE_TAGS or _is_hidden(node):
+def _serialize_node(
+    node: _HTMLNode, *, only_main_content: bool, honor_hidden_classes: bool = True
+) -> str:
+    if node.tag in _ALWAYS_REMOVE_TAGS or _is_hidden(node, classes=honor_hidden_classes):
         return ""
     if node.tag != "document":
         if _BOILERPLATE_HINTS.search(_node_identity(node)):
@@ -390,7 +426,11 @@ def _serialize_node(node: _HTMLNode, *, only_main_content: bool) -> str:
     children = "".join(
         html_module.escape(child, quote=False)
         if isinstance(child, str)
-        else _serialize_node(child, only_main_content=only_main_content)
+        else _serialize_node(
+            child,
+            only_main_content=only_main_content,
+            honor_hidden_classes=honor_hidden_classes,
+        )
         for child in node.children
     )
     if node.tag == "document":
@@ -408,7 +448,7 @@ def _serialize_node(node: _HTMLNode, *, only_main_content: bool) -> str:
 
 
 def _is_index_node(node: _HTMLNode) -> bool:
-    if _INDEX_HINTS.search(_node_identity(node)):
+    if _INDEX_TOKENS & set(_node_identity(node).lower().split()):
         return True
     if node.tag not in {"section", "div"}:
         return False
@@ -471,7 +511,7 @@ def _node_identity(node: _HTMLNode) -> str:
     return " ".join((node.attr("id"), node.attr("class"), node.attr("role")))
 
 
-def _is_hidden(node: _HTMLNode) -> bool:
+def _is_hidden(node: _HTMLNode, *, classes: bool = True) -> bool:
     # Inactive tab panels (docs "macOS / Linux / Windows" tabs) are hidden only
     # until a click; their content is real, so keep it.
     if node.attr("role").lower() == "tabpanel":
@@ -485,7 +525,7 @@ def _is_hidden(node: _HTMLNode) -> bool:
         return False
     if node.attr("hidden") or node.attr("aria-hidden").lower() == "true":
         return True
-    if visually_hidden:
+    if visually_hidden and classes:
         return True
     style = node.attr("style").replace(" ", "").lower()
     return "display:none" in style or "visibility:hidden" in style

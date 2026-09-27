@@ -46,7 +46,10 @@ _JUNK_RE = re.compile(
     r"access denied|access to this page has been denied|403 forbidden|request blocked|"
     r"unusual traffic|pardon our interruption|client challenge|attention required|"
     r"performing security verification|verif(?:y|ies) you are not a bot|"
-    r"suspect (?:that )?you(?:[’']re| are) a (?:robot|bot)|you(?:[’']ve| have) been blocked",
+    r"suspect (?:that )?you(?:[’']re| are) a (?:robot|bot)|you(?:[’']ve| have) been blocked|"
+    # Cloudflare/edge error pages ("Web server is down", error 52x).
+    r"web server is down|origin is unreachable|error code:? ?52\d|bad gateway|"
+    r"service (?:temporarily )?unavailable",
     re.I,
 )
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+|\n+")

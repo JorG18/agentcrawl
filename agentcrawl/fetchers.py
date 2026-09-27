@@ -163,7 +163,10 @@ def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]
             content, http_metadata = _fetch_http(source, config)
             return _render_if_js_shell(source, content, http_metadata, config)
         except FetchError as exc:
-            if not (config.browser_fallback and _should_browser_fallback(str(exc), config)):
+            if not (
+                config.browser_fallback
+                and (_should_browser_fallback(str(exc), config) or _is_tls_failure(exc))
+            ):
                 raise
             backend = config.browser_backend
             # The browser is a *fallback*, so a fallback that cannot run must
@@ -274,6 +277,18 @@ def _browser_audit_kwargs(config: CrawlConfig) -> tuple[dict[str, Any], Any | No
 
     trail = AuditTrail()
     return {"audit_trail": trail}, trail
+
+
+def _is_tls_failure(exc: FetchError) -> bool:
+    """A certificate the HTTP client could not verify.
+
+    Usually an incomplete chain: browsers fetch the missing intermediate
+    certificate, Python does not. The browser still verifies the certificate,
+    so this never accepts one that is actually invalid.
+    """
+    from .errors import classify_error
+
+    return (getattr(exc, "error_type", None) or classify_error(str(exc))) == "tls_error"
 
 
 def _should_browser_fallback(message: str, config: CrawlConfig) -> bool:

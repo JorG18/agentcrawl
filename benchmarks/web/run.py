@@ -109,7 +109,7 @@ def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result
         if len(markdown) < 300 and not errors:
             # Keep the page AgentCrawl saw, so an empty result can be
             # reproduced offline instead of guessed at.
-            diagnostics["html"] = (doc.get("html") or "")[:300_000]
+            diagnostics["html"] = (doc.get("html") or "")[:3_000_000]
         return _result(
             page,
             "agentcrawl",
