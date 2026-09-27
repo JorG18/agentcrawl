@@ -25,6 +25,7 @@ Fixes from a 400-page benchmark on real sites (`benchmarks/web`): slow, challeng
 ### Benchmark
 
 - The hard-to-scrape block of the web sample was always empty: one shared deadline was spent on the first category. Each category now gets its own share of time, Common Crawl lookups retry with backoff and stop once the index is down, and category sitemaps are read first.
+- Same 400 pages as the earlier run, local tools rerun (run 36288315800): AgentCrawl returned content on 223 pages (was 211), consensus recall 74.0% (was 65%), median 1.5 s per page. Crawl4AI in the same run: 225 pages, 79.6%, 2.1 s. Firecrawl's earlier result on these pages was 265 pages and 77.4%.
 - `--keep-html` stores the fetched HTML with AgentCrawl's results for offline diagnosis. A run reusing an earlier sample reports the earlier results of tools it did not rerun, and says so.
 
 ## 0.4.5 - 2026-09-26

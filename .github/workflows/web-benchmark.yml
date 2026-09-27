@@ -46,7 +46,7 @@ env:
   HARD: ${{ inputs.hard || '5' }}
   TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
   SCRAPEGRAPH_PAGES: ${{ inputs.scrapegraph_pages || '50' }}
-  SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '36281772086' }}
+  SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '' }}
   KEEP_HTML: ${{ inputs.keep_html || '' }}
 
 jobs:
