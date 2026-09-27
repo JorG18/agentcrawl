@@ -5,7 +5,7 @@ Use this when you already have a URL and want clean Markdown from the terminal.
 ## Install
 
 ```bash
-pip install "agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
+pip install agentcrawl-ai
 ```
 
 ## Scrape one URL
@@ -35,6 +35,6 @@ agentcrawl scrape ./feed.xml
 For PDFs:
 
 ```bash
-pip install "agentcrawl-ai[docs] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
+pip install "agentcrawl-ai[docs]"
 agentcrawl scrape ./report.pdf
 ```
