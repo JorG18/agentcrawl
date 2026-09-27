@@ -12,7 +12,7 @@ AgentCrawl gives agents a simple way to read normal web pages without pasting ra
 The project is early, intentionally modest, and being worked on steadily: accessible pages first, clean output, local state, honest failures.
 
 ```bash
-pip install "agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
+pip install agentcrawl-ai
 agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
@@ -31,7 +31,7 @@ Hacker News, Django docs, a JavaScript-rendered page) by the
 ### Agents: MCP 🤖
 
 ```bash
-python -m pip install "agentcrawl-ai[mcp] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
+python -m pip install "agentcrawl-ai[mcp]"
 agentcrawl doctor
 agentcrawl mcp
 ```
@@ -43,7 +43,7 @@ The MCP only fetches URLs by default: local file paths are refused, because an a
 ### Developers: Python + CLI 🧪
 
 ```bash
-pip install "agentcrawl-ai @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
+pip install agentcrawl-ai
 agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
@@ -157,7 +157,7 @@ Authentication is enabled by default. Configure at least one API key before expo
 
 ```bash
 export AGENTCRAWL_API_KEYS="replace-with-a-long-random-key"
-python -m pip install "agentcrawl-ai[server] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
+python -m pip install "agentcrawl-ai[server]"
 agentcrawl serve --host 0.0.0.0 --port 8000
 ```
 
@@ -292,7 +292,7 @@ agentcrawl scrape ./notes.md
 agentcrawl scrape ./data.json
 agentcrawl scrape ./feed.xml
 agentcrawl scrape ./report.docx      # also .xlsx and .pptx, no extra needed
-python -m pip install "agentcrawl-ai[docs] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
+python -m pip install "agentcrawl-ai[docs]"
 agentcrawl scrape ./report.pdf
 agentcrawl scrape ./scanned.pdf --ocr # needs the Tesseract binary
 ```
@@ -317,7 +317,7 @@ PDF and Office files fetched from URLs are converted the same way, detected by c
 The default package and default Docker image use HTTP extraction. Add browser rendering only when a site needs JavaScript:
 
 ```bash
-python -m pip install "agentcrawl-ai[browser] @ git+https://github.com/JorG18/agentcrawl@v0.4.5"
+python -m pip install "agentcrawl-ai[browser]"
 python -m playwright install chromium
 ```
 
