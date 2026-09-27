@@ -14,12 +14,13 @@ Fixes from a 400-page benchmark on real sites (`benchmarks/web`): slow, challeng
 - **Short extractions are rendered.** A page with scripts whose HTML extracts to under 500 characters is opened in the browser (`fallback_reason: thin_extraction`). If the render adds nothing, the HTTP result is kept (`browser_render_no_gain`).
 - **Slow servers.** With a browser available, the HTTP request gives up after `http_timeout_ms` (default 15 s) and hands a timeout or TLS failure straight to the browser instead of retrying. Without a browser the old timeout and retries apply.
 - **Busy networks.** Waiting for the network to go idle is capped at `network_idle_ms` (default 10 s); a page that never goes idle is kept and marked `network_idle_timeout` instead of failing.
-- **Extraction.** Collapsed FAQ and accordion panels (`aria-hidden`) are kept unless they are mostly links. Elements named banner, promo, sidebar, sticky, modal or rail are dropped only when they are mostly links. Page-state classes on `<body>` and utility-CSS tokens no longer make a whole page boilerplate, and an ASP.NET form wrapping the page is read as the page. When the selected block is not one clear article and holds under half of the page's readable text, the page minus menus and footers is used.
+- **Extraction.** Collapsed FAQ and accordion panels (`aria-hidden`) are kept unless they are mostly links. Elements named banner, promo, sidebar, sticky, modal or rail are dropped only when they are mostly links. Page-state classes on `<body>` and utility-CSS tokens no longer make a whole page boilerplate, and an ASP.NET form wrapping the page is read as the page.
 
 ### Fixed
 
 - **Error pages from the browser.** When the browser fallback gets an error status (a CDN's 403 "Access Denied"), the original HTTP error is reported as `blocked` with `browser_fallback_error`, instead of returning the error page as content.
 - **Browser queue.** A browser fetch waited only `timeout_ms` for a free browser and failed with "concurrency limit reached" when others were busy. It now waits as long as one browser run can take.
+- **Incomplete certificate chains.** A server that sends its certificate without the intermediate (browsers fill it in, Python did not) now works: the intermediate is downloaded from the address in the server's certificate and the chain must still reach a trusted root. Not done under `airgap`.
 - **Failed navigations** now say why the request failed instead of Chromium's bare `net::ERR_FAILED`.
 
 ### Benchmark

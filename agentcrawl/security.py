@@ -5,6 +5,7 @@ import ipaddress
 import os
 import pathlib
 import socket
+import ssl
 import urllib.parse
 import urllib.request
 
@@ -142,9 +143,100 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    fetch_missing_intermediate = False
+
     def __init__(self, *args, **kwargs):
+        # Only a context created for this connection may be extended below.
+        self._own_context = kwargs.get("context") is None
         super().__init__(*args, **kwargs)
         self._create_connection = _pinned_create_connection
+
+    def connect(self):
+        try:
+            super().connect()
+        except ssl.SSLCertVerificationError as exc:
+            # Browsers complete a chain the server sent without its
+            # intermediate certificate (umn.edu); OpenSSL does not.
+            if not (
+                self.fetch_missing_intermediate
+                and self._own_context
+                and exc.verify_code == _UNABLE_TO_GET_ISSUER
+            ):
+                raise
+            intermediate = _missing_intermediate(self.host, self.port or 443, self.timeout)
+            if intermediate is None:
+                raise
+            # The downloaded certificate only helps build the chain: partial
+            # chains stay off, so it must still lead to a trusted root.
+            self._context.verify_flags &= ~getattr(ssl, "VERIFY_X509_PARTIAL_CHAIN", 0)
+            try:
+                self._context.load_verify_locations(cadata=intermediate)
+            except (ssl.SSLError, ValueError):
+                raise exc from None
+            super().connect()
+
+
+_UNABLE_TO_GET_ISSUER = 20  # X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY
+# id-ad-caIssuers (1.3.6.1.5.5.7.48.2) followed by a URI in the certificate's
+# Authority Information Access extension.
+_CA_ISSUERS_OID = bytes.fromhex("06082b06010505073002")
+_MAX_INTERMEDIATE_BYTES = 65_536
+
+
+def _missing_intermediate(host: str, port: int, timeout) -> bytes | None:
+    """The intermediate certificate the server's own certificate points to."""
+    probe = ssl.create_default_context()
+    probe.check_hostname = False
+    probe.verify_mode = ssl.CERT_NONE  # read the certificate only; nothing is trusted
+    try:
+        with _pinned_create_connection((host, port), timeout) as raw:
+            with probe.wrap_socket(raw, server_hostname=host) as tls:
+                leaf = tls.getpeercert(binary_form=True) or b""
+    except (OSError, FetchError):
+        return None
+    url = _ca_issuers_url(leaf)
+    return _download_intermediate(url) if url else None
+
+
+def _ca_issuers_url(der: bytes) -> str | None:
+    at = der.find(_CA_ISSUERS_OID)
+    if at < 0:
+        return None
+    at += len(_CA_ISSUERS_OID)
+    if der[at : at + 1] != b"\x86":
+        return None
+    length = der[at + 1]
+    start = at + 2
+    if length == 0x81:
+        length, start = der[at + 2], at + 3
+    url = der[start : start + length].decode("ascii", "replace")
+    return url if url.startswith(("http://", "https://")) else None
+
+
+_intermediates: dict[str, bytes | None] = {}
+
+
+def _download_intermediate(url: str) -> bytes | None:
+    if url not in _intermediates:
+        body: bytes | None = None
+        try:
+            # Same SSRF rules as any fetch: public addresses only, pinned DNS.
+            opener = urllib.request.build_opener(*pinned_handlers())
+            with opener.open(url, timeout=10) as response:
+                body = response.read(_MAX_INTERMEDIATE_BYTES + 1)
+        except Exception:
+            body = None
+        if body and len(body) > _MAX_INTERMEDIATE_BYTES:
+            body = None
+        elif body and body.lstrip().startswith(b"-----BEGIN CERTIFICATE"):
+            body = ssl.PEM_cert_to_DER_cert(body.decode("ascii", "replace").strip())
+        # DER from here on; a PKCS#7 bundle fails to load and is not used.
+        _intermediates[url] = body or None
+    return _intermediates[url]
+
+
+class _AIAPinnedHTTPSConnection(_PinnedHTTPSConnection):
+    fetch_missing_intermediate = True
 
 
 class PinnedHTTPHandler(urllib.request.HTTPHandler):
@@ -157,14 +249,27 @@ class PinnedHTTPHandler(urllib.request.HTTPHandler):
 
 
 class PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, *args, fetch_missing_intermediate: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._connection = (
+            _AIAPinnedHTTPSConnection if fetch_missing_intermediate else _PinnedHTTPSConnection
+        )
+
     def https_open(self, req):
         if req._tunnel_host:
             return super().https_open(req)
         kwargs = {"context": self._context}
         if hasattr(self, "_check_hostname"):
             kwargs["check_hostname"] = self._check_hostname
-        return self.do_open(_PinnedHTTPSConnection, req, **kwargs)
+        return self.do_open(self._connection, req, **kwargs)
 
 
-def pinned_handlers() -> list[urllib.request.BaseHandler]:
-    return [PinnedHTTPHandler(), PinnedHTTPSHandler()]
+def pinned_handlers(
+    *, fetch_missing_intermediate: bool = False
+) -> list[urllib.request.BaseHandler]:
+    """``fetch_missing_intermediate`` completes a server's broken certificate
+    chain from the address its certificate names; never under airgap."""
+    return [
+        PinnedHTTPHandler(),
+        PinnedHTTPSHandler(fetch_missing_intermediate=fetch_missing_intermediate),
+    ]

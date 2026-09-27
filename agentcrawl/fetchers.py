@@ -73,7 +73,7 @@ def _safe_urlopen(
         _SafeRedirectHandler(allow_private_network=allow_private_network)
     ]
     if not allow_private_network:
-        handlers.extend(pinned_handlers())
+        handlers.extend(pinned_handlers(fetch_missing_intermediate=not airgap))
     if airgap or audit_trail is not None:
         from .airgap import _AirgapHandler, AuditTrail
 

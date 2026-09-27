@@ -344,20 +344,142 @@ def test_link_light_banner_is_content_link_heavy_sidebar_is_not() -> None:
     assert "Trending topic" not in markdown
 
 
-def test_homepage_sections_are_not_cut_to_one_block() -> None:
-    blocks = "".join(
-        f"<section class='band'><h2>Service {i}</h2><p>Service {i} helps small shops "
-        "sell online with payments, shipping and stock in one place.</p></section>"
-        for i in range(10)
+# -- a server that forgets its intermediate certificate -----------------------
+
+
+def _make_chain(tmp, aia_url: str) -> dict[str, str]:
+    import subprocess
+
+    def run(*args):
+        subprocess.run(["openssl", *args], check=True, capture_output=True, cwd=tmp)
+
+    (tmp / "ca.ext").write_text("basicConstraints=critical,CA:TRUE\nkeyUsage=keyCertSign,cRLSign\n")
+    (tmp / "leaf.ext").write_text(
+        f"subjectAltName=DNS:localhost\nauthorityInfoAccess=caIssuers;URI:{aia_url}\n"
     )
-    # A link-heavy menu makes the first block outscore <body>.
-    menu = "".join(f"<a href='/{i}'>{i}</a>" for i in range(150))
-    html = (
-        f"<html><body><nav>{menu}</nav>"
-        f"<div class='content'><h2>Welcome</h2>{_PARAGRAPHS}</div>{blocks}"
-        "<footer><p>Copyright</p></footer></body></html>"
+    run(
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        "root.key",
+        "-out",
+        "root.pem",
+        "-days",
+        "2",
+        "-subj",
+        "/CN=Test Root",
+        "-addext",
+        "basicConstraints=critical,CA:TRUE",
+        "-addext",
+        "keyUsage=keyCertSign,cRLSign",
     )
-    markdown = html_to_markdown(html, CrawlConfig())
-    assert "Chapter 9 of the series" in markdown
-    assert "Service 9 helps small shops" in markdown
-    assert "Copyright" not in markdown
+    for name, subject, issuer, ext in (
+        ("mid", "/CN=Test Intermediate", "root", "ca.ext"),
+        ("leaf", "/CN=localhost", "mid", "leaf.ext"),
+    ):
+        run(
+            "req",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            f"{name}.key",
+            "-out",
+            f"{name}.csr",
+            "-subj",
+            subject,
+        )
+        run(
+            "x509",
+            "-req",
+            "-in",
+            f"{name}.csr",
+            "-CA",
+            f"{issuer}.pem",
+            "-CAkey",
+            f"{issuer}.key",
+            "-CAcreateserial",
+            "-out",
+            f"{name}.pem",
+            "-days",
+            "2",
+            "-extfile",
+            ext,
+        )
+    run("x509", "-in", "mid.pem", "-outform", "DER", "-out", "mid.der")
+    return {
+        k: str(tmp / v)
+        for k, v in {
+            "root": "root.pem",
+            "leaf": "leaf.pem",
+            "key": "leaf.key",
+            "mid": "mid.der",
+        }.items()
+    }
+
+
+def test_missing_intermediate_is_fetched_and_still_verified(tmp_path, monkeypatch) -> None:
+    import shutil
+    import ssl
+
+    from agentcrawl import security
+
+    if not shutil.which("openssl"):
+        pytest.skip("openssl CLI not installed")
+
+    class Issuer(http.server.BaseHTTPRequestHandler):
+        body = b""
+
+        def do_GET(self):  # noqa: N802 - http.server API
+            self.send_response(200)
+            self.send_header("content-length", str(len(self.body)))
+            self.end_headers()
+            self.wfile.write(self.body)
+
+        def log_message(self, *_args):
+            pass
+
+    issuer = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Issuer)
+    chain = _make_chain(tmp_path, f"http://127.0.0.1:{issuer.server_address[1]}/mid.der")
+    Issuer.body = open(chain["mid"], "rb").read()
+
+    class Page(_Handler):
+        routes = {"/": (200, ARTICLE)}
+
+    site = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
+    served = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    served.load_cert_chain(chain["leaf"], chain["key"])  # leaf only, no intermediate
+    site.socket = served.wrap_socket(site.socket, server_side=True)
+    for server in (issuer, site):
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    # Loopback stands in for a public host; the test root stands in for the
+    # system trust store.
+    monkeypatch.setattr(
+        security,
+        "resolve_public_addresses",
+        lambda host, port: socket.getaddrinfo(host, port, type=socket.SOCK_STREAM),
+    )
+    monkeypatch.setattr(fetchers, "validate_remote_url", lambda url, **kwargs: None)
+    monkeypatch.setattr(
+        ssl,
+        "_create_default_https_context",
+        lambda: ssl.create_default_context(cafile=chain["root"]),
+    )
+    monkeypatch.setattr(security, "_intermediates", {})
+    url = f"https://localhost:{site.server_address[1]}/"
+    try:
+        html, metadata = fetchers.fetch_source(url, CrawlConfig(browser_fallback=False))
+        assert "Paragraph 11 of the real article" in html
+
+        # An intermediate that does not lead to a trusted root is not trusted.
+        monkeypatch.setattr(security, "_intermediates", {})
+        monkeypatch.setattr(ssl, "_create_default_https_context", ssl.create_default_context)
+        with pytest.raises(FetchError, match="CERTIFICATE_VERIFY_FAILED"):
+            fetchers.fetch_source(url, CrawlConfig(browser_fallback=False, http_retries=0))
+    finally:
+        issuer.shutdown()
+        site.shutdown()

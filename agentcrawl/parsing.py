@@ -262,10 +262,6 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
     page_chars = len(_node_text(parser.root))
     if page_chars < _MIN_PAGE_CHARS_FOR_FALLBACK:
         return serialized
-    if not _is_clear_article(selected):
-        whole = _serialize_node(parser.root, only_main_content=True)
-        if _html_text_chars(serialized) < _HOMEPAGE_SHARE * _html_text_chars(whole):
-            serialized = whole
     for node, honor_hidden_classes in ((parser.root, True), (parser.root, False)):
         if _html_text_chars(serialized) >= _MIN_SELECTED_SHARE * page_chars:
             break
@@ -275,20 +271,6 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
         if _html_text_chars(wider) > _html_text_chars(serialized):
             serialized = wider
     return serialized
-
-
-# Homepage mode: when the selection is not one clear article and holds less
-# than this share of the page (minus menus, footers and boilerplate), a
-# homepage's sections were missed and the whole page minus boilerplate is used.
-_HOMEPAGE_SHARE = 0.5
-
-
-def _is_clear_article(node: _HTMLNode) -> bool:
-    descendants = list(_walk_nodes(node))
-    articles = sum(1 for child in descendants if child.tag == "article")
-    h1 = sum(1 for child in descendants if child.tag == "h1") + (node.tag == "h1")
-    paragraphs = sum(1 for child in descendants if child.tag == "p")
-    return (node.tag == "article" or h1 == 1) and articles <= 1 and paragraphs >= 3
 
 
 def _html_text_chars(html: str) -> int:
