@@ -23,6 +23,55 @@ kinds = {p["id"]: p["kind"] for p in json.load(open("ref/sample.json"))["pages"]
 cfg = CrawlConfig()
 
 
+def why_dropped(html, probe):
+    """Ancestors of the deepest node holding ``probe``, with the rule that drops them."""
+    parser = parsing._HTMLTreeParser()
+    parser.feed(html)
+    parser.close()
+    path = []
+
+    def find(node, trail):
+        for child in node.children:
+            if isinstance(child, parsing._HTMLNode):
+                if probe in norm(parsing._node_text(child)):
+                    return find(child, trail + [child]) or trail + [child]
+        return None
+
+    path = find(parser.root, []) or []
+    reasons = []
+    for node in path:
+        ident = parsing._node_identity(node).strip()[:50]
+        if node.tag in parsing._ALWAYS_REMOVE_TAGS:
+            reasons.append(f"removed-tag:{node.tag}")
+        if parsing._is_hidden(node):
+            attr = (
+                "aria"
+                if node.attr("aria-hidden").lower() == "true"
+                else (
+                    "hidden-attr"
+                    if node.attr("hidden")
+                    else (
+                        "style"
+                        if "none" in node.attr("style") or "hidden" in node.attr("style")
+                        else "class"
+                    )
+                )
+            )
+            reasons.append(f"hidden:{attr}:{node.tag}:{ident}")
+        if parsing._is_boilerplate(node):
+            reasons.append(f"bp-class:{node.tag}:{ident}")
+        if node.tag in parsing._BOILERPLATE_TAGS:
+            reasons.append(f"bp-tag:{node.tag}")
+        if parsing._is_index_node(node):
+            reasons.append("index")
+        if parsing._is_cookie_consent_text(node):
+            reasons.append("cookie")
+    return reasons or ["?"]
+
+
+reason_counts = Counter()
+
+
 def norm(text):
     return re.sub(r"\s+", " ", re.sub(r"[#>|*_`]", " ", text)).strip().lower()
 
@@ -61,7 +110,14 @@ for pid, r in cap.items():
             page_causes["dropped_by_extraction"] += 1
         elif probe in whole:
             page_causes["in_html_but_split_differently"] += 1
-            if len(examples) < 40 and kinds[pid] in ("homepage", "inner"):
+            if probe[:25] not in plain_md:
+                rs = why_dropped(html, probe[:30])
+                reason_counts.update(
+                    {r.split(":")[0] + ":" + r.split(":")[1] if ":" in r else r for r in rs}
+                )
+                if len(examples) < 25:
+                    examples.append((pid, sentence[:100], " | ".join(rs)))
+            if False:
                 at = plain_md.find(probe[:25])
                 examples.append(
                     (
@@ -88,6 +144,7 @@ total = sum(causes.values())
 print("sentence outcomes:", {k: f"{v} ({v / total:.0%})" for k, v in causes.most_common()})
 rows.sort()
 print("recall mean", statistics.mean(x[0] for x in rows))
+print("drop reasons:", reason_counts.most_common(20))
 for pid, sentence, around in examples:
     print("--", pid, "\n   REF:", sentence, "\n   OUR:", around.replace("\n", " / "))
 for row in rows[:5]:
