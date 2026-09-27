@@ -145,9 +145,9 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     fetch_missing_intermediate = False
 
-    def __init__(self, *args, **kwargs):
-        # Only a context created for this connection may be extended below.
-        self._own_context = kwargs.get("context") is None
+    def __init__(self, *args, own_context: bool = True, **kwargs):
+        # Only a context created by us, never a caller's, is extended below.
+        self._own_context = own_context
         super().__init__(*args, **kwargs)
         self._create_connection = _pinned_create_connection
 
@@ -250,6 +250,8 @@ class PinnedHTTPHandler(urllib.request.HTTPHandler):
 
 class PinnedHTTPSHandler(urllib.request.HTTPSHandler):
     def __init__(self, *args, fetch_missing_intermediate: bool = False, **kwargs):
+        # Python 3.12+ creates the context here when none is given.
+        self._own_context = not args and kwargs.get("context") is None
         super().__init__(*args, **kwargs)
         self._connection = (
             _AIAPinnedHTTPSConnection if fetch_missing_intermediate else _PinnedHTTPSConnection
@@ -258,7 +260,7 @@ class PinnedHTTPSHandler(urllib.request.HTTPSHandler):
     def https_open(self, req):
         if req._tunnel_host:
             return super().https_open(req)
-        kwargs = {"context": self._context}
+        kwargs = {"context": self._context, "own_context": self._own_context}
         if hasattr(self, "_check_hostname"):
             kwargs["check_hostname"] = self._check_hostname
         return self.do_open(self._connection, req, **kwargs)
