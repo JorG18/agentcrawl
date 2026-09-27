@@ -314,3 +314,49 @@ def test_failed_guarded_navigation_says_why(monkeypatch) -> None:
         monkeypatch.setattr(module, "validate_remote_url", lambda url, **kwargs: None)
     with pytest.raises(FetchError, match="ECONNREFUSED"):
         fetchers._fetch_playwright("http://127.0.0.1:9/", config)
+
+
+def test_collapsed_faq_panels_are_kept_hidden_menus_are_not() -> None:
+    html = (
+        f"<html><body><main><h1>Plans</h1>{_PARAGRAPHS}"
+        '<div class="accordion-tray" aria-hidden="true"><p>Your storage plan renews '
+        "every month and can be cancelled at any time from the settings.</p></div>"
+        '<div class="menu" aria-hidden="true"><a href="/a">Account settings</a>'
+        '<a href="/b">Billing history</a></div></main></body></html>'
+    )
+    markdown = html_to_markdown(html, CrawlConfig())
+    assert "can be cancelled at any time" in markdown
+    assert "Billing history" not in markdown
+
+
+def test_link_light_banner_is_content_link_heavy_sidebar_is_not() -> None:
+    html = (
+        f"<html><body><main><h1>Home</h1>{_PARAGRAPHS}"
+        '<section class="hero-banner"><p>Fast, private file sharing for teams that '
+        "work across time zones.</p></section>"
+        '<div class="sidebar">'
+        + "".join(f'<a href="/t{i}">Trending topic number {i}</a>' for i in range(8))
+        + "</div></main></body></html>"
+    )
+    markdown = html_to_markdown(html, CrawlConfig())
+    assert "file sharing for teams" in markdown
+    assert "Trending topic" not in markdown
+
+
+def test_homepage_sections_are_not_cut_to_one_block() -> None:
+    blocks = "".join(
+        f"<section class='band'><h2>Service {i}</h2><p>Service {i} helps small shops "
+        "sell online with payments, shipping and stock in one place.</p></section>"
+        for i in range(10)
+    )
+    # A link-heavy menu makes the first block outscore <body>.
+    menu = "".join(f"<a href='/{i}'>{i}</a>" for i in range(150))
+    html = (
+        f"<html><body><nav>{menu}</nav>"
+        f"<div class='content'><h2>Welcome</h2>{_PARAGRAPHS}</div>{blocks}"
+        "<footer><p>Copyright</p></footer></body></html>"
+    )
+    markdown = html_to_markdown(html, CrawlConfig())
+    assert "Chapter 9 of the series" in markdown
+    assert "Service 9 helps small shops" in markdown
+    assert "Copyright" not in markdown

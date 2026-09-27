@@ -262,7 +262,7 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
     page_chars = len(_node_text(parser.root))
     if page_chars < _MIN_PAGE_CHARS_FOR_FALLBACK:
         return serialized
-    if _HOMEPAGE_SHARE > 0 and not _is_clear_article(selected):
+    if not _is_clear_article(selected):
         whole = _serialize_node(parser.root, only_main_content=True)
         if _html_text_chars(serialized) < _HOMEPAGE_SHARE * _html_text_chars(whole):
             serialized = whole
@@ -277,17 +277,15 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
     return serialized
 
 
+# Homepage mode: when the selection is not one clear article and holds less
+# than this share of the page (minus menus, footers and boilerplate), a
+# homepage's sections were missed and the whole page minus boilerplate is used.
 _HOMEPAGE_SHARE = 0.5
-_ARTICLE_GUARD = "h1"
 
 
 def _is_clear_article(node: _HTMLNode) -> bool:
-    if _ARTICLE_GUARD == "none":
-        return False
     descendants = list(_walk_nodes(node))
     articles = sum(1 for child in descendants if child.tag == "article")
-    if _ARTICLE_GUARD == "tag":
-        return node.tag == "article" and articles == 0
     h1 = sum(1 for child in descendants if child.tag == "h1") + (node.tag == "h1")
     paragraphs = sum(1 for child in descendants if child.tag == "p")
     return (node.tag == "article" or h1 == 1) and articles <= 1 and paragraphs >= 3
@@ -546,13 +544,9 @@ def _is_boilerplate(node: _HTMLNode) -> bool:
     words = {word.lower() for word in _BOILERPLATE_HINTS.findall(identity)}
     if not words:
         return False
-    if _SOFT_MODE == "links" and words <= _SOFT_HINTS:
-        return _is_link_heavy(node)
-    return True
+    return not words <= _SOFT_HINTS or _is_link_heavy(node)
 
 
-_SOFT_MODE = "links"
-_HIDDEN_MODE = "hide"
 # Layout words that also name real content ("hero banner", "promo" cards, a
 # "sticky" intro, an FAQ "modal"): boilerplate only when the node is mostly links.
 _SOFT_HINTS = {"banner", "modal", "promo", "sidebar", "sticky", "rail"}
@@ -595,7 +589,9 @@ def _is_hidden(node: _HTMLNode, *, classes: bool = True) -> bool:
     if node.attr("hidden"):
         return True
     if node.attr("aria-hidden").lower() == "true":
-        return not (_HIDDEN_MODE == "aria" and not _is_link_heavy(node))
+        # Collapsed accordion and FAQ panels are aria-hidden until clicked;
+        # their text is content. Hidden menus are mostly links.
+        return _is_link_heavy(node)
     if visually_hidden and classes:
         return True
     style = node.attr("style").replace(" ", "").lower()

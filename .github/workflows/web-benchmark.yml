@@ -47,7 +47,7 @@ env:
   TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
   SCRAPEGRAPH_PAGES: ${{ inputs.scrapegraph_pages || '50' }}
   SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '36281772086' }}
-  KEEP_HTML: ${{ inputs.keep_html || '1' }}
+  KEEP_HTML: ${{ inputs.keep_html || '' }}
 
 jobs:
   sample:
@@ -143,9 +143,28 @@ jobs:
         with:
           pattern: web-*
           merge-multiple: true
+      # Tools not rerun (paid APIs) keep their results from the run the sample
+      # came from: same pages, earlier day. The summary says so.
+      - name: Earlier results for tools not rerun
+        if: env.SAMPLE_FROM_RUN != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: web-*
+          path: earlier
+          merge-multiple: true
+          run-id: ${{ env.SAMPLE_FROM_RUN }}
+          github-token: ${{ github.token }}
       - name: Compare
         run: |
           set -o pipefail
+          for file in earlier/*.jsonl.gz; do
+            [ -e "$file" ] || continue
+            tool=$(basename "$file" .jsonl.gz)
+            case ",$TOOLS," in *",$tool,"*) continue ;; esac
+            cp "$file" .
+            echo "- \`$tool\`: earlier results from run $SAMPLE_FROM_RUN (not rerun)" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          done
           python -m benchmarks.web.report --sample sample.json *.jsonl.gz --out web-report \
             | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
