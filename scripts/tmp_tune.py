@@ -77,6 +77,29 @@ def norm(text):
     return re.sub(r"\s+", " ", re.sub(r"[#>|*_`]", " ", text)).strip().lower()
 
 
+errs = Counter()
+for r in cap.values():
+    if r.get("error"):
+        errs[(r.get("error_type"), re.sub(r"https?://\S+", "URL", r["error"])[:90])] += 1
+for (kind, msg), n in errs.most_common(25):
+    print(f"ERR {n:3d} {kind}: {msg}")
+for r in cap.values():
+    if r.get("browser_fallback_error") or r.get("browser_render_error"):
+        print(
+            "FALLBACK",
+            r["url"][:40],
+            (r.get("browser_fallback_error") or r.get("browser_render_error"))[:150],
+        )
+print("fetchers", Counter(r.get("fetcher") for r in cap.values()))
+print("fallback_reason", Counter(r.get("fallback_reason") for r in cap.values()))
+print(
+    "waited",
+    [
+        (r["url"][:30], r.get("challenge_waited_ms"))
+        for r in cap.values()
+        if r.get("challenge_waited_ms")
+    ],
+)
 causes = Counter()
 examples = []
 
