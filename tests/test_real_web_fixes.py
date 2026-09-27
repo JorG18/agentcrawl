@@ -291,6 +291,7 @@ def test_a_form_wrapping_the_page_is_the_page() -> None:
 
 
 def test_queued_browser_fetch_waits_for_a_whole_browser_run(monkeypatch) -> None:
+    pytest.importorskip("playwright")
     waits: list[float] = []
 
     class Busy:
