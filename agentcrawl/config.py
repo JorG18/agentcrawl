@@ -41,10 +41,16 @@ class CrawlConfig:
     camofox_user_id: str = "agentcrawl"
     headless: bool = True
     timeout_ms: int = 30_000
+    # Socket timeout for the plain HTTP fetch when the browser fallback can
+    # take over (capped by ``timeout_ms``). A server that has not answered in
+    # this time is handed to the browser instead of retried at full timeout.
+    http_timeout_ms: int = 15_000
     http_retries: int = 2
     http_retry_delay: float = 1.0
     browser_fallback: bool = True
-    browser_fallback_statuses: tuple[int, ...] = (403, 429, 500, 502, 503, 504)
+    # 405/421/444 and certificate failures come from edge proxies and servers
+    # that answer scripts differently from browsers (web-sample benchmark).
+    browser_fallback_statuses: tuple[int, ...] = (403, 405, 421, 429, 444, 500, 502, 503, 504)
     domain_min_delay: float = 0.0
     wait_until: str = "domcontentloaded"
     user_agent: str | None = DEFAULT_USER_AGENT
@@ -52,6 +58,12 @@ class CrawlConfig:
     geoip: bool = False
     humanize: bool = False
     network_idle: bool = True
+    # Longest wait for the network to go quiet after load. Pages with
+    # analytics or live feeds never go idle; they are read as rendered.
+    network_idle_ms: int = 10_000
+    # Longest wait for a self-clearing interstitial ("Just a moment...") to
+    # finish in the local browser. It only waits; nothing is solved or evaded.
+    browser_challenge_wait_ms: int = 15_000
     browser_wait_for_selector: str | None = None
     browser_wait_ms: int = 0
     browser_block_resources: tuple[str, ...] = field(default_factory=tuple)
@@ -274,6 +286,9 @@ _INT_RANGES: dict[str, tuple[int, int]] = {
     "crawl_max_pages": (1, 1_000_000),
     "crawl_url_retries": (0, 20),
     "browser_wait_ms": (0, 3_600_000),
+    "http_timeout_ms": (1, 3_600_000),
+    "network_idle_ms": (0, 3_600_000),
+    "browser_challenge_wait_ms": (0, 600_000),
     "max_attempts": (1, 100),
 }
 

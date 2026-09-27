@@ -103,3 +103,48 @@ def test_main_landmark_beats_the_body_around_it() -> None:
     assert "Real paragraph 29" in markdown
     assert "Report a bug" not in markdown
     assert "Jump to content" not in markdown
+
+
+# Found by the web-sample benchmark (random real homepages).
+
+
+def test_layout_class_containing_index_is_not_a_generated_index() -> None:
+    # estama.jp: "index-column_main" held the whole page and was dropped.
+    items = "".join(f"<li>Shop number {i} with a description of the place</li>" for i in range(20))
+    html = _page(
+        '<main><div class="flex-column2"><div class="index-column_main">'
+        f"<h2>Featured</h2><ul>{items}</ul></div></div></main>"
+    )
+    assert "Shop number 19" in _md(html)
+
+
+def test_a_modal_is_never_selected_as_main_content() -> None:
+    offers = "".join(f"<p>Used car offer {i} with price, mileage and year.</p>" for i in range(12))
+    html = _page(
+        f'<div class="listing"><h1>Cars</h1>{offers}</div>'
+        '<div class="modal-content"><p>Sign in to save cars and get alerts.</p>'
+        "<p>Enter your phone number to continue with your account.</p>"
+        "<p>We will send you a code by message right away today.</p></div>"
+    )
+    markdown = _md(html)
+    assert "Used car offer 11" in markdown
+
+
+def test_content_hidden_until_scripts_run_is_not_thrown_away() -> None:
+    # life360.com: the whole page sits in a Tailwind "hidden" wrapper that
+    # its scripts reveal; returning nothing was worse than returning it.
+    body = "".join(
+        f"<p>Paragraph {i} explaining how family location sharing works.</p>" for i in range(15)
+    )
+    html = _page(f'<main><div class="Layout_root hidden"><h2>Location</h2>{body}</div></main>')
+    assert "Paragraph 14" in _md(html)
+
+
+def test_small_hidden_panels_stay_hidden() -> None:
+    article = "".join(
+        f"<p>Article paragraph {i} with real reporting and detail.</p>" for i in range(15)
+    )
+    html = _page(f'<article><h1>News</h1>{article}<div class="hidden">Secret menu</div></article>')
+    markdown = _md(html)
+    assert "Article paragraph 14" in markdown
+    assert "Secret menu" not in markdown

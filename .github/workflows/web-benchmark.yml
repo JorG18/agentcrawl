@@ -1,0 +1,173 @@
+name: Web benchmark
+
+# Scrape a random sample of real websites (Tranco ranks, homepages and inner
+# pages from Common Crawl) with AgentCrawl and other tools, and compare what
+# each returned without hand-written expectations (benchmarks/web).
+#
+# Pull requests that touch it run a small sample with the local tools only.
+# Hosted APIs (Firecrawl, ScrapeGraphAI, Tavily) run only on demand, with
+# keys from repository secrets; they spend the owner's credits.
+on:
+  pull_request:
+    paths:
+      - "benchmarks/web/**"
+      - ".github/workflows/web-benchmark.yml"
+  workflow_dispatch:
+    inputs:
+      size:
+        description: Pages in the sample
+        default: "30"
+      hard:
+        description: Pages of the size drawn from the hard block (product, news, forum, government, PDF)
+        default: "0"
+      seed:
+        description: Sample seed (same seed, same sample)
+        default: "2026"
+      tools:
+        description: Comma-separated tools
+        default: "agentcrawl,crawl4ai,firecrawl,scrapegraph,tavily"
+      sample_from_run:
+        description: Reuse the sample of an earlier run (its run id) instead of drawing one
+        default: ""
+      keep_html:
+        description: Store the HTML AgentCrawl read for every page ("1" = yes)
+        default: ""
+      scrapegraph_pages:
+        description: Pages sent to ScrapeGraphAI (about 2 credits each); 0 = all
+        default: "50"
+
+permissions:
+  contents: read
+  actions: read  # to reuse an earlier run's sample
+
+env:
+  SIZE: ${{ inputs.size || '20' }}
+  SEED: ${{ inputs.seed || '2026' }}
+  HARD: ${{ inputs.hard || '5' }}
+  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
+  SCRAPEGRAPH_PAGES: ${{ inputs.scrapegraph_pages || '50' }}
+  SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '' }}
+  KEEP_HTML: ${{ inputs.keep_html || '' }}
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      tools: ${{ steps.tools.outputs.list }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Reuse an earlier sample
+        if: env.SAMPLE_FROM_RUN != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: web-sample
+          run-id: ${{ env.SAMPLE_FROM_RUN }}
+          github-token: ${{ github.token }}
+      - name: Draw the sample
+        if: env.SAMPLE_FROM_RUN == ''
+        run: python -m benchmarks.web.sample --size "$SIZE" --hard "$HARD" --seed "$SEED" --out sample.json
+      - id: tools
+        run: echo "list=$(python -c "import json,os; print(json.dumps([t for t in os.environ['TOOLS'].split(',') if t]))")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-sample
+          path: sample.json
+
+  run:
+    needs: sample
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: ${{ fromJSON(needs.sample.outputs.tools) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-sample
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          if [ "${{ matrix.tool }}" = "crawl4ai" ]; then
+            python -m pip install -e . crawl4ai
+          else
+            python -m pip install -e ".[browser]"
+          fi
+          if [ "${{ matrix.tool }}" = "agentcrawl" ] || [ "${{ matrix.tool }}" = "crawl4ai" ]; then
+            python -m playwright install --with-deps chromium
+          fi
+      - name: Scrape the sample
+        env:
+          # Only the step that needs a key sees it; the runner never prints it.
+          FIRECRAWL_API_KEY: ${{ matrix.tool == 'firecrawl' && secrets.FIRECRAWL_API_KEY || '' }}
+          SCRAPEGRAPH_API_KEY: ${{ matrix.tool == 'scrapegraph' && secrets.SCRAPEGRAPH_API_KEY || '' }}
+          TAVILY_API_KEY: ${{ matrix.tool == 'tavily' && secrets.TAVILY_API_KEY || '' }}
+        run: |
+          limit=0
+          concurrency=8
+          case "${{ matrix.tool }}" in
+            firecrawl|scrapegraph|tavily) concurrency=3 ;;  # stay under free-plan rate limits
+          esac
+          if [ "${{ matrix.tool }}" = "scrapegraph" ]; then limit="$SCRAPEGRAPH_PAGES"; fi
+          keep=""
+          if [ "$KEEP_HTML" = "1" ]; then keep="--keep-html"; fi
+          python -m benchmarks.web.run --tool "${{ matrix.tool }}" --sample sample.json \
+            --limit "$limit" --concurrency "$concurrency" $keep --out "${{ matrix.tool }}.jsonl.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-${{ matrix.tool }}
+          retention-days: 14
+          path: ${{ matrix.tool }}.jsonl.gz
+
+  report:
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e .
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: web-*
+          merge-multiple: true
+      # Tools not rerun (paid APIs) keep their results from the run the sample
+      # came from: same pages, earlier day. The summary says so.
+      - name: Earlier results for tools not rerun
+        if: env.SAMPLE_FROM_RUN != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: web-*
+          path: earlier
+          merge-multiple: true
+          run-id: ${{ env.SAMPLE_FROM_RUN }}
+          github-token: ${{ github.token }}
+      - name: Compare
+        run: |
+          set -o pipefail
+          for file in earlier/*.jsonl.gz; do
+            [ -e "$file" ] || continue
+            tool=$(basename "$file" .jsonl.gz)
+            case ",$TOOLS," in *",$tool,"*) continue ;; esac
+            cp "$file" .
+            echo "- \`$tool\`: earlier results from run $SAMPLE_FROM_RUN (not rerun)" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          python -m benchmarks.web.report --sample sample.json *.jsonl.gz --out web-report \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-report
+          path: web-report.*
