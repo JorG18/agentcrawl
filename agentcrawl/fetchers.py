@@ -893,9 +893,15 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
     from .browser_guard import MAX_REDIRECTS, BrowserNetworkGuard
 
     guard = BrowserNetworkGuard(url, config, audit_trail)
-    acquired = _get_browser_semaphore().acquire(timeout=max(1, config.timeout_ms / 1000))
+    # Wait as long as one browser run may take (load, interstitial, network
+    # idle): a shorter wait failed pages that were simply queued behind others.
+    wait_ms = config.timeout_ms + config.browser_challenge_wait_ms + config.network_idle_ms
+    acquired = _get_browser_semaphore().acquire(timeout=max(1, wait_ms / 1000))
     if not acquired:
-        raise FetchError(f"Playwright fetch failed for {url}: browser concurrency limit reached")
+        raise FetchError(
+            f"Playwright fetch failed for {url}: browser concurrency limit reached "
+            f"(waited {wait_ms / 1000:.0f} s for a free browser)"
+        )
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
@@ -955,7 +961,12 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                 target = url
                 for _hop in range(MAX_REDIRECTS + 1):
                     guard.pending_navigation = None
-                    page.goto(target, wait_until=config.wait_until, timeout=config.timeout_ms)
+                    try:
+                        page.goto(target, wait_until=config.wait_until, timeout=config.timeout_ms)
+                    except Exception as exc:
+                        if guard.navigation_error:
+                            raise FetchError(guard.navigation_error) from exc
+                        raise
                     if guard.pending_navigation is None:
                         break
                     target = guard.pending_navigation

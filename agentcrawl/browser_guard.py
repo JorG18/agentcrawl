@@ -58,6 +58,9 @@ class BrowserNetworkGuard:
         self.blocked: list[dict[str, str]] = []
         self.pending_navigation: str | None = None
         self.main_frame: Any | None = None
+        # Why the guard's own request for the page failed; Chromium only
+        # reports net::ERR_FAILED.
+        self.navigation_error: str | None = None
         self._validated_hosts: dict[tuple[str, str, int | None], str | None] = {}
 
     @property
@@ -167,7 +170,9 @@ class BrowserNetworkGuard:
         fetch_kwargs: dict[str, Any] = {"max_redirects": 0}
         try:
             response = route.fetch(**fetch_kwargs)
-        except Exception:
+        except Exception as exc:
+            if main_navigation:
+                self.navigation_error = str(exc).splitlines()[0][:300]
             self._record(method, url, None, 0)
             route.abort("failed")
             return

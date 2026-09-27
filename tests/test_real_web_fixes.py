@@ -288,3 +288,29 @@ def test_a_form_wrapping_the_page_is_the_page() -> None:
     markdown = html_to_markdown(html, CrawlConfig())
     assert "Chapter 9 of the series" in markdown
     assert "Search the site" not in markdown
+
+
+def test_queued_browser_fetch_waits_for_a_whole_browser_run(monkeypatch) -> None:
+    waits: list[float] = []
+
+    class Busy:
+        def acquire(self, timeout):
+            waits.append(timeout)
+            return False
+
+    monkeypatch.setattr(fetchers, "_get_browser_semaphore", lambda: Busy())
+    with pytest.raises(FetchError, match="waited 55 s"):
+        fetchers._fetch_playwright("https://example.org/", CrawlConfig())
+    assert waits == [55.0]  # 30 s load + 15 s interstitial + 10 s network idle
+
+
+@browser
+def test_failed_guarded_navigation_says_why(monkeypatch) -> None:
+    # Chromium only reports net::ERR_FAILED when the guard's request fails.
+    config = CrawlConfig(fetcher="playwright", timeout_ms=5_000)
+    from agentcrawl import browser_guard
+
+    for module in (fetchers, browser_guard):
+        monkeypatch.setattr(module, "validate_remote_url", lambda url, **kwargs: None)
+    with pytest.raises(FetchError, match="ECONNREFUSED"):
+        fetchers._fetch_playwright("http://127.0.0.1:9/", config)
