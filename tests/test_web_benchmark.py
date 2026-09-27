@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import random
+
+from benchmarks.web import sample
 from benchmarks.web.report import analyse, classify, sentences
 from benchmarks.web.sample import is_candidate
 
@@ -165,3 +168,67 @@ def test_hard_block_is_reported_apart(tmp_path) -> None:
     data = js.loads((tmp_path / "rep.json").read_text())
     assert data["pages"] == 1 and data["hard_block"]["pages"] == 1
     assert "# Hard block: 1 pages" in (tmp_path / "rep.md").read_text()
+
+
+def test_each_hard_category_gets_its_own_time(monkeypatch) -> None:
+    # Products never match; with one shared budget they used to spend all of
+    # it and every later category came out empty.
+    monkeypatch.setattr(sample.time, "sleep", lambda seconds: None)
+    clock = {"now": 0.0}
+    monkeypatch.setattr(sample.time, "monotonic", lambda: clock["now"])
+
+    def fake_inner(domain, index_api, rng, *, mime, pattern, hint, deadline):
+        clock["now"] += 1.0
+        if pattern is not None and pattern.pattern.startswith("/(?:products"):
+            return None
+        return (f"https://{domain}/news/2024/story", "sitemap")
+
+    monkeypatch.setattr(sample, "inner_page", fake_inner)
+    ranked = [(rank, f"site{rank}.gov") for rank in range(1, 400)]
+    pages = sample.hard_block(10, 1, ranked, "https://index", workers=1, deadline=100.0)
+    kinds = {page["kind"] for page in pages}
+    assert "product" not in kinds
+    assert {"news", "forum", "government", "pdf"} <= kinds
+
+
+def test_common_crawl_is_skipped_once_it_is_down(monkeypatch) -> None:
+    monkeypatch.setattr(sample.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(sample, "CC_HEALTH", sample._IndexHealth(limit=3))
+    calls: list[str] = []
+
+    def down(url, *, timeout=30.0):
+        calls.append(url)
+        raise OSError("503")
+
+    monkeypatch.setattr(sample, "_get", down)
+    rng = random.Random(1)
+    for domain in ("a.com", "b.com", "c.com"):
+        assert sample._cc_page(domain, "https://index", rng) is None
+    assert len(calls) == 3  # three failures in a row, then no more requests
+    assert sample.CC_HEALTH.skipped >= 2
+
+
+def test_sitemap_children_matching_the_category_are_read_first(monkeypatch) -> None:
+    children = [f"https://shop.com/sitemap-pages-{i}.xml" for i in range(8)]
+    listings = {
+        "https://shop.com/robots.txt": "Sitemap: https://shop.com/sitemap.xml",
+        "https://shop.com/sitemap.xml": "".join(
+            f"<loc>{url}</loc>" for url in children + ["https://shop.com/sitemap-products.xml"]
+        ),
+        "https://shop.com/sitemap-products.xml": "<loc>https://shop.com/product/blue-kettle</loc>",
+    }
+    read: list[str] = []
+
+    def fetch(url, *, limit=0):
+        read.append(url)
+        if url not in listings:
+            return "<loc>https://shop.com/about/team</loc>"
+        return listings[url]
+
+    monkeypatch.setattr(sample, "_fetch_text", fetch)
+    rule = sample.HARD_CATEGORIES["product"]
+    url = sample.sitemap_page(
+        "shop.com", random.Random(3), pattern=rule["pattern"], hint=rule["sitemap_hint"]
+    )
+    assert url == "https://shop.com/product/blue-kettle"
+    assert read[2] == "https://shop.com/sitemap-products.xml"

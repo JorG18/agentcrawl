@@ -140,6 +140,12 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
         metadata["browser_actions_log"] = capture["actions"]
     if capture.get("dom"):
         metadata["browser_dom"] = capture["dom"]
+    if metadata.get("fetcher") in {"playwright", "camofox"}:
+        if isinstance(capture.get("status"), int):
+            metadata["browser_status"] = capture["status"]
+        for key in ("challenge_waited_ms", "network_idle_timeout"):
+            if capture.get(key):
+                metadata[key] = capture[key]
     if config.browser_session and metadata.get("fetcher") == "playwright":
         metadata["browser_session"] = config.browser_session
     return content, metadata
@@ -165,7 +171,11 @@ def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]
         except FetchError as exc:
             if not (
                 config.browser_fallback
-                and (_should_browser_fallback(str(exc), config) or _is_tls_failure(exc))
+                and (
+                    _should_browser_fallback(str(exc), config)
+                    or _is_tls_failure(exc)
+                    or _is_timeout_failure(exc)
+                )
             ):
                 raise
             backend = config.browser_backend
@@ -187,6 +197,13 @@ def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]
                 # browser attempt did not rescue the page.
                 exc.browser_fallback_error = str(browser_exc)
                 raise exc from browser_exc
+            refused = _browser_error_status(html)
+            if refused:
+                # The browser was answered with the same kind of error page
+                # (a CDN's 403, a 404): that is not a rescue, so the honest
+                # HTTP error stands instead of the error page as "content".
+                exc.browser_fallback_error = f"browser got HTTP {refused}"
+                raise exc
             metadata: dict[str, Any] = {
                 "fetcher": backend,
                 "fallback_from": "http",
@@ -221,29 +238,99 @@ def _render_if_js_shell(
     """
     from .challenge import needs_javascript
 
-    if not config.browser_fallback or not needs_javascript(content):
+    if not config.browser_fallback:
         return content, metadata
+    if needs_javascript(content):
+        reason = "javascript_required"
+        http_chars = 0
+    else:
+        http_chars = _thin_extraction_chars(content, metadata)
+        if http_chars is None:
+            return content, metadata
+        reason = "thin_extraction"
     backend = config.browser_backend
     if not _browser_backend_available(backend):
-        return content, {**metadata, "javascript_required": True}
+        if reason == "javascript_required":
+            return content, {**metadata, "javascript_required": True}
+        return content, metadata
     audit_kwargs, browser_trail = _browser_audit_kwargs(config)
     try:
         html = _fetch_browser(source, config, **audit_kwargs)
     except FetchError as exc:
-        return content, {
-            **metadata,
-            "javascript_required": True,
-            "browser_render_error": str(exc),
-        }
+        failed = {**metadata, "browser_render_error": str(exc)}
+        if reason == "javascript_required":
+            failed["javascript_required"] = True
+        return content, failed
+    refused = _browser_error_status(html)
+    if refused or (reason == "thin_extraction" and _extracted_chars(html) <= http_chars):
+        # Rendering did not add anything (or the browser got an error page):
+        # the HTTP result is the better answer.
+        kept = {**metadata, "browser_render_no_gain": True}
+        if reason == "javascript_required":
+            kept["javascript_required"] = True
+        if refused:
+            kept["browser_render_error"] = f"browser got HTTP {refused}"
+        return content, kept
     rendered: dict[str, Any] = {
         **metadata,
         "fetcher": backend,
         "fallback_from": "http",
-        "fallback_reason": "javascript_required",
+        "fallback_reason": reason,
     }
     if browser_trail is not None:
         rendered.update(browser_trail.to_metadata())
     return html, rendered
+
+
+# An HTML page whose main content extracts to less than this (non-space
+# characters) is rendered in the local browser as well: its HTML carries text
+# (menus, footers, inline data) but the article arrives through scripts.
+THIN_EXTRACTION_CHARS = 500
+
+
+def _extracted_chars(html: str) -> int:
+    from .parsing import _html_text_chars, extract_content_html
+
+    try:
+        return _html_text_chars(extract_content_html(html))
+    except Exception:  # pragma: no cover - the parser falls back on its own
+        return 0
+
+
+def _thin_extraction_chars(content: str, metadata: dict[str, Any]) -> int | None:
+    """Characters the HTTP page extracts to, when that is thin enough to render.
+
+    ``None`` means rendering cannot help: not an HTML page with scripts, a
+    converted document, a challenge page (the crawler retries those itself),
+    or enough text already.
+    """
+    if metadata.get("document_type") or "<script" not in content[:2_000_000].lower():
+        return None
+    from .challenge import detect_challenge, html_to_plain_text
+
+    chars = _extracted_chars(content)
+    if chars >= THIN_EXTRACTION_CHARS:
+        return None
+    if detect_challenge(content, html_to_plain_text(content)).is_challenge:
+        return None
+    return chars
+
+
+def _browser_error_status(html: str) -> int | None:
+    """The browser's HTTP error status for this fetch, unless it is a challenge.
+
+    A challenge page is left to the crawler, which reports it as
+    ``client_challenge``; any other 4xx/5xx page is an error page.
+    """
+    capture = _CAPTURE.get()
+    status = (capture or {}).get("status")
+    if not isinstance(status, int) or status < 400:
+        return None
+    from .challenge import detect_challenge, html_to_plain_text
+
+    if detect_challenge(html, html_to_plain_text(html)).is_challenge:
+        return None
+    return status
 
 
 def _fetch_browser(
@@ -289,6 +376,28 @@ def _is_tls_failure(exc: FetchError) -> bool:
     from .errors import classify_error
 
     return (getattr(exc, "error_type", None) or classify_error(str(exc))) == "tls_error"
+
+
+def _is_timeout_failure(exc: FetchError) -> bool:
+    """A server that did not answer in time: the browser gets its own try."""
+    from .errors import classify_exception
+
+    return classify_exception(exc) == "timeout"
+
+
+def _http_timeout_seconds(config: CrawlConfig) -> float:
+    """Socket timeout for the HTTP fetch.
+
+    Shortened to ``http_timeout_ms`` only when the browser fallback can take
+    over a slow server; otherwise the fetch keeps the full ``timeout_ms``.
+    """
+    if (
+        config.fetcher == "http"
+        and config.browser_fallback
+        and _browser_backend_available(config.browser_backend)
+    ):
+        return min(config.timeout_ms, config.http_timeout_ms) / 1000
+    return config.timeout_ms / 1000
 
 
 def _should_browser_fallback(message: str, config: CrawlConfig) -> bool:
@@ -338,12 +447,21 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
 
     audit_trail: AuditTrail | None = AuditTrail() if config.audit else None
 
+    http_timeout = _http_timeout_seconds(config)
+    # With a browser to fall back to, a timeout or a certificate failure is
+    # handed over at once: retrying either one at full length only delayed
+    # the browser (a slow homepage took ~95 s before anything else was tried).
+    hand_over = (
+        config.fetcher == "http"
+        and config.browser_fallback
+        and _browser_backend_available(config.browser_backend)
+    )
     last_exc: Exception | None = None
     for attempt in range(max(1, config.http_retries + 1)):
         try:
             with _safe_urlopen(
                 request,
-                timeout=config.timeout_ms / 1000,
+                timeout=http_timeout,
                 allow_private_network=config.allow_private_network,
                 airgap=config.airgap,
                 allowlist_domains=config.allowlist_domains,
@@ -448,6 +566,8 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                 )
             if _is_policy_denial(exc) or attempt >= config.http_retries:
                 break
+            if hand_over and _is_slow_or_tls(exc):
+                break
             time.sleep(_retry_delay(config, attempt, None))
     # Keep the status on the error itself: the browser fallback re-raises
     # this error *from* the browser failure, which replaces ``__cause__``.
@@ -465,6 +585,12 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     if audit_trail is not None:
         err.audit_trail = audit_trail
     raise err from last_exc
+
+
+def _is_slow_or_tls(exc: BaseException) -> bool:
+    from .errors import classify_exception
+
+    return classify_exception(exc) in {"timeout", "tls_error"}
 
 
 def _is_policy_denial(exc: BaseException) -> bool:
@@ -809,6 +935,21 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                     context.route_web_socket("**/*", guard.handle_websocket)
                 page = context.new_page()
                 guard.main_frame = getattr(page, "main_frame", None)
+                capture = _CAPTURE.get()
+                if capture is not None and hasattr(page, "on"):
+                    main_frame = getattr(page, "main_frame", None)
+
+                    def remember_status(response):
+                        # The last document the tab navigated to, so a
+                        # challenge that clears is judged by the real page.
+                        try:
+                            request = response.request
+                            if request.is_navigation_request() and request.frame == main_frame:
+                                capture["status"] = response.status
+                        except Exception:
+                            pass
+
+                    page.on("response", remember_status)
                 if config.browser_init_script:
                     page.add_init_script(config.browser_init_script)
                 target = url
@@ -824,15 +965,29 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                     # The navigation itself was refused: report the guard's
                     # reason instead of Chromium's net::ERR_BLOCKED_BY_CLIENT.
                     raise FetchError(guard.blocked[0]["reason"])
+                waited = _wait_out_interstitial(page, config.browser_challenge_wait_ms)
+                if waited and capture is not None:
+                    capture["challenge_waited_ms"] = waited
                 if config.browser_wait_for_selector:
                     page.wait_for_selector(
                         config.browser_wait_for_selector, timeout=config.timeout_ms
                     )
                 if config.browser_wait_ms > 0:
                     page.wait_for_timeout(config.browser_wait_ms)
-                if config.network_idle:
-                    page.wait_for_load_state("networkidle", timeout=config.timeout_ms)
-                capture = _CAPTURE.get()
+                if config.network_idle and config.network_idle_ms > 0:
+                    # Analytics beacons and live feeds keep some pages busy
+                    # forever. The page is already loaded here, so a busy
+                    # network is noted, never a reason to throw the page away.
+                    try:
+                        page.wait_for_load_state(
+                            "networkidle",
+                            timeout=min(config.timeout_ms, config.network_idle_ms),
+                        )
+                    except Exception as idle_exc:
+                        if "timeout" not in type(idle_exc).__name__.lower():
+                            raise
+                        if capture is not None:
+                            capture["network_idle_timeout"] = True
                 if config.browser_actions:
                     from .browser_actions import run_actions
 
@@ -876,6 +1031,51 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
         raise FetchError(f"Playwright fetch failed for {url}: {reason or exc}") from exc
     finally:
         _get_browser_semaphore().release()
+
+
+# Interstitials that clear by themselves once the page's own script has run
+# (Cloudflare's "Just a moment...", DDoS-Guard). "Attention Required" and
+# CAPTCHA pages never do, so they are not waited on.
+_SELF_CLEARING_TITLE_RE = re.compile(
+    r"^(?:just a moment|one moment|please wait|checking your browser|ddos-guard)\b",
+    re.IGNORECASE,
+)
+_INTERSTITIAL_POLL_MS = 500
+
+
+def _wait_out_interstitial(page: Any, budget_ms: int) -> int:
+    """Wait up to ``budget_ms`` for a self-clearing interstitial to go away.
+
+    Only waits: the page's own script decides, nothing is solved, clicked or
+    disguised. Returns the milliseconds spent waiting (0 when the page was not
+    an interstitial). When the budget runs out the interstitial is returned as
+    is and reported as ``client_challenge``.
+    """
+    if budget_ms <= 0 or not _SELF_CLEARING_TITLE_RE.match(_safe_title(page)):
+        return 0
+    started = time.monotonic()
+    deadline = started + budget_ms / 1000
+    while time.monotonic() < deadline:
+        page.wait_for_timeout(_INTERSTITIAL_POLL_MS)
+        title = _safe_title(page)
+        if title and not _SELF_CLEARING_TITLE_RE.match(title):
+            try:
+                page.wait_for_load_state(
+                    "domcontentloaded",
+                    timeout=max(1, int((deadline - time.monotonic()) * 1000)),
+                )
+            except Exception:
+                pass
+            break
+    return max(1, int((time.monotonic() - started) * 1000))
+
+
+def _safe_title(page: Any) -> str:
+    try:
+        return str(page.title() or "").strip()
+    except Exception:
+        # Mid-navigation (the interstitial reloading into the real page).
+        return ""
 
 
 def _main_navigation_block_reason(guard: Any, url: str) -> str | None:

@@ -177,6 +177,9 @@ class AgentCrawl:
                     self.config.browser_fallback
                     and (self.config.fetcher or "http") == "http"
                     and self.config.browser_backend in {"playwright", "camofox"}
+                    # Already read in the browser (HTTP fallback): a second
+                    # browser run would only wait on the same interstitial.
+                    and fetch_metadata.get("fetcher") not in {"playwright", "camofox"}
                 ):
                     retry = attempt_browser_retry(
                         source,

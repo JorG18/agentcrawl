@@ -337,10 +337,15 @@ Infinite feeds and virtualized lists (only the visible rows exist in the page):
 ```python
 from agentcrawl import AgentCrawl
 
-feed = AgentCrawl({"fetcher": "browser", "browser_actions": [
-    {"type": "scroll_to_end", "max_scrolls": 20},
-    # or, for a recycled list: {"type": "virtual_scroll", "selector": "#rows"},
-]}).scrape("https://example.org/feed")
+feed = AgentCrawl(
+    {
+        "fetcher": "browser",
+        "browser_actions": [
+            {"type": "scroll_to_end", "max_scrolls": 20},
+            # or, for a recycled list: {"type": "virtual_scroll", "selector": "#rows"},
+        ],
+    }
+).scrape("https://example.org/feed")
 ```
 
 AgentCrawl also supports an optional external Camofox REST backend:

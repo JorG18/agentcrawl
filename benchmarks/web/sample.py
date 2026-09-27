@@ -97,19 +97,26 @@ _ADULT = (
 # categories are fixed here, before any tool has run; the pages inside each
 # one are drawn at random like the rest of the sample.
 _GOV_RE = re.compile(r"(?:^|\.)(?:gov|gob|gouv|go|govt|gv)\.[a-z]{2}$|\.gov$|\.mil$")
+# ``sitemap_hint`` ranks a site's child sitemaps: "sitemap-products.xml" is
+# opened before "sitemap-pages.xml", so a matching page is found in a few
+# requests instead of a random walk. Hints start at a word edge ("sitemap"
+# contains "item").
 HARD_CATEGORIES: dict[str, dict[str, object]] = {
     "product": {
-        "pattern": re.compile(r"/(?:products?|p|dp|item|itm|shop|producto|produit|artikel)/", re.I)
+        "pattern": re.compile(r"/(?:products?|p|dp|item|itm|shop|producto|produit|artikel)/", re.I),
+        "sitemap_hint": re.compile(r"(?<![a-z])(?:product|item|shop|catalog|store)", re.I),
     },
     "news": {
         "pattern": re.compile(
             r"/(?:news|article|articles|story|noticias?|nachrichten)/|/20[12]\d/", re.I
-        )
+        ),
+        "sitemap_hint": re.compile(r"(?<![a-z])(?:news|article|post|stor(?:y|ies)|20[12]\d)", re.I),
     },
     "forum": {
         "pattern": re.compile(
             r"/(?:threads?|forums?|topics?|t|questions|discussions?|comments)/", re.I
-        )
+        ),
+        "sitemap_hint": re.compile(r"(?<![a-z])(?:thread|forum|topic|question|discussion)", re.I),
     },
     "government": {"domains": _GOV_RE},
     "pdf": {"mime": "application/pdf", "pattern": re.compile(r"\.pdf$", re.I)},
@@ -141,6 +148,34 @@ def is_candidate(domain: str) -> bool:
     if _ADULT_RE.search(domain):
         return False
     return not any(token in domain for token in _NOT_A_SITE + _ADULT)
+
+
+class _IndexHealth:
+    """Stops calling the Common Crawl index once it is plainly down.
+
+    The index often sheds load for long stretches. Every lookup used to spend
+    its retries and backoff (minutes per domain) before giving up, so the
+    whole lookup budget went on a dead service and the hard block came out
+    empty. After ``limit`` failures in a row, lookups skip the index.
+    """
+
+    def __init__(self, limit: int = 8) -> None:
+        self.limit = limit
+        self.failures = 0
+        self.skipped = 0
+
+    @property
+    def down(self) -> bool:
+        return self.failures >= self.limit
+
+    def ok(self) -> None:
+        self.failures = 0
+
+    def failed(self) -> None:
+        self.failures += 1
+
+
+CC_HEALTH = _IndexHealth()
 
 
 def latest_cc_index() -> str:
@@ -176,18 +211,25 @@ def _cc_page(
     # or the sample silently turns into homepages only.
     # At most ~2.5 minutes per domain: a hung index request must not stall a
     # 500-page sample for hours.
-    for attempt in range(4):
+    for attempt in range(3):
         if deadline is not None and time.monotonic() > deadline:
             return None
+        if CC_HEALTH.down:
+            CC_HEALTH.skipped += 1
+            return None
         try:
-            body = _get(f"{index_api}?{query}", timeout=30).decode("utf-8", "replace")
+            body = _get(f"{index_api}?{query}", timeout=20).decode("utf-8", "replace")
+            CC_HEALTH.ok()
             break
         except urllib.error.HTTPError as exc:
             if exc.code == 404:  # the index has no page of this domain
+                CC_HEALTH.ok()
                 return None
-            time.sleep(5 * 2**attempt)
+            CC_HEALTH.failed()
+            time.sleep(3 * 2**attempt)
         except Exception:
-            time.sleep(5 * 2**attempt)
+            CC_HEALTH.failed()
+            time.sleep(3 * 2**attempt)
     else:
         return None
     candidates = []
@@ -231,9 +273,16 @@ def _usable(url: str, domain: str, pattern: re.Pattern[str] | None) -> bool:
 
 
 def sitemap_page(
-    domain: str, rng: random.Random, *, pattern: re.Pattern[str] | None = None
+    domain: str,
+    rng: random.Random,
+    *,
+    pattern: re.Pattern[str] | None = None,
+    hint: re.Pattern[str] | None = None,
 ) -> str | None:
-    """A random URL the site lists in its sitemap(s), or None."""
+    """A random URL the site lists in its sitemap(s), or None.
+
+    ``hint`` puts child sitemaps whose URL matches it first.
+    """
     roots: list[str] = []
     try:
         roots = _SITEMAP_LINE_RE.findall(_fetch_text(f"https://{domain}/robots.txt", limit=500_000))
@@ -241,7 +290,7 @@ def sitemap_page(
         pass
     roots = roots[:3] or [f"https://{domain}/sitemap.xml", f"https://{domain}/sitemap_index.xml"]
     queue, seen, urls = list(roots), set(), []
-    while queue and len(seen) < 6 and not urls:
+    while queue and len(seen) < (10 if hint else 6) and not urls:
         sitemap = queue.pop(0)
         if sitemap in seen:
             continue
@@ -253,7 +302,17 @@ def sitemap_page(
         children = [loc for loc in locs if re.search(r"\.xml(?:\.gz)?$", loc, re.I)]
         urls = [loc for loc in locs if loc not in children and _usable(loc, domain, pattern)]
         if children:
-            queue += rng.sample(children, min(3, len(children)))
+            hinted = [
+                child
+                for child in children
+                if hint and hint.search(urllib.parse.urlsplit(child).path)
+            ]
+            others = [child for child in children if child not in hinted]
+            queue = (
+                rng.sample(hinted, min(4, len(hinted)))
+                + queue
+                + rng.sample(others, min(3, len(others)))
+            )
     return rng.choice(sorted(set(urls))) if urls else None
 
 
@@ -264,12 +323,13 @@ def inner_page(
     *,
     mime: str = "text/html",
     pattern: re.Pattern[str] | None = None,
+    hint: re.Pattern[str] | None = None,
     deadline: float | None = None,
 ) -> tuple[str, str] | None:
     """``(url, source)``: from the site's sitemap first, else Common Crawl."""
     if deadline is not None and time.monotonic() > deadline:
         return None
-    url = sitemap_page(domain, rng, pattern=pattern)
+    url = sitemap_page(domain, rng, pattern=pattern, hint=hint)
     if url:
         return url, "sitemap"
     url = _cc_page(domain, index_api, rng, mime=mime, pattern=pattern, deadline=deadline)
@@ -282,23 +342,32 @@ def hard_block(
     ranked: list[tuple[int, str]],
     index_api: str,
     *,
-    workers: int = 4,
+    workers: int = 16,
     deadline: float | None = None,
 ) -> list[dict[str, object]]:
     """``count`` pages split evenly over :data:`HARD_CATEGORIES`.
 
     For each category, domains are drawn at random from the ranking and asked
     for a matching page until the category is full or the draws run out.
+    Each category gets an equal share of the time left before ``deadline``:
+    with one shared budget the first category (products) spent all of it and
+    every other category, and so the whole block, came out empty.
     """
     rng = random.Random(f"{seed}-hard")
     per_category = max(1, count // len(HARD_CATEGORIES))
     used: set[str] = set()
     pages: list[dict[str, object]] = []
-    for category, rule in HARD_CATEGORIES.items():
+    categories = list(HARD_CATEGORIES.items())
+    block_deadline = deadline
+    for position, (category, rule) in enumerate(categories):
+        deadline = None
+        if block_deadline is not None:
+            share = (block_deadline - time.monotonic()) / (len(categories) - position)
+            deadline = time.monotonic() + max(0.0, share)
         domains = [row for row in ranked if row[1] not in used]
         if "domains" in rule:
             domains = [row for row in domains if rule["domains"].search(row[1])]  # type: ignore[union-attr]
-        order = rng.sample(domains, min(len(domains), per_category * 8))
+        order = rng.sample(domains, min(len(domains), per_category * 15))
         found: list[dict[str, object]] = []
 
         def lookup(
@@ -311,6 +380,7 @@ def hard_block(
                 random.Random(f"{seed}-{category}-{row[1]}"),
                 mime=str(rule.get("mime", "text/html")),
                 pattern=rule.get("pattern"),  # type: ignore[arg-type]
+                hint=rule.get("sitemap_hint"),  # type: ignore[arg-type]
                 deadline=deadline,
             )
             return row, hit
@@ -400,6 +470,7 @@ def build_sample(size: int, seed: int, *, hard: int = 0, workers: int = 4) -> di
         "drawn_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "inner_pages_wanted": sum(1 for position in range(len(chosen)) if position % 2),
         "hard_pages_wanted": hard,
+        "common_crawl_skipped_lookups": CC_HEALTH.skipped,
         "pages": pages,
     }
 
