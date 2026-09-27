@@ -1,40 +1,79 @@
-"""TEMPORARY (removed before merge): score extraction variants on captured HTML."""
-import gzip, json, statistics, sys
-from collections import Counter
-from benchmarks.web.report import classify, sentences
-from agentcrawl import parsing
-from agentcrawl.config import CrawlConfig
-from agentcrawl.utils import estimate_tokens
+"""TEMPORARY (removed before merge): diagnose recall misses on captured HTML."""
 
-def load(p): return {r["id"]: r for r in map(json.loads, gzip.open(p, "rt"))}
+import gzip
+import json
+import re
+import statistics
+from collections import Counter
+
+from agentcrawl import parsing
+from agentcrawl.challenge import html_to_plain_text
+from agentcrawl.config import CrawlConfig
+from benchmarks.web.report import classify, sentences
+
+
+def load(path):
+    return {r["id"]: r for r in map(json.loads, gzip.open(path, "rt"))}
+
+
 cap = load("cap/agentcrawl.jsonl.gz")
 refs = {t: load(f"ref/{t}.jsonl.gz") for t in ("crawl4ai", "firecrawl", "tavily")}
 kinds = {p["id"]: p["kind"] for p in json.load(open("ref/sample.json"))["pages"]}
 cfg = CrawlConfig()
-ref_sets = {}
-for pid in cap:
-    per = [sentences(r[pid]["markdown"]) for r in refs.values() if pid in r and classify(r[pid]) == "content"]
-    if len(per) < 2: continue
-    c = Counter(s for f in per for s in f)
-    cons = {s for s, n in c.items() if n >= 2}
-    if len(cons) >= 3: ref_sets[pid] = cons
 
-def score(label):
-    rec, toks, by_kind, content = [], [], {}, 0
-    for pid, r in cap.items():
-        html = r.get("html")
-        md = parsing.html_to_markdown(html, cfg, base_url=r["url"]) if html and not r.get("error") else (r.get("markdown") or "")
-        if classify({"markdown": md, "error": r.get("error")}) == "content": content += 1
-        if pid not in ref_sets: continue
-        got = sentences(md) if classify({"markdown": md}) == "content" else set()
-        v = len(got & ref_sets[pid]) / len(ref_sets[pid])
-        rec.append(v); toks.append(estimate_tokens(md)); by_kind.setdefault(kinds[pid], []).append(v)
-    print(f"{label:28s} content={content} recall={statistics.mean(rec):.3f} (n={len(rec)}) tokens med={statistics.median(toks):.0f} mean={statistics.mean(toks):.0f} "
-          + " ".join(f"{k}={statistics.mean(v):.3f}/{len(v)}" for k, v in sorted(by_kind.items())), flush=True)
 
-parsing._HOMEPAGE_SHARE = 0
-score("current (no homepage mode)")
-for guard in ("none", "tag", "h1"):
-    for share in (0.4, 0.6, 0.8):
-        parsing._HOMEPAGE_SHARE, parsing._ARTICLE_GUARD = share, guard
-        score(f"guard={guard} share={share}")
+def norm(text):
+    return re.sub(r"\s+", " ", re.sub(r"[#>|*_`]", " ", text)).strip().lower()
+
+
+causes = Counter()
+rows = []
+for pid, r in cap.items():
+    per = [
+        sentences(ref[pid]["markdown"])
+        for ref in refs.values()
+        if pid in ref and classify(ref[pid]) == "content"
+    ]
+    if len(per) < 2:
+        continue
+    counts = Counter(s for found in per for s in found)
+    cons = {s for s, n in counts.items() if n >= 2}
+    if len(cons) < 3:
+        continue
+    html = r.get("html") or ""
+    if r.get("error") or not html:
+        causes["failed:" + str(r.get("error_type"))] += len(cons)
+        continue
+    md = parsing.html_to_markdown(html, cfg, base_url=r["url"])
+    got = sentences(md)
+    missed = cons - got
+    whole = norm(html_to_plain_text(html))
+    # Markdown of the whole page, nothing removed.
+    everything = sentences(parsing.html_to_markdown(html, cfg, only_main_content=False))
+    page_causes = Counter()
+    for sentence in missed:
+        probe = sentence[:40]
+        if sentence in everything:
+            page_causes["dropped_by_extraction"] += 1
+        elif probe in whole:
+            page_causes["in_html_but_split_differently"] += 1
+        else:
+            page_causes["not_in_html (rendered by JS?)"] += 1
+    causes.update(page_causes)
+    causes["found"] += len(cons & got)
+    rows.append(
+        (
+            len(cons & got) / len(cons),
+            pid,
+            kinds[pid],
+            r.get("fetcher"),
+            len(cons),
+            dict(page_causes),
+        )
+    )
+total = sum(causes.values())
+print("sentence outcomes:", {k: f"{v} ({v / total:.0%})" for k, v in causes.most_common()})
+rows.sort()
+print("recall mean", statistics.mean(x[0] for x in rows))
+for row in rows[:60]:
+    print(f"{row[0]:.2f} {row[1][:40]:40s} {row[2]:8s} {row[3]} n={row[4]} {row[5]}")
