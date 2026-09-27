@@ -381,9 +381,7 @@ def _select_content_node(candidates: list[_HTMLNode]) -> _HTMLNode:
     landmarks = [
         node
         for node in candidates
-        if _is_main_landmark(node)
-        and id(node) in inside_best
-        and not _is_boilerplate(node)
+        if _is_main_landmark(node) and id(node) in inside_best and not _is_boilerplate(node)
     ]
     if landmarks and not _is_main_landmark(best):
         landmark = max(landmarks, key=_content_score)
@@ -412,9 +410,7 @@ def _content_score(node: _HTMLNode) -> float:
     hint_bonus = 250 if _CONTENT_HINTS.search(_node_identity(node)) else 0
     boilerplate_penalty = 700 if _is_boilerplate(node) else 0
     index_penalty = 10000 if _is_index_node(node) else 0
-    child_boilerplate_penalty = sum(
-        120 for child in descendants if _is_boilerplate(child)
-    )
+    child_boilerplate_penalty = sum(120 for child in descendants if _is_boilerplate(child))
     return (
         len(_node_text(node))
         + blocks * 80

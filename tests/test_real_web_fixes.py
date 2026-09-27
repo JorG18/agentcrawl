@@ -271,7 +271,7 @@ def test_body_classes_never_make_the_page_boilerplate() -> None:
 def test_utility_css_layout_tokens_are_not_boilerplate() -> None:
     html = (
         "<html><body><main>"
-        '<div class=\'grid [grid-template-areas:"main_sidebar"] md:rail\'>'
+        "<div class='grid [grid-template-areas:\"main_sidebar\"] md:rail'>"
         f"<h1>Today</h1>{_PARAGRAPHS}</div></main></body></html>"
     )
     assert "Chapter 9 of the series" in html_to_markdown(html, CrawlConfig())
