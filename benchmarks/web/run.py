@@ -225,23 +225,28 @@ def run_firecrawl(pages: list[dict[str, Any]], concurrency: int, key: str) -> li
 
 
 def run_scrapegraph(pages: list[dict[str, Any]], concurrency: int, key: str) -> list[Result]:
-    base = "https://api.scrapegraphai.com/v1/markdownify"
+    # v2 API (the v1 markdownify endpoint rejects keys from the current
+    # dashboard). "reader" mode is its main-content extraction, like
+    # Firecrawl's onlyMainContent and Crawl4AI's fit_markdown.
     headers = {"SGAI-APIKEY": key}
 
     def call(url: str) -> dict[str, Any]:
-        body = _post_json(base, {"website_url": url}, headers, PAGE_TIMEOUT_S + 30)
-        deadline = time.monotonic() + PAGE_TIMEOUT_S * 2
-        while body.get("status") not in {"completed", "failed"} and body.get("request_id"):
-            if time.monotonic() > deadline:
-                return {"error": "timed out waiting for the result"}
-            time.sleep(3)
-            body = _get_json(f"{base}/{body['request_id']}", headers, 30)
-        markdown = body.get("result") or body.get("content") or ""
-        error = body.get("error") or (None if body.get("status") == "completed" else "failed")
-        return {
-            "markdown": markdown if isinstance(markdown, str) else "",
-            "error": str(error)[:300] if error else None,
-        }
+        body = _post_json(
+            "https://v2-api.scrapegraphai.com/api/scrape",
+            {"url": url, "formats": [{"type": "markdown", "mode": "reader"}]},
+            headers,
+            PAGE_TIMEOUT_S * 2,
+        )
+        entry = (body.get("results") or {}).get("markdown") or {}
+        data = entry.get("data") if isinstance(entry, dict) else entry
+        if isinstance(data, list):
+            data = "\n\n".join(str(part) for part in data)
+        errors = body.get("errors") or {}
+        warnings = (body.get("metadata") or {}).get("warnings") or []
+        error = None
+        if not data:
+            error = str(errors.get("markdown") or errors or warnings or "no markdown")[:300]
+        return {"markdown": data if isinstance(data, str) else "", "error": error}
 
     return _run_threaded(pages, "scrapegraph", concurrency, call)
 
