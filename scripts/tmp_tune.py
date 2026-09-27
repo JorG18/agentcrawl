@@ -173,3 +173,36 @@ for pid, sentence, around in examples:
     print("--", pid, "\n   REF:", sentence, "\n   OUR:", around.replace("\n", " / "))
 for row in rows[:5]:
     print(f"{row[0]:.2f} {row[1][:40]:40s} {row[2]:8s} {row[3]} n={row[4]} {row[5]}")
+
+
+def score():
+    recalls, chars = [], []
+    for pid, r in cap.items():
+        html = r.get("html") or ""
+        if r.get("error") or not html:
+            continue
+        md = parsing.html_to_markdown(html, cfg, base_url=r["url"])
+        chars.append(len(md))
+        per = [
+            sentences(ref[pid]["markdown"])
+            for ref in refs.values()
+            if pid in ref and classify(ref[pid]) == "content"
+        ]
+        if len(per) < 2:
+            continue
+        counts = Counter(s for found in per for s in found)
+        cons = {s for s, n in counts.items() if n >= 2}
+        if len(cons) >= 3:
+            recalls.append(len(cons & sentences(md)) / len(cons))
+    return statistics.mean(recalls), statistics.median(chars), sum(chars)
+
+
+for soft in ("off", "links"):
+    for hidden in ("hide", "aria"):
+        for share in (0, 0.5):
+            parsing._SOFT_MODE, parsing._HIDDEN_MODE, parsing._HOMEPAGE_SHARE = soft, hidden, share
+            rec, med, tot = score()
+            print(
+                f"VARIANT soft={soft} hidden={hidden} share={share}: "
+                f"recall={rec:.3f} median_chars={med:.0f} total_chars={tot}"
+            )

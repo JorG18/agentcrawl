@@ -543,7 +543,25 @@ def _is_boilerplate(node: _HTMLNode) -> bool:
         for token in _node_identity(node).split()
         if not any(mark in token for mark in "[]:\"'")
     )
-    return bool(_BOILERPLATE_HINTS.search(identity))
+    words = {word.lower() for word in _BOILERPLATE_HINTS.findall(identity)}
+    if not words:
+        return False
+    if _SOFT_MODE == "links" and words <= _SOFT_HINTS:
+        return _is_link_heavy(node)
+    return True
+
+
+_SOFT_MODE = "links"
+_HIDDEN_MODE = "hide"
+# Layout words that also name real content ("hero banner", "promo" cards, a
+# "sticky" intro, an FAQ "modal"): boilerplate only when the node is mostly links.
+_SOFT_HINTS = {"banner", "modal", "promo", "sidebar", "sticky", "rail"}
+
+
+def _is_link_heavy(node: _HTMLNode) -> bool:
+    text = len(_node_text(node))
+    links = sum(len(_node_text(child)) for child in _walk_nodes(node) if child.tag == "a")
+    return text < 40 or links >= 0.5 * text
 
 
 def _is_page_form(node: _HTMLNode) -> bool:
@@ -574,8 +592,10 @@ def _is_hidden(node: _HTMLNode, *, classes: bool = True) -> bool:
     # columns; without it the Markdown table has no header row at all.
     if node.tag in {"thead", "caption"} and visually_hidden and not node.attr("hidden"):
         return False
-    if node.attr("hidden") or node.attr("aria-hidden").lower() == "true":
+    if node.attr("hidden"):
         return True
+    if node.attr("aria-hidden").lower() == "true":
+        return not (_HIDDEN_MODE == "aria" and not _is_link_heavy(node))
     if visually_hidden and classes:
         return True
     style = node.attr("style").replace(" ", "").lower()
