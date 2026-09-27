@@ -29,6 +29,9 @@ on:
       sample_from_run:
         description: Reuse the sample of an earlier run (its run id) instead of drawing one
         default: ""
+      keep_html:
+        description: Store the HTML AgentCrawl read for every page ("1" = yes)
+        default: ""
       scrapegraph_pages:
         description: Pages sent to ScrapeGraphAI (about 2 credits each); 0 = all
         default: "50"
@@ -41,9 +44,10 @@ env:
   SIZE: ${{ inputs.size || '20' }}
   SEED: ${{ inputs.seed || '2026' }}
   HARD: ${{ inputs.hard || '5' }}
-  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
+  TOOLS: ${{ inputs.tools || 'agentcrawl' }}
   SCRAPEGRAPH_PAGES: ${{ inputs.scrapegraph_pages || '50' }}
-  SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '' }}
+  SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '36281772086' }}
+  KEEP_HTML: ${{ inputs.keep_html || '1' }}
 
 jobs:
   sample:
@@ -114,8 +118,10 @@ jobs:
             firecrawl|scrapegraph|tavily) concurrency=3 ;;  # stay under free-plan rate limits
           esac
           if [ "${{ matrix.tool }}" = "scrapegraph" ]; then limit="$SCRAPEGRAPH_PAGES"; fi
+          keep=""
+          if [ "$KEEP_HTML" = "1" ]; then keep="--keep-html"; fi
           python -m benchmarks.web.run --tool "${{ matrix.tool }}" --sample sample.json \
-            --limit "$limit" --concurrency "$concurrency" --out "${{ matrix.tool }}.jsonl.gz"
+            --limit "$limit" --concurrency "$concurrency" $keep --out "${{ matrix.tool }}.jsonl.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: web-${{ matrix.tool }}

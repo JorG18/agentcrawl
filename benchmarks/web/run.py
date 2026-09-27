@@ -77,6 +77,12 @@ def _get_json(url: str, headers: dict[str, str], timeout: float) -> Any:
 # --------------------------------------------------------------------------
 
 
+# Set by --keep-html: store the HTML AgentCrawl read for every page, so the
+# extraction can be tuned offline against the other tools' output.
+KEEP_HTML = False
+HTML_CAP = 3_000_000
+
+
 def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
     from agentcrawl import AgentCrawl
 
@@ -102,14 +108,18 @@ def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result
                 "raw_html_bytes",
                 "javascript_required",
                 "browser_render_error",
+                "browser_fallback_error",
+                "fallback_reason",
+                "network_idle_timeout",
+                "challenge_waited_ms",
                 "final_url",
             )
             if metadata.get(key) is not None
         }
-        if len(markdown) < 300 and not errors:
+        if KEEP_HTML or (len(markdown) < 300 and not errors):
             # Keep the page AgentCrawl saw, so an empty result can be
             # reproduced offline instead of guessed at.
-            diagnostics["html"] = (doc.get("html") or "")[:3_000_000]
+            diagnostics["html"] = (doc.get("html") or "")[:HTML_CAP]
         return _result(
             page,
             "agentcrawl",
@@ -306,7 +316,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--limit", type=int, default=0, help="Only the first N pages.")
     parser.add_argument("--concurrency", type=int, default=8)
+    parser.add_argument(
+        "--keep-html", action="store_true", help="AgentCrawl: store the HTML of every page."
+    )
     args = parser.parse_args(argv)
+    global KEEP_HTML
+    KEEP_HTML = args.keep_html
 
     pages = json.loads(Path(args.sample).read_text("utf-8"))["pages"]
     left_out: list[dict[str, Any]] = []
