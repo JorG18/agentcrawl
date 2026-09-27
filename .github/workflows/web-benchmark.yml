@@ -38,10 +38,10 @@ permissions:
   actions: read  # to reuse an earlier run's sample
 
 env:
-  SIZE: ${{ inputs.size || '20' }}
+  SIZE: ${{ inputs.size || '500' }}
   SEED: ${{ inputs.seed || '2026' }}
-  HARD: ${{ inputs.hard || '5' }}
-  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
+  HARD: ${{ inputs.hard || '100' }}
+  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai,firecrawl,scrapegraph,tavily' }}
   SCRAPEGRAPH_PAGES: ${{ inputs.scrapegraph_pages || '50' }}
   SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '' }}
 
