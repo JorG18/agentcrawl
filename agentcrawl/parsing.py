@@ -262,6 +262,10 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
     page_chars = len(_node_text(parser.root))
     if page_chars < _MIN_PAGE_CHARS_FOR_FALLBACK:
         return serialized
+    if _HOMEPAGE_SHARE > 0 and not _is_clear_article(selected):
+        whole = _serialize_node(parser.root, only_main_content=True)
+        if _html_text_chars(serialized) < _HOMEPAGE_SHARE * _html_text_chars(whole):
+            serialized = whole
     for node, honor_hidden_classes in ((parser.root, True), (parser.root, False)):
         if _html_text_chars(serialized) >= _MIN_SELECTED_SHARE * page_chars:
             break
@@ -271,6 +275,22 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
         if _html_text_chars(wider) > _html_text_chars(serialized):
             serialized = wider
     return serialized
+
+
+_HOMEPAGE_SHARE = 0.5
+_ARTICLE_GUARD = "h1"
+
+
+def _is_clear_article(node: _HTMLNode) -> bool:
+    if _ARTICLE_GUARD == "none":
+        return False
+    descendants = list(_walk_nodes(node))
+    articles = sum(1 for child in descendants if child.tag == "article")
+    if _ARTICLE_GUARD == "tag":
+        return node.tag == "article" and articles == 0
+    h1 = sum(1 for child in descendants if child.tag == "h1") + (node.tag == "h1")
+    paragraphs = sum(1 for child in descendants if child.tag == "p")
+    return (node.tag == "article" or h1 == 1) and articles <= 1 and paragraphs >= 3
 
 
 def _html_text_chars(html: str) -> int:
@@ -329,7 +349,7 @@ def _content_candidates(root: _HTMLNode) -> list[_HTMLNode]:
     for node in _walk_nodes(root):
         # A node the serializer drops (a modal, a cookie banner) can never be
         # the answer: selecting it returned an empty page.
-        if _BOILERPLATE_HINTS.search(_node_identity(node)) or _is_hidden(node):
+        if _is_boilerplate(node) or _is_hidden(node):
             continue
         if node.tag in _CONTENT_CONTAINER_TAGS and _looks_like_content_candidate(node):
             scored.append(node)
@@ -363,7 +383,7 @@ def _select_content_node(candidates: list[_HTMLNode]) -> _HTMLNode:
         for node in candidates
         if _is_main_landmark(node)
         and id(node) in inside_best
-        and not _BOILERPLATE_HINTS.search(_node_identity(node))
+        and not _is_boilerplate(node)
     ]
     if landmarks and not _is_main_landmark(best):
         landmark = max(landmarks, key=_content_score)
@@ -390,10 +410,10 @@ def _content_score(node: _HTMLNode) -> float:
     heading_bonus = 500 if any(child.tag == "h1" for child in descendants) else 0
     semantic_bonus = 350 if node.tag in {"main", "article", "body"} else 0
     hint_bonus = 250 if _CONTENT_HINTS.search(_node_identity(node)) else 0
-    boilerplate_penalty = 700 if _BOILERPLATE_HINTS.search(_node_identity(node)) else 0
+    boilerplate_penalty = 700 if _is_boilerplate(node) else 0
     index_penalty = 10000 if _is_index_node(node) else 0
     child_boilerplate_penalty = sum(
-        120 for child in descendants if _BOILERPLATE_HINTS.search(_node_identity(child))
+        120 for child in descendants if _is_boilerplate(child)
     )
     return (
         len(_node_text(node))
@@ -414,11 +434,15 @@ def _serialize_node(
     if node.tag in _ALWAYS_REMOVE_TAGS or _is_hidden(node, classes=honor_hidden_classes):
         return ""
     if node.tag != "document":
-        if _BOILERPLATE_HINTS.search(_node_identity(node)):
+        if _is_boilerplate(node):
             return ""
         if only_main_content and _is_index_node(node):
             return ""
-        if only_main_content and node.tag in _BOILERPLATE_TAGS:
+        if (
+            only_main_content
+            and node.tag in _BOILERPLATE_TAGS
+            and not (node.tag == "form" and _is_page_form(node))
+        ):
             return ""
         if _is_cookie_consent_text(node):
             return ""
@@ -505,6 +529,37 @@ def _is_cookie_consent_text(node: _HTMLNode) -> bool:
     # technical content (e.g. docs about cookies-as-a-feature).
     head = text[:160]
     return bool(_COOKIE_CONSENT_TEXT_RE.search(head))
+
+
+def _is_boilerplate(node: _HTMLNode) -> bool:
+    """A cookie banner, sidebar, promo... named so by its id/class/role.
+
+    ``<html>``, ``<body>`` and the page's main landmark are never boilerplate,
+    whatever their classes say: WordPress puts page-state words on ``<body>``
+    ("sticky-header", "has-sidebar"), and matching them dropped whole pages.
+    """
+    if node.tag in {"html", "body"} or _is_main_landmark(node):
+        return False
+    # Utility-CSS tokens ('[grid-template-areas:"main_sidebar"]', "md:rail")
+    # describe layout, not what the element is.
+    identity = " ".join(
+        token
+        for token in _node_identity(node).split()
+        if not any(mark in token for mark in "[]:\"'")
+    )
+    return bool(_BOILERPLATE_HINTS.search(identity))
+
+
+def _is_page_form(node: _HTMLNode) -> bool:
+    """A ``<form>`` wrapping the page itself (ASP.NET WebForms), not a widget.
+
+    Search boxes and sign-up forms are boilerplate; a form that holds the
+    page's headings or main landmark is the page.
+    """
+    return any(
+        child.tag in {"h1", "h2", "main", "article"} or _is_main_landmark(child)
+        for child in _walk_nodes(node)
+    )
 
 
 def _node_identity(node: _HTMLNode) -> str:

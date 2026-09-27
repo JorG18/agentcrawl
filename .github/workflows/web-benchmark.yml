@@ -44,7 +44,7 @@ env:
   SIZE: ${{ inputs.size || '20' }}
   SEED: ${{ inputs.seed || '2026' }}
   HARD: ${{ inputs.hard || '5' }}
-  TOOLS: ${{ inputs.tools || 'agentcrawl' }}
+  TOOLS: ${{ inputs.tools || 'agentcrawl,crawl4ai' }}
   SCRAPEGRAPH_PAGES: ${{ inputs.scrapegraph_pages || '50' }}
   SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '36281772086' }}
   KEEP_HTML: ${{ inputs.keep_html || '1' }}

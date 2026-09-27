@@ -24,6 +24,7 @@ import pytest
 from agentcrawl import AgentCrawl, fetchers
 from agentcrawl.config import CrawlConfig
 from agentcrawl.exceptions import FetchError
+from agentcrawl.parsing import html_to_markdown
 
 ARTICLE = (
     "<!doctype html><html><head><title>Real page</title></head><body>"
@@ -244,3 +245,46 @@ def test_long_page_is_not_rendered(monkeypatch) -> None:
     html, metadata = fetchers.fetch_source("https://news.example.org/", CrawlConfig())
     assert calls == []
     assert html == page
+
+
+# -- extraction -------------------------------------------------------------
+
+_PARAGRAPHS = "".join(
+    f"<p>Chapter {i} of the series was released today with new translated pages.</p>"
+    for i in range(10)
+)
+
+
+def test_body_classes_never_make_the_page_boilerplate() -> None:
+    # WordPress puts page-state words on <body>; "sticky" and "sidebar" used
+    # to drop the whole page.
+    html = (
+        '<html><body class="home page-template sticky-header has-sidebar">'
+        f'<div class="site-content"><h1>Latest releases</h1>{_PARAGRAPHS}</div>'
+        '<div class="c-sidebar"><p>Popular this week</p></div></body></html>'
+    )
+    markdown = html_to_markdown(html, CrawlConfig())
+    assert "Chapter 9 of the series" in markdown
+    assert "Popular this week" not in markdown
+
+
+def test_utility_css_layout_tokens_are_not_boilerplate() -> None:
+    html = (
+        "<html><body><main>"
+        '<div class=\'grid [grid-template-areas:"main_sidebar"] md:rail\'>'
+        f"<h1>Today</h1>{_PARAGRAPHS}</div></main></body></html>"
+    )
+    assert "Chapter 9 of the series" in html_to_markdown(html, CrawlConfig())
+
+
+def test_a_form_wrapping_the_page_is_the_page() -> None:
+    # ASP.NET WebForms wrap the whole page in <form id="aspnetForm">.
+    html = (
+        '<html><body><form id="aspnetForm"><div class="container">'
+        f"<h1>Network tools</h1>{_PARAGRAPHS}</div>"
+        '<form class="search"><input name="q"><p>Search the site</p></form>'
+        "</form></body></html>"
+    )
+    markdown = html_to_markdown(html, CrawlConfig())
+    assert "Chapter 9 of the series" in markdown
+    assert "Search the site" not in markdown
