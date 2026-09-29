@@ -29,6 +29,16 @@ _RESOLVABLE_HOSTS = {
 
 
 @pytest.fixture(autouse=True)
+def fresh_browser_pool():
+    """Browsers are kept open between pages; a test must not get another
+    test's (possibly fake) browser."""
+    yield
+    from agentcrawl.fetchers import shutdown_browser_pool
+
+    shutdown_browser_pool()
+
+
+@pytest.fixture(autouse=True)
 def stub_dns_resolution(monkeypatch):
     """Hermético: resuelve hosts de documentación sin DNS real.
 

@@ -48,6 +48,7 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
         "browser_backend",
         "headless",
         "timeout_ms",
+        "page_budget_ms",
         "http_retries",
         "http_retry_delay",
         "browser_fallback",

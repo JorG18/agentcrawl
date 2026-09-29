@@ -8,6 +8,9 @@ import importlib.util
 import json
 import os
 import pathlib
+import atexit
+import concurrent.futures
+import queue
 import re
 import sys
 import threading
@@ -32,22 +35,123 @@ from .exceptions import FetchError
 from .security import check_local_source, pinned_handlers, validate_remote_url
 from .utils import is_probably_url
 
-_browser_sem: threading.BoundedSemaphore | None = None
+
+def _browser_pool_size() -> int:
+    """Browsers kept open at once (``AGENTCRAWL_BROWSER_CONCURRENCY``, default 4)."""
+    try:
+        return max(1, int(os.getenv("AGENTCRAWL_BROWSER_CONCURRENCY", "4")))
+    except ValueError:
+        return 4
 
 
-def _get_browser_semaphore() -> threading.BoundedSemaphore:
-    """Return a process-wide semaphore limiting concurrent browser fetches.
+class _BrowserPool:
+    """Worker threads that each keep one browser open between pages.
 
-    The limit defaults to 2 and can be overridden via the
-    ``AGENTCRAWL_BROWSER_CONCURRENCY`` environment variable so that
-    parallel-test runners or memory-constrained hosts can tune it
-    without changing code.
+    Launching Chromium for every page cost about half a second, and only two
+    ran at once, so pages queued behind each other (a batch of eight spent
+    most of its time waiting). Playwright's sync API only works in the
+    thread that started it, so each worker owns its Playwright and browser
+    and every page gets a fresh, isolated context. Jobs run in the caller's
+    ``contextvars`` context (capture, page budget).
     """
-    global _browser_sem
-    if _browser_sem is None:
-        limit = max(1, int(os.getenv("AGENTCRAWL_BROWSER_CONCURRENCY", "2")))
-        _browser_sem = threading.BoundedSemaphore(limit)
-    return _browser_sem
+
+    def __init__(self, size: int) -> None:
+        self._jobs: queue.Queue = queue.Queue()
+        self._threads = [
+            threading.Thread(target=self._work, name=f"agentcrawl-browser-{i}", daemon=True)
+            for i in range(size)
+        ]
+        for thread in self._threads:
+            thread.start()
+
+    def run(self, launch_kwargs: dict[str, Any], job: Any, wait_s: float) -> Any:
+        future: concurrent.futures.Future = concurrent.futures.Future()
+        self._jobs.put((launch_kwargs, contextvars.copy_context(), job, future))
+        try:
+            return future.result(timeout=wait_s)
+        except concurrent.futures.TimeoutError:
+            if future.cancel():
+                raise FetchError(
+                    f"browser concurrency limit reached (waited {wait_s:.0f} s for a free browser)"
+                ) from None
+            # Already running: its own timeouts end it.
+            return future.result()
+
+    def close(self) -> None:
+        for _thread in self._threads:
+            self._jobs.put(None)
+        for thread in self._threads:
+            thread.join(timeout=10)
+
+    def _work(self) -> None:
+        playwright = browser = launched_with = None
+        try:
+            while (item := self._jobs.get()) is not None:
+                launch_kwargs, context, job, future = item
+                if not future.set_running_or_notify_cancel():
+                    continue
+                try:
+                    if playwright is None:
+                        from playwright.sync_api import sync_playwright
+
+                        playwright = sync_playwright().start()
+                    connected = getattr(browser, "is_connected", lambda: True)
+                    if browser is None or launched_with != launch_kwargs or not connected():
+                        _close_quietly(browser)
+                        browser = None
+                        browser = _launch_chromium(playwright, launch_kwargs)
+                        launched_with = launch_kwargs
+                    future.set_result(context.run(job, browser))
+                except BaseException as exc:
+                    future.set_exception(exc)
+        finally:
+            _close_quietly(browser)
+            if playwright is not None:
+                try:
+                    playwright.stop()
+                except Exception:
+                    pass
+
+
+def _launch_chromium(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
+    try:
+        # Headless mode otherwise runs chromium-headless-shell, which sends
+        # ``Sec-CH-UA: "HeadlessChrome"`` with every request whatever the
+        # user agent says. The full Chromium does not.
+        return playwright.chromium.launch(channel="chromium", **launch_kwargs)
+    except Exception:
+        # Only the shell is installed (``install --only-shell``).
+        return playwright.chromium.launch(**launch_kwargs)
+
+
+def _close_quietly(resource: Any) -> None:
+    if resource is not None:
+        try:
+            resource.close()
+        except Exception:
+            pass
+
+
+_browser_pool: _BrowserPool | None = None
+_browser_pool_lock = threading.Lock()
+
+
+def _get_browser_pool() -> _BrowserPool:
+    global _browser_pool
+    with _browser_pool_lock:
+        if _browser_pool is None:
+            _browser_pool = _BrowserPool(_browser_pool_size())
+            atexit.register(shutdown_browser_pool)
+        return _browser_pool
+
+
+def shutdown_browser_pool() -> None:
+    """Close every kept-open browser (also run at interpreter exit)."""
+    global _browser_pool
+    with _browser_pool_lock:
+        pool, _browser_pool = _browser_pool, None
+    if pool is not None:
+        pool.close()
 
 
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -116,6 +220,27 @@ _CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar
 )
 
 
+# Monotonic deadline of the page being fetched (``page_budget_ms``).
+_DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "agentcrawl_page_deadline", default=None
+)
+
+
+def _budget_ms(ms: float) -> int:
+    """``ms`` capped by what is left of the page budget (0 once it is spent)."""
+    deadline = _DEADLINE.get()
+    if deadline is None:
+        return int(ms)
+    return max(0, min(int(ms), int((deadline - time.monotonic()) * 1000)))
+
+
+def _require_budget(ms: float, step: str) -> int:
+    left = _budget_ms(ms)
+    if left <= 0:
+        raise FetchError(f"timed out: page budget spent before {step}", error_type="timeout")
+    return left
+
+
 def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     """Fetch ``source``; browser side outputs are added to the metadata."""
     if (config.browser_actions or config.screenshot or config.browser_session) and is_probably_url(
@@ -131,9 +256,12 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
             )
     capture: dict[str, Any] = {}
     token = _CAPTURE.set(capture)
+    budget = config.page_budget_ms
+    deadline_token = _DEADLINE.set(time.monotonic() + budget / 1000 if budget > 0 else None)
     try:
         content, metadata = _fetch_source(source, config)
     finally:
+        _DEADLINE.reset(deadline_token)
         _CAPTURE.reset(token)
     if "screenshot" in capture:
         metadata["screenshot_png_base64"] = base64.b64encode(capture["screenshot"]).decode("ascii")
@@ -407,8 +535,11 @@ def _http_timeout_seconds(config: CrawlConfig) -> float:
         and config.browser_fallback
         and _browser_backend_available(config.browser_backend)
     ):
-        return min(config.timeout_ms, config.http_timeout_ms) / 1000
-    return config.timeout_ms / 1000
+        return (
+            _require_budget(min(config.timeout_ms, config.http_timeout_ms), "the HTTP request")
+            / 1000
+        )
+    return _require_budget(config.timeout_ms, "the HTTP request") / 1000
 
 
 def _should_browser_fallback(message: str, config: CrawlConfig) -> bool:
@@ -470,6 +601,8 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     last_exc: Exception | None = None
     for attempt in range(max(1, config.http_retries + 1)):
         try:
+            if attempt:
+                http_timeout = _http_timeout_seconds(config)
             with _safe_urlopen(
                 request,
                 timeout=http_timeout,
@@ -488,7 +621,9 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     response,
                     config.max_response_bytes,
                     url=url,
-                    deadline_seconds=read_deadline_seconds(config),
+                    deadline_seconds=max(
+                        0.001, _budget_ms(read_deadline_seconds(config) * 1000) / 1000
+                    ),
                 )
                 try:
                     len_bytes = len(html_bytes)
@@ -558,6 +693,8 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                 break
             retry_after = exc.headers.get("Retry-After")
             delay = _retry_delay(config, attempt, retry_after)
+            if _budget_ms(delay * 1000 + 1000) < delay * 1000 + 1000:
+                break  # no time left for another attempt
             time.sleep(delay)
         except Exception as exc:
             last_exc = exc
@@ -579,7 +716,10 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                 break
             if hand_over and _is_slow_or_tls(exc):
                 break
-            time.sleep(_retry_delay(config, attempt, None))
+            delay = _retry_delay(config, attempt, None)
+            if _budget_ms(delay * 1000 + 1000) < delay * 1000 + 1000:
+                break  # no time left for another attempt
+            time.sleep(delay)
     # Keep the status on the error itself: the browser fallback re-raises
     # this error *from* the browser failure, which replaces ``__cause__``.
     err = FetchError(
@@ -895,186 +1035,182 @@ def _camofox_request(
 
 def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None = None) -> str:
     try:
-        from playwright.sync_api import sync_playwright
+        import playwright.sync_api  # noqa: F401
     except ImportError as exc:
         raise FetchError(
             "Playwright is not installed. Install agentcrawl[browser] or use fetcher='http'."
         ) from exc
 
-    from .browser_guard import MAX_REDIRECTS, BrowserNetworkGuard
+    from .browser_guard import BrowserNetworkGuard
 
     guard = BrowserNetworkGuard(url, config, audit_trail)
+    launch_kwargs: dict[str, Any] = {
+        "headless": config.headless,
+        "proxy": {"server": config.proxy} if config.proxy else None,
+        # Without this Chromium sets navigator.webdriver, which bot
+        # managers (Cloudflare first) answer with a challenge.
+        "args": ["--disable-blink-features=AutomationControlled"],
+    }
     # Wait as long as one browser run may take (load, interstitial, network
     # idle): a shorter wait failed pages that were simply queued behind others.
-    wait_ms = config.timeout_ms + config.browser_challenge_wait_ms + config.network_idle_ms
-    acquired = _get_browser_semaphore().acquire(timeout=max(1, wait_ms / 1000))
-    if not acquired:
-        raise FetchError(
-            f"Playwright fetch failed for {url}: browser concurrency limit reached "
-            f"(waited {wait_ms / 1000:.0f} s for a free browser)"
-        )
+    wait_ms = _require_budget(
+        config.timeout_ms + config.browser_challenge_wait_ms + config.network_idle_ms,
+        "the browser started",
+    )
     try:
-        with sync_playwright() as playwright:
-            launch_kwargs: dict[str, Any] = {
-                "headless": config.headless,
-                "proxy": {"server": config.proxy} if config.proxy else None,
-                # Without this Chromium sets navigator.webdriver, which bot
-                # managers (Cloudflare first) answer with a challenge.
-                "args": ["--disable-blink-features=AutomationControlled"],
-            }
-            try:
-                # Headless mode otherwise runs chromium-headless-shell, which
-                # sends ``Sec-CH-UA: "HeadlessChrome"`` with every request
-                # whatever the user agent says. The full Chromium does not.
-                browser = playwright.chromium.launch(channel="chromium", **launch_kwargs)
-            except Exception:
-                # Only the shell is installed (``install --only-shell``).
-                browser = playwright.chromium.launch(**launch_kwargs)
-            # Cleanup has to happen *inside* the Playwright session: once the
-            # ``with`` block exits the driver is already stopped, so a close
-            # in the outer ``finally`` failed silently and leaked browser
-            # processes on error paths.
-            context = None
-            try:
-                context_kwargs: dict[str, Any] = {
-                    "user_agent": _browser_user_agent(config, browser),
-                    # Interstitial titles are matched in English; Cloudflare
-                    # localises them ("Un momento…") to the browser's locale.
-                    "locale": "en-US",
-                }
-                if config.browser_session:
-                    from .sessions import require_session
-
-                    context_kwargs["storage_state"] = str(require_session(config.browser_session))
-                if guard.active:
-                    # Service workers can issue requests the route never sees.
-                    context_kwargs["service_workers"] = "block"
-                context = browser.new_context(**context_kwargs)
-                blocked_types = set(config.browser_block_resources or ())
-
-                def route_request(route):
-                    if route.request.resource_type in blocked_types:
-                        route.abort()
-                    elif guard.active:
-                        guard.handle_route(route)
-                    else:
-                        route.continue_()
-
-                if guard.active or blocked_types:
-                    # Context-level so popups and iframes are covered too.
-                    context.route("**/*", route_request)
-                if guard.active and hasattr(context, "route_web_socket"):
-                    context.route_web_socket("**/*", guard.handle_websocket)
-                page = context.new_page()
-                guard.main_frame = getattr(page, "main_frame", None)
-                capture = _CAPTURE.get()
-                if capture is not None and hasattr(page, "on"):
-                    main_frame = getattr(page, "main_frame", None)
-
-                    def remember_status(response):
-                        # The last document the tab navigated to, so a
-                        # challenge that clears is judged by the real page.
-                        try:
-                            request = response.request
-                            if request.is_navigation_request() and request.frame == main_frame:
-                                capture["status"] = response.status
-                        except Exception:
-                            pass
-
-                    page.on("response", remember_status)
-                if config.browser_init_script:
-                    page.add_init_script(config.browser_init_script)
-                target = url
-                response = None
-                for _hop in range(MAX_REDIRECTS + 1):
-                    guard.pending_navigation = None
-                    try:
-                        response = page.goto(
-                            target, wait_until=config.wait_until, timeout=config.timeout_ms
-                        )
-                    except Exception as exc:
-                        if guard.navigation_error:
-                            raise FetchError(guard.navigation_error) from exc
-                        raise
-                    if guard.pending_navigation is None:
-                        break
-                    target = guard.pending_navigation
-                else:
-                    raise FetchError(f"too many redirects (>{MAX_REDIRECTS})")
-                if guard.enforcing and not guard.strict and response is not None:
-                    refused = guard.redirect_chain_reason(response)
-                    if refused:
-                        raise FetchError(refused)
-                if guard.enforcing and guard.blocked and not page.url.startswith("http"):
-                    # The navigation itself was refused: report the guard's
-                    # reason instead of Chromium's net::ERR_BLOCKED_BY_CLIENT.
-                    raise FetchError(guard.blocked[0]["reason"])
-                waited = _wait_out_interstitial(page, config.browser_challenge_wait_ms)
-                if waited and capture is not None:
-                    capture["challenge_waited_ms"] = waited
-                if config.browser_wait_for_selector:
-                    page.wait_for_selector(
-                        config.browser_wait_for_selector, timeout=config.timeout_ms
-                    )
-                if config.browser_wait_ms > 0:
-                    page.wait_for_timeout(config.browser_wait_ms)
-                if config.network_idle and config.network_idle_ms > 0:
-                    # Analytics beacons and live feeds keep some pages busy
-                    # forever. The page is already loaded here, so a busy
-                    # network is noted, never a reason to throw the page away.
-                    try:
-                        page.wait_for_load_state(
-                            "networkidle",
-                            timeout=min(config.timeout_ms, config.network_idle_ms),
-                        )
-                    except Exception as idle_exc:
-                        if "timeout" not in type(idle_exc).__name__.lower():
-                            raise
-                        if capture is not None:
-                            capture["network_idle_timeout"] = True
-                if config.browser_actions:
-                    from .browser_actions import run_actions
-
-                    try:
-                        log = run_actions(page, config.browser_actions, config.timeout_ms)
-                    except RuntimeError as exc:
-                        raise FetchError(str(exc), error_type="browser_error") from exc
-                    if capture is not None:
-                        capture["actions"] = log
-                validate_remote_url(page.url, allow_private_network=config.allow_private_network)
-                if config.screenshot and capture is not None:
-                    capture["screenshot"] = page.screenshot(full_page=True, type="png")
-                if config.browser_iframes or config.browser_shadow_dom:
-                    from .browser_dom import flatten_page
-
-                    dom_report = flatten_page(
-                        page, iframes=config.browser_iframes, shadow_dom=config.browser_shadow_dom
-                    )
-                    if capture is not None:
-                        capture["dom"] = {k: v for k, v in dom_report.items() if v}
-                html = page.content()
-                if config.browser_session:
-                    # Keep a rolling login alive: sites refresh cookies on use.
-                    from .sessions import save_storage_state
-
-                    try:
-                        save_storage_state(context, config.browser_session)
-                    except Exception:
-                        pass
-                return html
-            finally:
-                for resource in (context, browser):
-                    try:
-                        resource.close()
-                    except Exception:
-                        pass
+        return _get_browser_pool().run(
+            launch_kwargs,
+            lambda browser: _render_page(browser, url, config, guard),
+            max(1, wait_ms / 1000),
+        )
     except FetchError as exc:
         raise FetchError(f"Playwright fetch failed for {url}: {exc}") from exc
     except Exception as exc:
         reason = _main_navigation_block_reason(guard, url)
         raise FetchError(f"Playwright fetch failed for {url}: {reason or exc}") from exc
+
+
+def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str:
+    from .browser_guard import MAX_REDIRECTS
+
+    context = None
+    try:
+        context_kwargs: dict[str, Any] = {
+            "user_agent": _browser_user_agent(config, browser),
+            # Interstitial titles are matched in English; Cloudflare
+            # localises them ("Un momento…") to the browser's locale.
+            "locale": "en-US",
+        }
+        if config.browser_session:
+            from .sessions import require_session
+
+            context_kwargs["storage_state"] = str(require_session(config.browser_session))
+        if guard.active:
+            # Service workers can issue requests the route never sees.
+            context_kwargs["service_workers"] = "block"
+        context = browser.new_context(**context_kwargs)
+        blocked_types = set(config.browser_block_resources or ())
+
+        def route_request(route):
+            if route.request.resource_type in blocked_types:
+                route.abort()
+            elif guard.active:
+                guard.handle_route(route)
+            else:
+                route.continue_()
+
+        if guard.active or blocked_types:
+            # Context-level so popups and iframes are covered too.
+            context.route("**/*", route_request)
+        if guard.active and hasattr(context, "route_web_socket"):
+            context.route_web_socket("**/*", guard.handle_websocket)
+        page = context.new_page()
+        guard.main_frame = getattr(page, "main_frame", None)
+        capture = _CAPTURE.get()
+        if capture is not None and hasattr(page, "on"):
+            main_frame = getattr(page, "main_frame", None)
+
+            def remember_status(response):
+                # The last document the tab navigated to, so a
+                # challenge that clears is judged by the real page.
+                try:
+                    request = response.request
+                    if request.is_navigation_request() and request.frame == main_frame:
+                        capture["status"] = response.status
+                except Exception:
+                    pass
+
+            page.on("response", remember_status)
+        if config.browser_init_script:
+            page.add_init_script(config.browser_init_script)
+        target = url
+        response = None
+        for _hop in range(MAX_REDIRECTS + 1):
+            guard.pending_navigation = None
+            try:
+                response = page.goto(
+                    target,
+                    wait_until=config.wait_until,
+                    timeout=_require_budget(config.timeout_ms, "the page loaded"),
+                )
+            except Exception as exc:
+                if guard.navigation_error:
+                    raise FetchError(guard.navigation_error) from exc
+                raise
+            if guard.pending_navigation is None:
+                break
+            target = guard.pending_navigation
+        else:
+            raise FetchError(f"too many redirects (>{MAX_REDIRECTS})")
+        if guard.enforcing and not guard.strict and response is not None:
+            refused = guard.redirect_chain_reason(response)
+            if refused:
+                raise FetchError(refused)
+        if guard.enforcing and guard.blocked and not page.url.startswith("http"):
+            # The navigation itself was refused: report the guard's
+            # reason instead of Chromium's net::ERR_BLOCKED_BY_CLIENT.
+            raise FetchError(guard.blocked[0]["reason"])
+        waited = _wait_out_interstitial(page, _budget_ms(config.browser_challenge_wait_ms))
+        if waited and capture is not None:
+            capture["challenge_waited_ms"] = waited
+        if config.browser_wait_for_selector:
+            page.wait_for_selector(
+                config.browser_wait_for_selector,
+                timeout=_require_budget(config.timeout_ms, "the awaited selector appeared"),
+            )
+        if config.browser_wait_ms > 0:
+            page.wait_for_timeout(_budget_ms(config.browser_wait_ms))
+        idle_ms = _budget_ms(min(config.timeout_ms, config.network_idle_ms))
+        if config.network_idle and idle_ms > 0:
+            # Analytics beacons and live feeds keep some pages busy
+            # forever. The page is already loaded here, so a busy
+            # network is noted, never a reason to throw the page away.
+            try:
+                page.wait_for_load_state(
+                    "networkidle",
+                    timeout=idle_ms,
+                )
+            except Exception as idle_exc:
+                if "timeout" not in type(idle_exc).__name__.lower():
+                    raise
+                if capture is not None:
+                    capture["network_idle_timeout"] = True
+        if config.browser_actions:
+            from .browser_actions import run_actions
+
+            try:
+                log = run_actions(
+                    page,
+                    config.browser_actions,
+                    _require_budget(config.timeout_ms, "the browser actions"),
+                )
+            except RuntimeError as exc:
+                raise FetchError(str(exc), error_type="browser_error") from exc
+            if capture is not None:
+                capture["actions"] = log
+        validate_remote_url(page.url, allow_private_network=config.allow_private_network)
+        if config.screenshot and capture is not None:
+            capture["screenshot"] = page.screenshot(full_page=True, type="png")
+        if config.browser_iframes or config.browser_shadow_dom:
+            from .browser_dom import flatten_page
+
+            dom_report = flatten_page(
+                page, iframes=config.browser_iframes, shadow_dom=config.browser_shadow_dom
+            )
+            if capture is not None:
+                capture["dom"] = {k: v for k, v in dom_report.items() if v}
+        html = page.content()
+        if config.browser_session:
+            # Keep a rolling login alive: sites refresh cookies on use.
+            from .sessions import save_storage_state
+
+            try:
+                save_storage_state(context, config.browser_session)
+            except Exception:
+                pass
+        return html
     finally:
-        _get_browser_semaphore().release()
+        _close_quietly(context)
 
 
 def _browser_user_agent(config: CrawlConfig, browser: Any) -> str:

@@ -41,6 +41,11 @@ class CrawlConfig:
     camofox_user_id: str = "agentcrawl"
     headless: bool = True
     timeout_ms: int = 30_000
+    # Wall-clock budget for one page, shared by every step (HTTP attempts,
+    # waiting for a browser, navigation, interstitial, network idle,
+    # actions). The steps' own timeouts used to add up to over a minute.
+    # 0 turns it off.
+    page_budget_ms: int = 45_000
     # Socket timeout for the plain HTTP fetch when the browser fallback can
     # take over (capped by ``timeout_ms``). A server that has not answered in
     # this time is handed to the browser instead of retried at full timeout.
@@ -294,6 +299,7 @@ _INT_RANGES: dict[str, tuple[int, int]] = {
     "crawl_url_retries": (0, 20),
     "browser_wait_ms": (0, 3_600_000),
     "http_timeout_ms": (1, 3_600_000),
+    "page_budget_ms": (0, 3_600_000),
     "network_idle_ms": (0, 3_600_000),
     "browser_challenge_wait_ms": (0, 600_000),
     "max_attempts": (1, 100),
@@ -466,6 +472,9 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
     search_engine = os.getenv("AGENTCRAWL_SEARCH_ENGINE", "").strip().lower()
     if search_engine:
         config["search_engine"] = search_engine
+    page_budget_ms = os.getenv("AGENTCRAWL_PAGE_BUDGET_MS", "").strip()
+    if page_budget_ms.isdigit():
+        config["page_budget_ms"] = int(page_budget_ms)
     timeout_ms = os.getenv("AGENTCRAWL_TIMEOUT_MS", "").strip()
     if timeout_ms.isdigit():
         config["timeout_ms"] = int(timeout_ms)
