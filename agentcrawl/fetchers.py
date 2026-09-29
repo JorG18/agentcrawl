@@ -1055,7 +1055,7 @@ def _camofox_request(
 
 def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None = None) -> str:
     try:
-        import playwright.sync_api  # noqa: F401
+        importlib.import_module("playwright.sync_api")
     except ImportError as exc:
         raise FetchError(
             "Playwright is not installed. Install agentcrawl[browser] or use fetcher='http'."

@@ -58,6 +58,7 @@ def test_a_challenged_page_is_retried_once_with_patchright(engines) -> None:
 
 
 def test_patchright_engine_without_the_extra_says_how_to_install(monkeypatch) -> None:
+    _engine(monkeypatch, "playwright", REAL)
     real_find_spec = fetchers.importlib.util.find_spec
     monkeypatch.setattr(
         fetchers.importlib.util,
