@@ -94,6 +94,12 @@ class CrawlConfig:
     allow_local_files: bool = True
     local_files_root: str | None = None
     airgap: bool = False
+    # The browser's requests are checked before they leave, then sent by the
+    # browser itself. Strict mode replays each one from Playwright instead,
+    # which checks every redirect hop before it is sent but gives sites a
+    # non-browser TLS fingerprint that Cloudflare blocks. Always on under
+    # ``airgap`` and ``audit``; the HTTP API server turns it on by default.
+    browser_strict_network: bool = False
     allowlist_domains: tuple[str, ...] = field(default_factory=tuple)
     audit: bool = False
     # Hard ceiling on a single fetched body. ``urlopen`` offers no size
@@ -226,6 +232,7 @@ _BOOL_FIELDS = frozenset(
         "airgap",
         "audit",
         "allow_private_network",
+        "browser_strict_network",
         "allow_local_files",
         "geoip",
         "humanize",
@@ -439,6 +446,7 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
         "allowlist_domains": list(allowlist),
         "audit": _env_flag("AGENTCRAWL_AUDIT", False),
         "allow_private_network": _env_flag("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", False),
+        "browser_strict_network": _env_flag("AGENTCRAWL_BROWSER_STRICT_NETWORK", False),
         "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
         "browser_fallback": _env_flag("AGENTCRAWL_BROWSER_FALLBACK", True),
         "ocr": _env_flag("AGENTCRAWL_OCR", False),

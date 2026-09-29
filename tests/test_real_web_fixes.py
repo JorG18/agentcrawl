@@ -308,7 +308,7 @@ def test_queued_browser_fetch_waits_for_a_whole_browser_run(monkeypatch) -> None
 @browser
 def test_failed_guarded_navigation_says_why(monkeypatch) -> None:
     # Chromium only reports net::ERR_FAILED when the guard's request fails.
-    config = CrawlConfig(fetcher="playwright", timeout_ms=5_000)
+    config = CrawlConfig(fetcher="playwright", timeout_ms=5_000, browser_strict_network=True)
     from agentcrawl import browser_guard
 
     for module in (fetchers, browser_guard):

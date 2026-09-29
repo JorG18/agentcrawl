@@ -25,6 +25,15 @@ So every request is performed by the guard with ``max_redirects=0``:
   ``pending_navigation`` and the fetcher issues a fresh ``goto`` for it, which
   is routed again.
 
+That is strict mode. It is not the default: requests replayed from
+Playwright carry Node's TLS fingerprint instead of Chrome's, and Cloudflare
+answers that with a challenge on every protected site. By default each request
+is still checked before it leaves, then sent by the browser itself
+(``route.continue_``); the main navigation's redirect hops, which the handler
+never sees, are checked once the page has loaded and the page is refused if
+one was not allowed (the request to it has already been sent). ``airgap``,
+``audit`` and ``browser_strict_network`` select strict mode.
+
 Known limits, documented rather than hidden: DNS is resolved separately by the
 browser (no IP pinning on this path), and Camofox cannot be intercepted from
 here at all.
@@ -55,6 +64,11 @@ class BrowserNetworkGuard:
             str(item).lower().strip() for item in (config.allowlist_domains or ()) if item
         ] or [self.target_host]
         self.audit_trail = audit_trail
+        self.strict = (
+            self.airgap
+            or audit_trail is not None
+            or bool(getattr(config, "browser_strict_network", False))
+        )
         self.blocked: list[dict[str, str]] = []
         self.pending_navigation: str | None = None
         self.main_frame: Any | None = None
@@ -162,7 +176,7 @@ class BrowserNetworkGuard:
             self._block(method, url, reason)
             route.abort("blockedbyclient")
             return
-        if urllib.parse.urlsplit(url).scheme.lower() in _LOCAL_SCHEMES:
+        if not self.strict or urllib.parse.urlsplit(url).scheme.lower() in _LOCAL_SCHEMES:
             route.continue_()
             return
 
@@ -217,6 +231,22 @@ class BrowserNetworkGuard:
                 body_size = 0
         self._record(method, url, int(response.status), body_size)
         route.fulfill(response=response)
+
+    def redirect_chain_reason(self, response: Any) -> str | None:
+        """Why a redirect hop of the loaded page was not allowed, if one wasn't.
+
+        Only needed outside strict mode, where the browser followed the hops.
+        """
+        request = getattr(response, "request", None)
+        hops = 0
+        while request is not None and hops <= MAX_REDIRECTS:
+            reason = self.check(request.url)
+            if reason:
+                self._block(request.method, request.url, reason)
+                return reason
+            request = request.redirected_from
+            hops += 1
+        return None
 
     def handle_websocket(self, ws: Any) -> None:
         url = ws.url

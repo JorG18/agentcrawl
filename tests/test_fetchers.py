@@ -266,8 +266,29 @@ def test_playwright_uses_default_user_agent_when_config_none(monkeypatch) -> Non
     assert "ok" in html
     # The default config guards the browser's network (SSRF), and service
     # workers are blocked because they can issue requests the route never sees.
-    assert browser.context_kwargs == {"user_agent": DEFAULT_USER_AGENT, "service_workers": "block"}
+    assert browser.context_kwargs == {
+        "user_agent": DEFAULT_USER_AGENT,
+        "locale": "en-US",
+        "service_workers": "block",
+    }
     assert page.load_states == []
+
+
+def test_playwright_presents_the_real_chrome_version(monkeypatch) -> None:
+    """The bot user agent got the browser fallback the same Cloudflare
+    challenge / CDN 403 the HTTP fetch got; a caller's own UA still wins."""
+    _page, browser, chromium = install_fake_playwright(monkeypatch)
+    browser.version = "147.0.7727.15"
+
+    _fetch_playwright("https://example.com/", CrawlConfig(network_idle=False))
+
+    agent = browser.context_kwargs["user_agent"]
+    assert "Chrome/147.0.0.0 Safari/537.36" in agent
+    assert "Headless" not in agent and "AgentCrawl" not in agent
+    assert "--disable-blink-features=AutomationControlled" in chromium.launch_kwargs["args"]
+
+    _fetch_playwright("https://example.com/", CrawlConfig(user_agent="Mine/1", network_idle=False))
+    assert browser.context_kwargs["user_agent"] == "Mine/1"
 
 
 def test_playwright_honors_network_idle_option(monkeypatch) -> None:

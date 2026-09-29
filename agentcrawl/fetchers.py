@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import re
+import sys
 import threading
 import time
 import urllib.error
@@ -905,7 +906,11 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
-                headless=config.headless, proxy={"server": config.proxy} if config.proxy else None
+                headless=config.headless,
+                proxy={"server": config.proxy} if config.proxy else None,
+                # Without this Chromium sets navigator.webdriver, which bot
+                # managers (Cloudflare first) answer with a challenge.
+                args=["--disable-blink-features=AutomationControlled"],
             )
             # Cleanup has to happen *inside* the Playwright session: once the
             # ``with`` block exits the driver is already stopped, so a close
@@ -914,7 +919,10 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
             context = None
             try:
                 context_kwargs: dict[str, Any] = {
-                    "user_agent": config.user_agent or DEFAULT_USER_AGENT
+                    "user_agent": _browser_user_agent(config, browser),
+                    # Interstitial titles are matched in English; Cloudflare
+                    # localises them ("Un momento…") to the browser's locale.
+                    "locale": "en-US",
                 }
                 if config.browser_session:
                     from .sessions import require_session
@@ -959,10 +967,13 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                 if config.browser_init_script:
                     page.add_init_script(config.browser_init_script)
                 target = url
+                response = None
                 for _hop in range(MAX_REDIRECTS + 1):
                     guard.pending_navigation = None
                     try:
-                        page.goto(target, wait_until=config.wait_until, timeout=config.timeout_ms)
+                        response = page.goto(
+                            target, wait_until=config.wait_until, timeout=config.timeout_ms
+                        )
                     except Exception as exc:
                         if guard.navigation_error:
                             raise FetchError(guard.navigation_error) from exc
@@ -972,6 +983,10 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                     target = guard.pending_navigation
                 else:
                     raise FetchError(f"too many redirects (>{MAX_REDIRECTS})")
+                if guard.enforcing and not guard.strict and response is not None:
+                    refused = guard.redirect_chain_reason(response)
+                    if refused:
+                        raise FetchError(refused)
                 if guard.enforcing and guard.blocked and not page.url.startswith("http"):
                     # The navigation itself was refused: report the guard's
                     # reason instead of Chromium's net::ERR_BLOCKED_BY_CLIENT.
@@ -1042,6 +1057,29 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
         raise FetchError(f"Playwright fetch failed for {url}: {reason or exc}") from exc
     finally:
         _get_browser_semaphore().release()
+
+
+def _browser_user_agent(config: CrawlConfig, browser: Any) -> str:
+    """The browser's own identity unless the caller set a user agent.
+
+    The crawler's bot identity (and headless Chromium's "HeadlessChrome")
+    is what Cloudflare and CDNs answer with a challenge or a 403 from
+    datacenter networks: the browser fallback then got the same refusal the
+    HTTP fetch did. The browser says it is the Chrome version it really is.
+    """
+    if config.user_agent and config.user_agent != DEFAULT_USER_AGENT:
+        return config.user_agent
+    major = str(getattr(browser, "version", "") or "").split(".")[0]
+    if not major.isdigit():
+        return config.user_agent or DEFAULT_USER_AGENT
+    platform = {
+        "darwin": "Macintosh; Intel Mac OS X 10_15_7",
+        "win32": "Windows NT 10.0; Win64; x64",
+    }.get(sys.platform, "X11; Linux x86_64")
+    return (
+        f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{major}.0.0.0 Safari/537.36"
+    )
 
 
 # Interstitials that clear by themselves once the page's own script has run

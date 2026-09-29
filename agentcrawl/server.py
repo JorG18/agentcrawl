@@ -329,6 +329,10 @@ class AgentCrawlServer:
                 DEFAULT_USER_AGENT,
             ),
             "allow_private_network": self.allow_private_network,
+            # Remote callers choose the URLs: every redirect hop is checked
+            # before it is sent (see CrawlConfig.browser_strict_network).
+            "browser_strict_network": os.getenv("AGENTCRAWL_BROWSER_STRICT_NETWORK", "true").lower()
+            in {"1", "true", "yes", "on"},
             # Operator-only: a request cannot pick a saved login (sessions.py).
             "browser_session": os.getenv("AGENTCRAWL_BROWSER_SESSION", "").strip() or None,
             "crawl_depth": int(os.getenv("AGENTCRAWL_CRAWL_DEPTH", "1")),
