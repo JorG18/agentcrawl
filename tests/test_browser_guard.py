@@ -213,3 +213,37 @@ def test_api_rejects_camofox_unless_the_operator_enabled_it(tmp_path) -> None:
         assert "camofox" in response.json()["detail"]
     finally:
         server.default_config = original
+
+
+def test_native_mode_lets_the_browser_send_checked_requests() -> None:
+    """Replaying requests from Playwright gave Cloudflare a non-browser TLS
+    fingerprint; outside strict mode the browser sends them itself."""
+    guard = BrowserNetworkGuard("https://example.com/", CrawlConfig())
+    assert not guard.strict
+    allowed = FakeRoute(FakeRequest("https://example.com/", navigation=True), {})
+    guard.handle_route(allowed)
+    assert allowed.outcome == ("continue",) and allowed.fetched == []
+    private = FakeRoute(FakeRequest("http://127.0.0.1:8000/admin"), {})
+    guard.handle_route(private)
+    assert private.outcome == ("abort", "blockedbyclient")
+
+
+def test_native_mode_refuses_a_page_reached_through_a_private_hop() -> None:
+    guard = BrowserNetworkGuard("https://example.com/", CrawlConfig())
+    first = FakeRequest("https://example.com/")
+    first.redirected_from = None
+    hop = FakeRequest("http://169.254.169.254/latest/")
+    hop.redirected_from = first
+    final = FakeRequest("https://example.com/done")
+    final.redirected_from = hop
+    response = FakeResponse(200)
+    response.request = final
+    assert "169.254.169.254" in (guard.redirect_chain_reason(response) or "")
+    hop.url = "https://example.com/next"
+    assert guard.redirect_chain_reason(response) is None
+
+
+def test_strict_mode_under_airgap_audit_or_config() -> None:
+    assert BrowserNetworkGuard("https://e.com/", CrawlConfig(airgap=True)).strict
+    assert BrowserNetworkGuard("https://e.com/", CrawlConfig(), AuditTrail()).strict
+    assert BrowserNetworkGuard("https://e.com/", CrawlConfig(browser_strict_network=True)).strict

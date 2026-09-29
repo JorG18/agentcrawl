@@ -308,7 +308,7 @@ def test_queued_browser_fetch_waits_for_a_whole_browser_run(monkeypatch) -> None
 @browser
 def test_failed_guarded_navigation_says_why(monkeypatch) -> None:
     # Chromium only reports net::ERR_FAILED when the guard's request fails.
-    config = CrawlConfig(fetcher="playwright", timeout_ms=5_000)
+    config = CrawlConfig(fetcher="playwright", timeout_ms=5_000, browser_strict_network=True)
     from agentcrawl import browser_guard
 
     for module in (fetchers, browser_guard):
@@ -483,3 +483,35 @@ def test_missing_intermediate_is_fetched_and_still_verified(tmp_path, monkeypatc
     finally:
         issuer.shutdown()
         site.shutdown()
+
+
+def test_bad_certificate_redirect_is_followed_with_verification(monkeypatch) -> None:
+    """gamepass.com serves another name's certificate and only redirects; the
+    redirect target is fetched (and verified) on its own, never the body."""
+    from agentcrawl import security
+
+    fetched = []
+
+    def fake_http(url, config):
+        fetched.append(url)
+        if url == "https://bare.example/":
+            raise FetchError("certificate verify failed: Hostname mismatch", error_type="tls_error")
+        return "<html><body><main><h1>Real</h1><p>Page</p></main></body></html>", {
+            "fetcher": "http",
+            "final_url": url,
+        }
+
+    monkeypatch.setattr(fetchers, "_fetch_http", fake_http)
+    monkeypatch.setattr(fetchers, "validate_remote_url", lambda url, **kwargs: None)
+    monkeypatch.setattr(
+        security, "redirect_past_invalid_certificate", lambda url, timeout: "https://www.example/"
+    )
+    config = CrawlConfig(browser_fallback=False)
+    _content, metadata = fetchers._fetch_source("https://bare.example/", config)
+    assert fetched == ["https://bare.example/", "https://www.example/"]
+    assert metadata["redirected_past_invalid_certificate"] == "https://bare.example/"
+
+    fetched.clear()
+    with pytest.raises(FetchError):  # airgap never leaves the named host this way
+        fetchers._fetch_source("https://bare.example/", CrawlConfig(airgap=True))
+    assert fetched == ["https://bare.example/"]

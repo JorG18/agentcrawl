@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import re
+import sys
 import threading
 import time
 import urllib.error
@@ -151,7 +152,9 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     return content, metadata
 
 
-def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
+def _fetch_source(
+    source: str, config: CrawlConfig, *, _past_certificate: bool = False
+) -> tuple[str, dict[str, Any]]:
     if not is_probably_url(source):
         check_local_source(source, allow=config.allow_local_files, root=config.local_files_root)
         return _fetch_local_file(source, ocr=config.ocr)
@@ -169,6 +172,14 @@ def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]
             content, http_metadata = _fetch_http(source, config)
             return _render_if_js_shell(source, content, http_metadata, config)
         except FetchError as exc:
+            if _is_tls_failure(exc) and not (config.airgap or _past_certificate):
+                from .security import redirect_past_invalid_certificate
+
+                target = redirect_past_invalid_certificate(source, _http_timeout_seconds(config))
+                if target:
+                    validate_remote_url(target, allow_private_network=config.allow_private_network)
+                    content, metadata = _fetch_source(target, config, _past_certificate=True)
+                    return content, {**metadata, "redirected_past_invalid_certificate": source}
             if not (
                 config.browser_fallback
                 and (
@@ -904,9 +915,21 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
         )
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                headless=config.headless, proxy={"server": config.proxy} if config.proxy else None
-            )
+            launch_kwargs: dict[str, Any] = {
+                "headless": config.headless,
+                "proxy": {"server": config.proxy} if config.proxy else None,
+                # Without this Chromium sets navigator.webdriver, which bot
+                # managers (Cloudflare first) answer with a challenge.
+                "args": ["--disable-blink-features=AutomationControlled"],
+            }
+            try:
+                # Headless mode otherwise runs chromium-headless-shell, which
+                # sends ``Sec-CH-UA: "HeadlessChrome"`` with every request
+                # whatever the user agent says. The full Chromium does not.
+                browser = playwright.chromium.launch(channel="chromium", **launch_kwargs)
+            except Exception:
+                # Only the shell is installed (``install --only-shell``).
+                browser = playwright.chromium.launch(**launch_kwargs)
             # Cleanup has to happen *inside* the Playwright session: once the
             # ``with`` block exits the driver is already stopped, so a close
             # in the outer ``finally`` failed silently and leaked browser
@@ -914,7 +937,10 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
             context = None
             try:
                 context_kwargs: dict[str, Any] = {
-                    "user_agent": config.user_agent or DEFAULT_USER_AGENT
+                    "user_agent": _browser_user_agent(config, browser),
+                    # Interstitial titles are matched in English; Cloudflare
+                    # localises them ("Un momento…") to the browser's locale.
+                    "locale": "en-US",
                 }
                 if config.browser_session:
                     from .sessions import require_session
@@ -959,10 +985,13 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                 if config.browser_init_script:
                     page.add_init_script(config.browser_init_script)
                 target = url
+                response = None
                 for _hop in range(MAX_REDIRECTS + 1):
                     guard.pending_navigation = None
                     try:
-                        page.goto(target, wait_until=config.wait_until, timeout=config.timeout_ms)
+                        response = page.goto(
+                            target, wait_until=config.wait_until, timeout=config.timeout_ms
+                        )
                     except Exception as exc:
                         if guard.navigation_error:
                             raise FetchError(guard.navigation_error) from exc
@@ -972,6 +1001,10 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                     target = guard.pending_navigation
                 else:
                     raise FetchError(f"too many redirects (>{MAX_REDIRECTS})")
+                if guard.enforcing and not guard.strict and response is not None:
+                    refused = guard.redirect_chain_reason(response)
+                    if refused:
+                        raise FetchError(refused)
                 if guard.enforcing and guard.blocked and not page.url.startswith("http"):
                     # The navigation itself was refused: report the guard's
                     # reason instead of Chromium's net::ERR_BLOCKED_BY_CLIENT.
@@ -1042,6 +1075,29 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
         raise FetchError(f"Playwright fetch failed for {url}: {reason or exc}") from exc
     finally:
         _get_browser_semaphore().release()
+
+
+def _browser_user_agent(config: CrawlConfig, browser: Any) -> str:
+    """The browser's own identity unless the caller set a user agent.
+
+    The crawler's bot identity (and headless Chromium's "HeadlessChrome")
+    is what Cloudflare and CDNs answer with a challenge or a 403 from
+    datacenter networks: the browser fallback then got the same refusal the
+    HTTP fetch did. The browser says it is the Chrome version it really is.
+    """
+    if config.user_agent and config.user_agent != DEFAULT_USER_AGENT:
+        return config.user_agent
+    major = str(getattr(browser, "version", "") or "").split(".")[0]
+    if not major.isdigit():
+        return config.user_agent or DEFAULT_USER_AGENT
+    platform = {
+        "darwin": "Macintosh; Intel Mac OS X 10_15_7",
+        "win32": "Windows NT 10.0; Win64; x64",
+    }.get(sys.platform, "X11; Linux x86_64")
+    return (
+        f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{major}.0.0.0 Safari/537.36"
+    )
 
 
 # Interstitials that clear by themselves once the page's own script has run
