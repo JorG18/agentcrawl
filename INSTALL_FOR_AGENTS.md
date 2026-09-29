@@ -16,7 +16,7 @@ Install AgentCrawl, verify direct scraping, register its standards-based stdio M
 
 ## 1. Install
 
-Install from the tagged GitHub release (the `mcp` extra is required for the MCP server):
+Install from PyPI (the `mcp` extra is required for the MCP server):
 
 ```bash
 python -m pip install "agentcrawl-ai[mcp]"

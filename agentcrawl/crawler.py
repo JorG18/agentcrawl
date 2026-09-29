@@ -1001,8 +1001,9 @@ class AgentCrawl:
         try:
             reply = invoke_llm(
                 get_llm(self.config),
-                "Summarise this page in at most five sentences, keeping names, numbers "
-                "and dates exactly as written.\n\n" + document.markdown[:60_000],
+                "Summarise this page for someone deciding whether to read it in full, "
+                "keeping names, numbers and dates exactly as written.\n\n"
+                + document.markdown[:60_000],
             )
         except Exception as exc:  # the page itself was read fine
             document.metadata["summary_error"] = sanitize_error_message(str(exc))

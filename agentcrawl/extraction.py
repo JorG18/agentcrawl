@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .config import CrawlConfig
@@ -20,6 +21,18 @@ def extract_answer(
         system_prompt = _json_prompt(prompt, chunks, schema, config.reasoning, previous_error)
 
     llm = get_llm(config)
+    if schema is not None and not config.reasoning and hasattr(llm, "with_structured_output"):
+        # The provider returns parsed JSON; "Return valid JSON only" and
+        # extract_json stay for plain callables, which have no such feature.
+        try:
+            json_schema = json.loads(schema_json(schema))
+            # Some LangChain providers require a title on a dict schema.
+            json_schema.setdefault("title", "extraction")
+            structured = llm.with_structured_output(json_schema)
+            parsed = structured.invoke(system_prompt)
+            return to_plain_data(validate_with_schema(parsed, schema)), None, None
+        except Exception as exc:
+            return "", str(exc), None
     text = invoke_llm(llm, system_prompt)
 
     reasoning = None

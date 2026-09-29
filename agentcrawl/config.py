@@ -32,7 +32,9 @@ class CrawlConfig:
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_kwargs: dict[str, Any] = field(default_factory=dict)
-    llm_temperature: float = 0.0
+    # Sent only when set: current Claude models (Opus 5.5, Sonnet 5.5, Fable)
+    # reject a non-default temperature.
+    llm_temperature: float | None = None
 
     fetcher: str = "http"
     browser_backend: str = "playwright"
@@ -355,6 +357,8 @@ def _validate_config_value(key: str, value: Any) -> Any:
             raise ValueError(f"{key} must be between {low} and {high}, got {value}")
         return value
     if key in _FLOAT_RANGES:
+        if value is None:
+            return None
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"{key} must be a number, got {type(value).__name__} ({value!r})")
         low, high = _FLOAT_RANGES[key]

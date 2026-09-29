@@ -4,6 +4,18 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## Unreleased
+
+### Fixed
+
+- **LLM calls on current Claude models.** A temperature of 0.0 was sent on every LLM call; Claude Opus 5.5, Sonnet 5.5 and Fable reject any non-default temperature, so extraction, schema generation and summaries all failed on them. `llm_temperature` is now sent only when set.
+- **Tool descriptions matched 0.5.0 again.** MCP `extract_structured` said "no LLM" although `describe` uses one; `scrape_url`'s `use_cache` and `cache_ttl_seconds` said "server mode" although they also set the local reuse window; `scrape_url` now points agents at `metadata.next_step`. The agent install guide said "tagged GitHub release" above a PyPI command.
+
+### Changed
+
+- **Schema extraction uses the model's structured output** (LangChain `with_structured_output`) when the model offers it; plain callables keep the JSON prompt and parser.
+- Summaries are asked for by purpose ("for someone deciding whether to read it in full") instead of a sentence count.
+
 ## 0.5.0 - 2026-09-29
 
 AgentCrawl now reads more of the open web than Crawl4AI on a 400-page random sample, from a datacenter network: the browser no longer gives itself away to Cloudflare, stays open between pages and works to one time budget per page. Agents can read long pages in parts, Firecrawl v2 code runs against an AgentCrawl server, and errors say what to try next.
