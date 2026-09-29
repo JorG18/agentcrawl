@@ -663,6 +663,8 @@ _SKIP_LINK_RE = re.compile(
 _EMPTY_LINK_RE = re.compile(r"(?<![!\]])\[\]\((?:[^()\s]|\([^()\s]*\))*\)")
 _LINK_TITLE_RE = re.compile(r'(\]\((?:[^()\s]|\([^()\s]*\))+) "[^"\n]*"\)')
 # Permalink anchors Sphinx and MkDocs put after every heading ("Usage¶").
+# ... and after definitions ("dumps(obj, *, skipkeys=False)¶").
+_TRAILING_PILCROW_RE = re.compile(r"\s*¶\s*$")
 _HEADING_PERMALINK_RE = re.compile(r"^(#{1,6} .*?)\s*[¶§🔗]\s*$")
 _TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 _CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
@@ -680,6 +682,7 @@ def _strip_link_titles(markdown: str) -> str:
         if _SKIP_LINK_RE.match(line):
             continue
         line = _HEADING_PERMALINK_RE.sub(r"\1", line)
+        line = _TRAILING_PILCROW_RE.sub("", line)
         line = _LINK_TITLE_RE.sub(r"\1)", line)
         stripped = _EMPTY_LINK_RE.sub("", line)
         if stripped != line and not stripped.strip():

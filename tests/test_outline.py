@@ -71,3 +71,11 @@ def test_max_tokens_caps_the_markdown(monkeypatch) -> None:
     )
     assert len(result["markdown"]) <= 400
     assert result["metadata"]["markdown_truncated"] is True
+
+
+def test_permalink_pilcrows_are_dropped() -> None:
+    from agentcrawl.parsing import _strip_link_titles
+
+    assert _strip_link_titles("## Usage¶\ndumps(obj)¶\nA ¶ inside stays") == (
+        "## Usage\ndumps(obj)\nA ¶ inside stays"
+    )

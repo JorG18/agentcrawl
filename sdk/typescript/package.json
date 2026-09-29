@@ -1,6 +1,6 @@
 {
   "name": "agentcrawl",
-  "version": "0.4.5",
+  "version": "0.5.0",
   "description": "Minimal TypeScript client for the AgentCrawl HTTP API.",
   "license": "MIT",
   "type": "module",

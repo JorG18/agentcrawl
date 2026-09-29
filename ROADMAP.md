@@ -83,11 +83,21 @@ AgentCrawl Community is a serious self-hosted alpha surface. The core paths work
 
 **Audit context:** each audit pass is recorded, finding by finding, in [CHANGELOG.md](CHANGELOG.md) (the 2026-06 audit under 0.1.3, the 2026-09 passes under 0.2.0).
 
+### 0.5.0: Community competes on the open web
+- The browser reaches Cloudflare-protected pages that clear on their own: real Chrome identity, native browser TLS, full Chromium in headless mode, optional Patchright retry, proxy rotation.
+- Browsers stay open between pages (four at a time); one time budget per page.
+- Long pages are read in parts: `outline`, `section`, `max_tokens`, `max_age`.
+- Firecrawl v2-compatible API; LLM-written CSS schemas; summaries; `next_step` on every error.
+
+## Enhanced (hosted, planned)
+
+Managed residential and mobile proxies, geolocation, a managed browser fleet, CAPTCHA solving, schedules, webhooks, retained datasets, teams and billing, behind the same Firecrawl-compatible API. First as a hosted API, to learn from real traffic.
+
 ## Next community priorities
 
 We're working on, in roughly this order:
 
-1. **Keep the public benchmark lane honest.** Accessible public docs, API references, blogs, RFC pages, non-protected ecommerce/product pages only. We don't compete with paid infrastructure and we don't pretend to.
+1. **Keep the public benchmark lane honest.** The 400-page random web sample (`benchmarks/web`) against Crawl4AI, run from GitHub's datacenter network, on every release. Numbers of hosted tools are published only where their terms allow it.
 2. **Maintained release smoke targets.** Smoke-tested paths stay tested. They don't grow into unsupported "vs X" comparison copy.
 3. **Lighter document ingestion.** More file types only when the dependency cost stays small enough to remain an optional extra.
 4. **Verified examples.** Every example in `examples/` runs against a real public site we actually tested. Anything else gets removed.

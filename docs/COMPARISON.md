@@ -48,9 +48,9 @@ Use Stagehand when the main task is operating a browser through natural-language
 
 ## Current product boundary
 
-AgentCrawl is strongest today as a self-hosted extraction layer for agents and internal tools. It is not positioned as a hosted scraping network, a managed anti-bot platform, a full browser automation framework, or a general crawler framework.
+Community is everything that runs on your own machine: the engine, a local browser that presents itself as the Chrome it is (with an optional Patchright retry), proxies you bring and your own LLM. It speaks Firecrawl's v2 API as well as its own, so Firecrawl code can move to a self-hosted server by changing the base URL. It never returns a challenge page as content.
 
-Community should be compared on accessible pages where local/private extraction is the goal: docs, API references, blogs, reference material, local documents, and non-protected product pages. If a page requires managed browser pools, proxies, geolocation, stealth, or challenge solving, that is an Enhanced/Hosted gap rather than a Community promise.
+Managed proxies, geolocation, a managed browser fleet, CAPTCHA solving, schedules, webhooks and retained datasets belong to AgentCrawl Enhanced, a planned hosted API.
 
 Community ships the agent-facing basics: search, llms.txt, citable chunks, bounded browser actions and screenshots, JavaScript rendering with a local browser, adaptive crawls, change checks, Office/PDF documents, CSS and schema extraction, a TypeScript client and LangChain/LlamaIndex loaders. Its output is checked against real public sites on every engine change (the live smoke workflow), and bot challenges are reported with the signals that identified them.
 

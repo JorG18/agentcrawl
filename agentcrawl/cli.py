@@ -93,6 +93,12 @@ def main(argv: list[str] | None = None) -> int:
         "--query", help="Keep the passages most relevant to this query when the page is long."
     )
     scrape.add_argument(
+        "--section", help="Only this section: an id from --format outline (s4) or heading text."
+    )
+    scrape.add_argument(
+        "--max-tokens", type=int, default=None, help="Cap on the Markdown returned."
+    )
+    scrape.add_argument(
         "--token-stats",
         action="store_true",
         help="Print a Token Efficiency Report after a successful scrape (community feature).",
@@ -788,6 +794,8 @@ def _run_local(args: argparse.Namespace) -> Any:
                 formats=args.formats or ["markdown", "links", "metadata"],
                 only_main_content=False if args.full_page else None,
                 query=args.query,
+                section=args.section,
+                max_tokens=args.max_tokens,
             )
         )
     if args.command == "map":
@@ -811,6 +819,8 @@ def _run_remote(args: argparse.Namespace) -> Any:
             cache=not args.no_cache,
             cache_ttl_seconds=args.cache_ttl,
             query=args.query,
+            section=args.section,
+            max_tokens=args.max_tokens,
         )
     if args.command == "search":
         return client.search(

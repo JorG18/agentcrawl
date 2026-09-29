@@ -18,9 +18,11 @@ agentcrawl scrape https://docs.python.org/3/library/json.html
 
 Pages that only render with JavaScript need the browser extra (`[browser]`, then
 `python -m playwright install chromium`); `agentcrawl doctor` tells you whether
-the browser can start. When a site answers with a bot challenge, AgentCrawl
-returns `error_type: "client_challenge"` and the signals it saw, never the
-challenge page as content. Getting past protected sites is not a Community goal.
+the browser can start. The browser presents itself as the Chrome it is and waits
+out self-clearing checks such as Cloudflare's "Just a moment…"; the optional
+`[stealth]` extra retries a refused page once with Patchright. A page that still
+asks for a CAPTCHA comes back as `error_type: "client_challenge"` with the
+signals seen and a `next_step`, never as content.
 
 Every change is checked against real public sites (docs, Wikipedia, GitHub,
 Hacker News, Django docs, a JavaScript-rendered page) by the
@@ -121,18 +123,22 @@ AgentCrawl Community is the self-hosted trust layer:
 | Change tracking | Every page carries `markdown_sha256`, `etag` and `last_modified`; `diff()` / `agentcrawl diff URL --previous FILE` / MCP `check_changes` send conditional requests and return a unified diff; `crawl(previous_hashes=...)` marks pages `new`, `changed` or `unchanged`. |
 | Batch scraping | `scrape_many` in the library, API (`/v1/scrape_many`), MCP and CLI (`scrape-many`). |
 | Framework adapters | `agentcrawl.integrations.langchain.AgentCrawlLoader` and `agentcrawl.integrations.llama_index.AgentCrawlReader` yield pages or citable chunks. A zero-dependency TypeScript client for the HTTP API lives in [`sdk/typescript`](sdk/typescript). |
-| Structured extraction without an LLM | CSS schemas (`extract-css`, `/v1/extract_css`, MCP `extract_structured`): deterministic, zero tokens. |
+| Structured extraction without an LLM | CSS schemas (`extract-css`, `/v1/extract_css`, MCP `extract_structured`): deterministic, zero tokens. `generate_css_schema(url, "what to extract")` (MCP `describe=`) has your LLM write the schema once; reuse it for free. |
+| Reading long pages in parts | `formats=["outline"]` lists sections with the tokens each returns; `section="s4"` (or heading text) returns one; `max_tokens` caps the output. The MCP keeps a page for 10 minutes, so outline then sections is one download. |
+| Firecrawl-compatible API | `/v2/scrape`, `/v2/map`, `/v2/search`, `/v2/crawl` and `/v2/batch/scrape` answer Firecrawl's v2 SDKs: point `api_url` at your server. Options AgentCrawl cannot honour are refused with the reason. |
+| Local stealth and proxies | Real Chrome identity, native browser TLS, the `[stealth]` extra (Patchright retry), and `proxy` as a comma-separated list rotated per page. |
+| Summaries | `formats=["summary"]` with your own LLM (`AGENTCRAWL_LLM_MODEL`); a failure never fails the page. |
 | Query-aware budgets | `query=` keeps the passages that matter (BM25) when a page is larger than the output budget. |
-| Basic browser fallback | Optional local browser/Camofox path, not required for the default image. |
+| Browser fallback | Optional local browser (kept open between pages, four at a time) or Camofox, not required for the default image. One time budget per page (`page_budget_ms`, 45 s) covers every step. |
 | Lightweight docs | Install, examples, operations, release, quality notes. |
 
-Community is self-hosted. It is designed for accessible web content, local/private workflows, and honest failure reporting when a page is protected by anti-bot or browser challenges. Community may detect challenge pages and return a clear `client_challenge`/unsupported failure; it does not promise to bypass them. The optional browser path is local bring-your-own rendering, not a managed browser pool. Managed browsers, proxies, schedules, webhooks, retained datasets, teams, billing, and enterprise controls belong to planned enhanced/hosted tiers rather than the Community runtime.
+Community is self-hosted: everything above runs on your machine, with your browser, your proxies and your LLM.
 
 ## Community boundary 🚧
 
-Community is the open, self-hosted trust layer. It should stay excellent for accessible public HTML, local documents, docs, API references, articles, and reference pages. It should not grow into a free hosted-scraping platform.
+Community is everything that runs on your own machine: the extraction engine, the local browser with its stealth retry, proxies you bring, your own LLM. It never returns a challenge page as content: what it cannot read is reported with the reason and a `next_step`.
 
-Community should report protected pages honestly instead of returning challenge text as content. For protected pages, use a local browser fallback when that is enough; if the target requires managed browser/proxy/challenge infrastructure, treat it as an Enhanced/Hosted use case. Community does not include hosted infrastructure, managed browser pools, proxy networks, geolocation, stealth, schedules, webhooks, retained datasets, teams, billing, or enterprise controls.
+What costs money to operate belongs to AgentCrawl Enhanced, a hosted API (planned): managed residential and mobile proxies, geolocation, a managed browser fleet, CAPTCHA solving, schedules, webhooks, retained datasets, teams and billing.
 
 ## Extraction quality 🧹
 
@@ -165,6 +171,16 @@ Health check:
 
 ```bash
 curl http://127.0.0.1:8000/health
+```
+
+Code written for Firecrawl's v2 API works against the same server (the SDK's
+default `skipTlsVerification` is accepted; certificates are still verified):
+
+```python
+from firecrawl import Firecrawl
+
+app = Firecrawl(api_key="replace-with-a-long-random-key", api_url="http://127.0.0.1:8000")
+doc = app.scrape("https://docs.python.org/3/library/json.html", formats=["markdown"])
 ```
 
 Scrape a URL:
@@ -348,6 +364,20 @@ feed = AgentCrawl(
 ).scrape("https://example.org/feed")
 ```
 
+Sites that challenge automated browsers: the `stealth` extra retries a page the
+browser got as a challenge or a 403/429 once with Patchright, on the next proxy
+if you gave several. It waits; it never solves a CAPTCHA.
+
+```bash
+python -m pip install "agentcrawl-ai[stealth]"
+python -m patchright install chromium
+export AGENTCRAWL_BROWSER_ENGINE=patchright   # optional: use it for every page
+```
+
+```python
+AgentCrawl({"proxy": "http://user:pass@p1:8080, http://user:pass@p2:8080"})
+```
+
 AgentCrawl also supports an optional external Camofox REST backend:
 
 ```bash
@@ -408,7 +438,7 @@ Do not expose the API without authentication, TLS, request limits, and network c
 
 ## Optional LLM extraction
 
-AgentCrawl Community does not require an LLM for scraping, crawling, API, Docker, or MCP usage. Prompt-driven `extract()` (and `POST /v1/extract`) is optional: install `agentcrawl-ai[llm]` and configure `llm` or `llm_model`, or `agentcrawl-ai[ollama]` with `llm_provider="ollama"` to keep extraction on your machine. Pass a Pydantic model or a JSON Schema object as the schema: the answer is validated against it, and a wrong shape is sent back to the model with the failing path (`$.price: expected number, got string`) instead of being returned. Built-in web search is disabled by default; keep search in your agent/provider layer unless you explicitly configure a search backend.
+AgentCrawl Community does not require an LLM for scraping, crawling, API, Docker, or MCP usage. Prompt-driven `extract()` (and `POST /v1/extract`) is optional: install `agentcrawl-ai[llm]` and configure `llm` or `llm_model`, or `agentcrawl-ai[ollama]` with `llm_provider="ollama"` to keep extraction on your machine. Pass a Pydantic model or a JSON Schema object as the schema: the answer is validated against it, and a wrong shape is sent back to the model with the failing path (`$.price: expected number, got string`) instead of being returned. With a model configured (`AGENTCRAWL_LLM_MODEL`, e.g. `anthropic:claude-haiku-4-5`), `generate_css_schema(url, "each product: name, price")` writes a CSS schema once, checked by running it on the page, and `formats=["summary"]` adds a short summary. Built-in web search is disabled by default; keep search in your agent/provider layer unless you explicitly configure a search backend.
 
 ## Development
 
