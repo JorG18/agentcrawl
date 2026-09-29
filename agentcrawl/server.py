@@ -105,6 +105,9 @@ class ScrapeRequest(BaseModel):
     # Relevance query: when the page exceeds max_input_chars, keep the blocks
     # that best match it (BM25) instead of the head of the page.
     query: str | None = Field(default=None, max_length=1_000)
+    # ``formats=["outline"]`` lists the sections; ``section`` returns one.
+    section: str | None = Field(default=None, max_length=500)
+    max_tokens: int | None = Field(default=None, ge=50, le=1_000_000)
     cache: bool = True
     cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
     config: dict[str, Any] = Field(default_factory=dict)
@@ -756,6 +759,8 @@ def _scrape_one(request: ScrapeRequest, api_key: str | None) -> dict[str, Any]:
             formats=request.formats,
             only_main_content=request.only_main_content,
             query=request.query,
+            section=request.section,
+            max_tokens=request.max_tokens,
         )
     payload = to_jsonable(result)
     payload.setdefault("metadata", {})["cache_hit"] = False
@@ -1307,6 +1312,8 @@ def _scrape_cache_key(request: ScrapeRequest, owner_key: str = "") -> str:
         "formats": sorted(request.formats),
         "only_main_content": request.only_main_content,
         "query": request.query,
+        "section": request.section,
+        "max_tokens": request.max_tokens,
         "config": request.config,
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))

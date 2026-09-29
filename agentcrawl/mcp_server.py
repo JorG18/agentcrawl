@@ -38,14 +38,27 @@ def _crawler() -> AgentCrawl:
     return AgentCrawl(config_from_env())
 
 
+# Local mode keeps a page this long so reading its outline and then its
+# sections fetches it once.
+LOCAL_MAX_AGE_S = 600
+
+
 @mcp.tool()
 def scrape_url(
     url: Annotated[str, Field(description="Public HTTP(S) page URL to extract.")],
     formats: Annotated[
         list[str] | None,
         Field(
-            description="Any of: markdown, text, links, metadata, html, chunks (citable pieces), screenshot (PNG, needs a browser)."
+            description="Any of: markdown, outline (sections and sizes, no text), text, links, metadata, html, chunks (citable pieces), screenshot (PNG, needs a browser)."
         ),
+    ] = None,
+    section: Annotated[
+        str | None,
+        Field(description="Only this section: an outline id (s4) or heading text."),
+    ] = None,
+    max_tokens: Annotated[
+        int | None,
+        Field(description="Cap on the Markdown returned, in tokens.", ge=50),
     ] = None,
     use_cache: Annotated[
         bool,
@@ -82,6 +95,8 @@ def scrape_url(
 ) -> dict[str, Any]:
     """Read one web page as clean Markdown. Use it whenever you have a URL.
 
+    Long page: ask formats=["outline"] first, then section=<id> for the part you need.
+
     Retries transient failures and renders JavaScript pages in a local browser
     when one is installed. A failure says why in metadata.error_type
     (client_challenge, blocked, not_found, timeout, network_error...).
@@ -111,6 +126,8 @@ def scrape_url(
             cache_ttl_seconds=cache_ttl_seconds,
             only_main_content=only_main_content,
             query=query,
+            section=section,
+            max_tokens=max_tokens,
         )
     crawler = AgentCrawl({**config_from_env(), **overrides}) if overrides else _crawler()
     return to_jsonable(
@@ -119,6 +136,10 @@ def scrape_url(
             formats=formats or ["markdown", "links", "metadata"],
             only_main_content=only_main_content,
             query=query,
+            section=section,
+            max_tokens=max_tokens,
+            # Outline then sections: one download, not one per call.
+            max_age=(cache_ttl_seconds or LOCAL_MAX_AGE_S) if use_cache else 0,
         )
     )
 

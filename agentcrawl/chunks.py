@@ -109,3 +109,72 @@ def _cite_url(url: str, text: str) -> str:
             base = url.split("#", 1)[0]
             return f"{base}#:~:text={fragment}"
     return url
+
+
+def _sections(markdown: str) -> list[dict[str, Any]]:
+    """The page cut at every heading: id, heading path, level and Markdown."""
+    sections: list[dict[str, Any]] = []
+    path: list[tuple[int, str]] = []
+    current: dict[str, Any] = {"heading": [], "level": 0, "blocks": []}
+    for block in split_blocks(markdown):
+        stripped = block.strip()
+        match = _HEADING.match(stripped) if "\n" not in stripped else None
+        if match:
+            if current["blocks"]:
+                sections.append(current)
+            level = len(match.group(1))
+            path = [item for item in path if item[0] < level] + [(level, match.group(2))]
+            current = {"heading": [title for _l, title in path], "level": level, "blocks": []}
+        current["blocks"].append(block)
+    if current["blocks"]:
+        sections.append(current)
+    for number, section in enumerate(sections, 1):
+        section["id"] = f"s{number}"
+        section["markdown"] = "\n\n".join(section.pop("blocks"))
+    return sections
+
+
+def _section_end(sections: list[dict[str, Any]], start: int) -> int:
+    """Index after ``start``'s last subsection (text before any heading has none)."""
+    level = sections[start]["level"]
+    end = start + 1
+    if level:
+        while end < len(sections) and sections[end]["level"] > level:
+            end += 1
+    return end
+
+
+def outline_markdown(markdown: str) -> list[dict[str, Any]]:
+    """What a long page holds, without its text: read the outline, then the
+    one section that answers the question (``section=``). ``tokens`` is the
+    size of what that section returns, subsections included."""
+    sections = _sections(markdown)
+    return [
+        {
+            "id": section["id"],
+            "heading": " > ".join(section["heading"]) or "(before the first heading)",
+            "level": section["level"],
+            "tokens": sum(
+                estimate_tokens(s["markdown"]) for s in sections[i : _section_end(sections, i)]
+            ),
+        }
+        for i, section in enumerate(sections)
+    ]
+
+
+def select_section(markdown: str, wanted: str) -> str | None:
+    """A section with its subsections, by outline id (``s3``) or heading text
+    (exact last heading first, then any heading path containing it)."""
+    sections = _sections(markdown)
+    key = wanted.strip().casefold()
+    matchers = (
+        lambda s: s["id"] == key,
+        lambda s: bool(s["heading"]) and s["heading"][-1].casefold() == key,
+        lambda s: key in " > ".join(s["heading"]).casefold(),
+    )
+    for matches in matchers:
+        start = next((i for i, s in enumerate(sections) if matches(s)), None)
+        if start is not None:
+            end = _section_end(sections, start)
+            return "\n\n".join(s["markdown"] for s in sections[start:end])
+    return None

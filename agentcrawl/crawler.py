@@ -158,14 +158,32 @@ class AgentCrawl:
         only_main_content: bool | None = None,
         *,
         query: str | None = None,
+        section: str | None = None,
+        max_tokens: int | None = None,
+        max_age: float = 0,
     ) -> ScrapeDocument | dict[str, Any]:
+        """Read one page.
+
+        ``formats=["outline"]`` lists the page's sections and their size;
+        ``section`` (an outline id such as ``"s4"`` or heading text) returns
+        only that section, and ``max_tokens`` caps the Markdown returned.
+        ``max_age`` (seconds) reuses this process's fetch of the same page if
+        it is younger than that, so reading outline then sections fetches once.
+        """
         requested = formats or ["markdown"]
         from .browser_retry import attempt_browser_retry  # local import keeps scrape() cheap
 
         try:
-            html, fetch_metadata = fetch_source(source, self._fetch_config(source, requested))
+            fetch_config = self._fetch_config(source, requested)
+            cached = _recent_fetch(source, fetch_config, max_age)
+            if cached is not None:
+                html, fetch_metadata = cached
+            else:
+                html, fetch_metadata = fetch_source(source, fetch_config)
             verdict = _challenge_verdict(html)
             blocked_reason = verdict.reason
+            if not blocked_reason and cached is None and max_age > 0:
+                _remember_fetch(source, fetch_config, html, fetch_metadata)
             if blocked_reason:
                 # If the user opted into the local browser fallback, try once
                 # with a browser fetcher before giving up. The retry only
@@ -232,12 +250,35 @@ class AgentCrawl:
                     "extraction_strategy": "document_passthrough",
                     "selected_content_hint": str(fetch_metadata.get("document_type") or "document"),
                 }
+            if section:
+                from .chunks import outline_markdown, select_section
+
+                chosen = select_section(markdown, section)
+                if chosen is None:
+                    message = f"No section matches {section!r}; see metadata.sections."
+                    document = ScrapeDocument(
+                        url=source,
+                        markdown="",
+                        text="",
+                        metadata={
+                            **fetch_metadata,
+                            "error_type": "section_not_found",
+                            "error_message": message,
+                            "sections": outline_markdown(markdown),
+                        },
+                        errors=[message],
+                    )
+                    return document if formats is None else _format_document(document, requested)
+                markdown = chosen
             # The output budget is applied here, not in the parser, so the loss
             # is recorded on the document instead of disappearing silently.
             markdown_chars_full = len(markdown)
+            limit = self.config.max_input_chars
+            if max_tokens:
+                limit = min(limit, max(1, max_tokens) * 4)  # ~4 characters a token
             markdown, chars_omitted, selection = budget_markdown(
                 markdown,
-                self.config.max_input_chars,
+                limit,
                 query if self.config.relevance_chunking else None,
             )
             text = _markdown_to_text(markdown)
@@ -269,6 +310,7 @@ class AgentCrawl:
                     "estimated_tokens": estimate_tokens(text),
                     "raw_html_bytes": len(html.encode("utf-8", errors="replace")),
                     "raw_html_tokens_estimate": estimate_tokens(html),
+                    **({"section": section} if section else {}),
                 },
             )
             if formats is None:
@@ -1053,6 +1095,35 @@ def _challenge_verdict(html: str) -> ChallengeVerdict:
     return detect_challenge(html, readable)
 
 
+# Pages fetched recently in this process, for ``scrape(max_age=...)``:
+# an agent reading a long page's outline and then its sections should not
+# download it again for every call.
+_FETCH_CACHE: dict[tuple[str, str], tuple[float, str, dict[str, Any]]] = {}
+_FETCH_CACHE_LOCK = threading.Lock()
+_FETCH_CACHE_SIZE = 32  # ponytail: whole pages in memory; a byte cap if they get large
+
+
+def _recent_fetch(
+    source: str, config: CrawlConfig, max_age: float
+) -> tuple[str, dict[str, Any]] | None:
+    if max_age <= 0:
+        return None
+    with _FETCH_CACHE_LOCK:
+        entry = _FETCH_CACHE.get((source, repr(config)))
+    if entry is None or time.monotonic() - entry[0] > max_age:
+        return None
+    fetched_at, html, metadata = entry
+    age = round(time.monotonic() - fetched_at, 1)
+    return html, {**metadata, "cache_hit": True, "cache_age_s": age}
+
+
+def _remember_fetch(source: str, config: CrawlConfig, html: str, metadata: dict[str, Any]) -> None:
+    with _FETCH_CACHE_LOCK:
+        _FETCH_CACHE[(source, repr(config))] = (time.monotonic(), html, dict(metadata))
+        while len(_FETCH_CACHE) > _FETCH_CACHE_SIZE:
+            _FETCH_CACHE.pop(next(iter(_FETCH_CACHE)))
+
+
 def _format_document(
     document: ScrapeDocument,
     formats: list[str],
@@ -1075,6 +1146,10 @@ def _format_document(
             payload["chunks"] = chunk_markdown(
                 document.markdown, cite, max_tokens=chunk_tokens, query=query
             )
+        elif output_format == "outline":
+            from .chunks import outline_markdown
+
+            payload["outline"] = outline_markdown(document.markdown)
         elif output_format == "markdown":
             payload["markdown"] = document.markdown
         elif output_format == "text":
