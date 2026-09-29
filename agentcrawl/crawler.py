@@ -23,7 +23,7 @@ from .challenge import ChallengeVerdict, detect_challenge
 from .challenge import html_to_plain_text as _html_to_plain_text
 from .config import DEFAULT_USER_AGENT, CrawlConfig
 from .documents import markdown_from_fetched_content
-from .errors import classify_error, error_metadata, sanitize_error_message
+from .errors import classify_error, error_metadata, next_step, sanitize_error_message
 from .exceptions import FetchError
 from .fetchers import (
     _read_bounded,
@@ -242,6 +242,7 @@ class AgentCrawl:
                     metadata={
                         **fetch_metadata,
                         "error_type": "client_challenge",
+                        "next_step": next_step("client_challenge"),
                         "error_message": sanitize_error_message(
                             f"Blocked or challenge page detected: {blocked_reason}"
                         ),
@@ -284,6 +285,7 @@ class AgentCrawl:
                         metadata={
                             **fetch_metadata,
                             "error_type": "section_not_found",
+                            "next_step": next_step("section_not_found"),
                             "error_message": message,
                             "sections": outline_markdown(markdown),
                         },

@@ -5,7 +5,9 @@ import codecs
 import contextlib
 import contextvars
 import dataclasses
+import importlib
 import importlib.util
+import itertools
 import json
 import os
 import pathlib
@@ -85,36 +87,38 @@ class _BrowserPool:
             thread.join(timeout=10)
 
     def _work(self) -> None:
-        playwright = browser = launched_with = None
+        drivers: dict[str, Any] = {}  # engine -> started Playwright
+        browser = launched_with = None
         try:
             while (item := self._jobs.get()) is not None:
                 launch_kwargs, context, job, future = item
                 if not future.set_running_or_notify_cancel():
                     continue
                 try:
-                    if playwright is None:
-                        from playwright.sync_api import sync_playwright
-
-                        playwright = sync_playwright().start()
                     connected = getattr(browser, "is_connected", lambda: True)
                     if browser is None or launched_with != launch_kwargs or not connected():
                         _close_quietly(browser)
                         browser = None
-                        browser = _launch_chromium(playwright, launch_kwargs)
+                        engine = launch_kwargs.get("engine", "playwright")
+                        if engine not in drivers:
+                            module = importlib.import_module(f"{engine}.sync_api")
+                            drivers[engine] = module.sync_playwright().start()
+                        browser = _launch_chromium(drivers[engine], launch_kwargs)
                         launched_with = launch_kwargs
                     future.set_result(context.run(job, browser))
                 except BaseException as exc:
                     future.set_exception(exc)
         finally:
             _close_quietly(browser)
-            if playwright is not None:
+            for driver in drivers.values():
                 try:
-                    playwright.stop()
+                    driver.stop()
                 except Exception:
                     pass
 
 
 def _launch_chromium(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
+    launch_kwargs = {k: v for k, v in launch_kwargs.items() if k != "engine"}
     try:
         # Headless mode otherwise runs chromium-headless-shell, which sends
         # ``Sec-CH-UA: "HeadlessChrome"`` with every request whatever the
@@ -285,7 +289,7 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     if metadata.get("fetcher") in {"playwright", "camofox"}:
         if isinstance(capture.get("status"), int):
             metadata["browser_status"] = capture["status"]
-        for key in ("challenge_waited_ms", "network_idle_timeout"):
+        for key in ("challenge_waited_ms", "network_idle_timeout", "stealth_retry"):
             if capture.get(key):
                 metadata[key] = capture[key]
     if config.browser_session and metadata.get("fetcher") == "playwright":
@@ -1060,30 +1064,77 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
     from .browser_guard import BrowserNetworkGuard
 
     guard = BrowserNetworkGuard(url, config, audit_trail)
-    launch_kwargs: dict[str, Any] = {
-        "headless": config.headless,
-        "proxy": {"server": config.proxy} if config.proxy else None,
-        # Without this Chromium sets navigator.webdriver, which bot
-        # managers (Cloudflare first) answer with a challenge.
-        "args": ["--disable-blink-features=AutomationControlled"],
-    }
-    # Wait as long as one browser run may take (load, interstitial, network
-    # idle): a shorter wait failed pages that were simply queued behind others.
-    wait_ms = _require_budget(
-        config.timeout_ms + config.browser_challenge_wait_ms + config.network_idle_ms,
-        "the browser started",
-    )
-    try:
+
+    def render(engine: str) -> str:
+        launch_kwargs: dict[str, Any] = {
+            "engine": engine,
+            "headless": config.headless,
+            "proxy": _next_proxy(config.proxy),
+            # Without this Chromium sets navigator.webdriver, which bot
+            # managers (Cloudflare first) answer with a challenge. Patchright
+            # handles it itself.
+            "args": ["--disable-blink-features=AutomationControlled"]
+            if engine == "playwright"
+            else [],
+        }
+        # Wait as long as one browser run may take (load, interstitial, network
+        # idle): a shorter wait failed pages that were simply queued behind others.
+        wait_ms = _require_budget(
+            config.timeout_ms + config.browser_challenge_wait_ms + config.network_idle_ms,
+            "the browser started",
+        )
         return _get_browser_pool().run(
             launch_kwargs,
             lambda browser: _render_page(browser, url, config, guard),
             max(1, wait_ms / 1000),
         )
+
+    engine = config.browser_engine
+    if engine == "patchright" and importlib.util.find_spec("patchright") is None:
+        raise FetchError(
+            "browser_engine='patchright' needs the stealth extra: "
+            "pip install 'agentcrawl-ai[stealth]' && python -m patchright install chromium",
+            error_type="config_error",
+        )
+    try:
+        html = render(engine)
+        capture = _CAPTURE.get()
+        if (
+            engine == "playwright"
+            and importlib.util.find_spec("patchright") is not None
+            and _refused_in_browser(html, capture)
+            and _budget_ms(1000) >= 1000
+        ):
+            # One stealth retry (next proxy too); the page's budget still applies.
+            html = render("patchright")
+            if capture is not None:
+                capture["stealth_retry"] = "patchright"
+        return html
     except FetchError as exc:
         raise FetchError(f"Playwright fetch failed for {url}: {exc}") from exc
     except Exception as exc:
         reason = _main_navigation_block_reason(guard, url)
         raise FetchError(f"Playwright fetch failed for {url}: {reason or exc}") from exc
+
+
+_proxy_turn = itertools.count()
+
+
+def _next_proxy(proxy: str | None) -> dict[str, str] | None:
+    """The next proxy of a comma-separated list, round robin across pages."""
+    servers = [item.strip() for item in (proxy or "").split(",") if item.strip()]
+    if not servers:
+        return None
+    return {"server": servers[next(_proxy_turn) % len(servers)]}
+
+
+def _refused_in_browser(html: str, capture: dict[str, Any] | None) -> bool:
+    """The browser got a challenge page or a 403/429 instead of the page."""
+    from .challenge import detect_challenge, html_to_plain_text
+
+    if capture is not None and capture.get("status") in (403, 429):
+        return True
+    return bool(detect_challenge(html, html_to_plain_text(html)).reason)
 
 
 def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str:
