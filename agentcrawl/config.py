@@ -473,6 +473,15 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
         "allow_local_files": _env_flag("AGENTCRAWL_ALLOW_LOCAL_FILES", allow_local_files_default),
         "local_files_root": local_files_root_from_env(),
     }
+    # The user's own model, for schema generation and summaries (LangChain id,
+    # e.g. "anthropic:claude-haiku-4-5" with its API key in the environment).
+    for variable, key in (
+        ("AGENTCRAWL_LLM_MODEL", "llm_model"),
+        ("AGENTCRAWL_LLM_PROVIDER", "llm_provider"),
+    ):
+        value = os.getenv(variable, "").strip()
+        if value:
+            config[key] = value
     engine = os.getenv("AGENTCRAWL_BROWSER_ENGINE", "").strip()
     if engine:
         config["browser_engine"] = engine

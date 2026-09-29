@@ -334,6 +334,9 @@ class AgentCrawlServer:
                 DEFAULT_USER_AGENT,
             ),
             "allow_private_network": self.allow_private_network,
+            # Operator's model for summaries and schema generation.
+            "llm_model": os.getenv("AGENTCRAWL_LLM_MODEL") or None,
+            "llm_provider": os.getenv("AGENTCRAWL_LLM_PROVIDER") or None,
             # Remote callers choose the URLs: every redirect hop is checked
             # before it is sent (see CrawlConfig.browser_strict_network).
             "browser_strict_network": os.getenv("AGENTCRAWL_BROWSER_STRICT_NETWORK", "true").lower()

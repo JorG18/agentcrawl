@@ -274,7 +274,7 @@ def check_changes(
 def extract_structured(
     url: Annotated[str, Field(description="Public HTTP(S) page URL to extract from.")],
     schema: Annotated[
-        dict[str, Any],
+        dict[str, Any] | None,
         Field(
             description=(
                 "CSS extraction schema: {baseSelector?, fields: [{name, selector?, "
@@ -282,7 +282,14 @@ def extract_structured(
                 "multiple?, transform?: strip|lower|upper|number|url, fields?}]}."
             )
         ),
-    ],
+    ] = None,
+    describe: Annotated[
+        str | None,
+        Field(
+            description="No schema? Say what to extract; the configured LLM writes one "
+            "(returned, reuse it as schema next time)."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Extract JSON from a page with CSS selectors, no LLM.
 
@@ -290,6 +297,15 @@ def extract_structured(
     once, reuse it. baseSelector returns a list, otherwise one object.
     """
     from .css_extract import validate_css_schema
+
+    if schema is None:
+        if not describe:
+            return {"success": False, "error": "give a schema, or describe what to extract"}
+        try:
+            generated = AgentCrawl(config_from_env()).generate_css_schema(url, describe)
+        except ValueError as exc:  # no LLM configured
+            return {"success": False, "error": f"{exc} (set AGENTCRAWL_LLM_MODEL)"}
+        return {"success": not generated["errors"], "data": generated}
 
     try:
         validate_css_schema(schema)

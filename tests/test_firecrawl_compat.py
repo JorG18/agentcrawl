@@ -57,7 +57,7 @@ def test_unsupported_options_are_refused_with_the_reason(tmp_path: Path) -> None
     client, page = _client(tmp_path)
     for extra, reason in (
         ({"proxy": "stealth"}, "Enhanced"),
-        ({"formats": ["summary"]}, "summary"),
+        ({"formats": ["json"]}, "json"),
         ({"location": {"country": "DE"}}, "Enhanced"),
         ({"includeTags": ["main"]}, "includeTags"),
     ):

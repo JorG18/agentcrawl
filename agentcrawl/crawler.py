@@ -338,9 +338,13 @@ class AgentCrawl:
             )
             if formats is None:
                 return document
-            return _format_document(
+            summary = self._summary(document) if "summary" in requested else None
+            payload = _format_document(
                 document, requested, query=query, chunk_tokens=self.config.chunk_tokens
             )
+            if "summary" in requested:
+                payload["summary"] = summary
+            return payload
         except FetchError as exc:
             message = str(exc)
             failure_metadata: dict[str, Any] = dict(error_metadata(exc))
@@ -990,6 +994,67 @@ class AgentCrawl:
             },
         )
 
+    def _summary(self, document: ScrapeDocument) -> str | None:
+        """A short summary by the configured LLM; a failure is noted, not fatal."""
+        from .llm import get_llm, invoke_llm
+
+        try:
+            reply = invoke_llm(
+                get_llm(self.config),
+                "Summarise this page in at most five sentences, keeping names, numbers "
+                "and dates exactly as written.\n\n" + document.markdown[:60_000],
+            )
+        except Exception as exc:  # the page itself was read fine
+            document.metadata["summary_error"] = sanitize_error_message(str(exc))
+            return None
+        return reply.strip()
+
+    def generate_css_schema(
+        self, source: str, description: str, *, max_attempts: int = 3
+    ) -> dict[str, Any]:
+        """Have the configured LLM write a CSS schema for ``description`` once.
+
+        The schema is checked by running it on the page; an error or an empty
+        result goes back to the model (``max_attempts`` in all). The result
+        holds the ``schema``, reusable with :meth:`extract_css` on similar
+        pages at no token cost, and the ``data`` it extracted here.
+        """
+        from .css_extract import extract_with_schema, validate_css_schema
+        from .llm import get_llm, invoke_llm
+
+        llm = get_llm(self.config)
+        document = self.scrape(source, formats=["html", "metadata"], only_main_content=False)
+        if document.get("errors"):
+            return {"schema": None, "data": None, "errors": document["errors"]}
+        html = document.get("html") or ""
+        base_url = str((document.get("metadata") or {}).get("final_url") or source)
+        prompt = _SCHEMA_PROMPT.format(description=description, html=_html_for_prompt(html))
+        feedback = ""
+        for attempt in range(1, max(1, max_attempts) + 1):
+            reply = invoke_llm(llm, prompt + feedback)
+            try:
+                schema = json.loads(_strip_code_fence(reply))
+                validate_css_schema(schema)
+                data = extract_with_schema(html, schema, base_url=base_url)
+            except (ValueError, TypeError) as exc:
+                feedback = f"\n\nYour previous answer failed: {exc}. Reply with a corrected schema."
+                continue
+            if data in (None, [], {}) or (
+                isinstance(data, dict) and not any(v not in (None, "", []) for v in data.values())
+            ):
+                feedback = (
+                    f"\n\nYour previous schema {json.dumps(schema)} matched nothing on the page. "
+                    "Use selectors that exist in the HTML above."
+                )
+                continue
+            return {"schema": schema, "data": data, "attempts": attempt, "errors": []}
+        return {
+            "schema": None,
+            "data": None,
+            "attempts": max_attempts,
+            "errors": [f"no working schema after {max_attempts} attempts{feedback[:300]}"],
+        }
+
     def extract(self, source: str, prompt: str, schema: Any | None = None) -> Any:
         from .client import AgentCrawler
 
@@ -998,6 +1063,46 @@ class AgentCrawl:
         # locks/connections that cannot be copied (TypeError: cannot pickle
         # '_thread.RLock').
         return AgentCrawler(self.config).extract(source, prompt, schema)
+
+
+_SCHEMA_PROMPT = """Write a CSS extraction schema, as JSON only, that extracts: {description}
+
+Schema format:
+{{"baseSelector": "<CSS selector of each repeated item; omit for one object>",
+  "fields": [{{"name": "...", "selector": "<CSS, relative to the item>",
+    "type": "text|attribute|html|regex|nested|list", "attribute": "<for attribute>",
+    "pattern": "<for regex>", "multiple": false,
+    "transform": "strip|lower|upper|number|url", "fields": [<for nested/list>]}}]}}
+Use simple selectors: tag, #id, .class, [attr], [attr=value], :nth-child(n), and
+the descendant, >, + and ~ combinators. Prefer stable class names and attributes
+over positions.
+
+Page HTML (scripts and styles removed, may be cut):
+{html}
+"""
+_PROMPT_HTML_CHARS = 40_000
+_NOISE_RE = re.compile(
+    r"<(script|style|svg|noscript|template)\b.*?</\1\s*>|<!--.*?-->", re.IGNORECASE | re.DOTALL
+)
+
+
+def _html_for_prompt(html: str) -> str:
+    """The page's markup without scripts, styles, SVG and comments, cut to size."""
+    body = html
+    start = body.lower().find("<body")
+    if start >= 0:
+        body = body[start:]
+    body = _NOISE_RE.sub("", body)
+    body = re.sub(r"\s+", " ", body)
+    return body[:_PROMPT_HTML_CHARS]
+
+
+def _strip_code_fence(reply: str) -> str:
+    text = reply.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        text = text.rsplit("```", 1)[0]
+    return text.strip()
 
 
 def _queue_item(

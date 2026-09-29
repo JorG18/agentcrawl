@@ -25,7 +25,13 @@ from . import server as v1
 
 router = APIRouter(prefix="/v2")
 
-_FORMATS = {"markdown": "markdown", "html": "html", "rawHtml": "html", "links": "links"}
+_FORMATS = {
+    "markdown": "markdown",
+    "html": "html",
+    "rawHtml": "html",
+    "links": "links",
+    "summary": "summary",  # needs AGENTCRAWL_LLM_MODEL on the server
+}
 # Accepted, with no effect on the result here.
 _IGNORED = {
     "origin",
@@ -154,6 +160,8 @@ def _document(data: dict[str, Any]) -> dict[str, Any]:
         doc["html"] = doc["rawHtml"] = data["html"]
     if "links" in data:
         doc["links"] = data["links"]
+    if "summary" in data:
+        doc["summary"] = data["summary"]
     if data.get("screenshot"):
         doc["screenshot"] = "data:image/png;base64," + data["screenshot"]
     errors = data.get("errors") or []
