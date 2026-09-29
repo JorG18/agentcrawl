@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -117,6 +118,40 @@ def csv_to_markdown(text: str, *, delimiter: str | None = None) -> tuple[str, di
         }
     )
     return "\n".join(lines), metadata
+
+
+_SITEMAP_ROOT = re.compile(r"<(?:[\w-]+:)?(urlset|sitemapindex)\b")
+_SITEMAP_LOC = re.compile(r"<(?:[\w-]+:)?loc>\s*(.*?)\s*</(?:[\w-]+:)?loc>", re.S)
+
+
+def is_xml_content_type(content_type: str) -> bool:
+    if content_type == "application/xhtml+xml":
+        return False
+    return content_type in {"application/xml", "text/xml"} or content_type.endswith("+xml")
+
+
+def xml_to_markdown(text: str) -> tuple[str, dict[str, Any]] | None:
+    """Render a served XML document; ``None`` when it is really an HTML page.
+
+    Parsed as HTML, XML lost every separator between elements (a sitemap was
+    one run-on line). A sitemap becomes its list of URLs; any other XML is
+    kept verbatim in a fenced block, like a local ``.xml`` file. Regexes, not
+    an XML parser, so an untrusted document cannot expand entities.
+    """
+    if "<html" in text[:2048].lower():
+        return None
+    root = _SITEMAP_ROOT.search(text[:4096])
+    if root:
+        locs = [html.unescape(loc) for loc in _SITEMAP_LOC.findall(text)]
+        return "\n".join(f"- {loc}" for loc in locs), {
+            "content_format": "markdown",
+            "document_type": "sitemap_index" if root.group(1) == "sitemapindex" else "sitemap",
+            "sitemap_url_count": len(locs),
+        }
+    return f"```xml\n{text.strip()}\n```", {
+        "content_format": "markdown",
+        "document_type": "xml",
+    }
 
 
 def markdown_from_fetched_content(content: str, metadata: dict[str, Any]) -> str | None:

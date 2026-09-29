@@ -29,8 +29,10 @@ from .config import DEFAULT_USER_AGENT, CrawlConfig
 from .documents import (
     CSV_CONTENT_TYPES,
     csv_to_markdown,
+    is_xml_content_type,
     pdf_bytes_to_markdown,
     read_local_document,
+    xml_to_markdown,
 )
 from .office import OFFICE_CONTENT_TYPES, OFFICE_SUFFIXES, office_to_markdown
 from .errors import status_code_of
@@ -427,9 +429,11 @@ def _render_if_js_shell(
             failed["javascript_required"] = True
         return content, failed
     refused = _browser_error_status(html)
-    if refused or (reason == "thin_extraction" and _extracted_chars(html) <= http_chars):
+    if refused or _extracted_chars(html) <= http_chars:
         # Rendering did not add anything (or the browser got an error page):
-        # the HTTP result is the better answer.
+        # the HTTP result is the better answer. An empty render of a shell
+        # (a WAF that answers a flagged browser with a blank page) keeps the
+        # HTTP challenge page, so it is reported instead of an empty success.
         kept = {**metadata, "browser_render_no_gain": True}
         if reason == "javascript_required":
             kept["javascript_required"] = True
@@ -700,6 +704,11 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                     # unreadable paragraph. Render the table instead.
                     body, csv_metadata = csv_to_markdown(body)
                     fetch_metadata.update(csv_metadata)
+                elif is_xml_content_type(content_type):
+                    rendered = xml_to_markdown(body)
+                    if rendered is not None:
+                        body, xml_metadata = rendered
+                        fetch_metadata.update(xml_metadata)
                 return body, fetch_metadata
         except urllib.error.HTTPError as exc:
             last_exc = exc

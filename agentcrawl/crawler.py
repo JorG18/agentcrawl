@@ -219,6 +219,7 @@ class AgentCrawl:
                     # Already read in the browser (HTTP fallback): a second
                     # browser run would only wait on the same interstitial.
                     and fetch_metadata.get("fetcher") not in {"playwright", "camofox"}
+                    and not fetch_metadata.get("browser_render_no_gain")
                 ):
                     retry = attempt_browser_retry(
                         source,

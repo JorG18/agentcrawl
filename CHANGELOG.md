@@ -74,6 +74,8 @@ AgentCrawl now reads more of the open web than Crawl4AI on a 400-page random sam
 - **Browser queue.** A browser fetch waited only `timeout_ms` for a free browser and failed with "concurrency limit reached" when others were busy. It now waits as long as one browser run can take.
 - **Incomplete certificate chains.** A server that sends its certificate without the intermediate (browsers fill it in, Python did not) now works: the intermediate is downloaded from the address in the server's certificate and the chain must still reach a trusted root. Not done under `airgap`.
 - **Failed navigations** now say why the request failed instead of Chromium's bare `net::ERR_FAILED`.
+- **XML over HTTP.** A sitemap served as `application/xml` or `text/xml` came back as one run-on line. It is now a list of its URLs (`document_type: sitemap` or `sitemap_index`, `sitemap_url_count`); other XML is kept verbatim in a fenced block, like a local `.xml` file. XHTML served as XML is still read as a page.
+- **AWS WAF challenges.** Its no-JavaScript page ("verify that you're not a robot") is recognized. When the browser gets a blank page back from the WAF, the result is `client_challenge` instead of an empty success, and no second browser run is made.
 
 ### Benchmark
 

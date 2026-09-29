@@ -238,6 +238,29 @@ def test_thin_page_keeps_http_when_rendering_adds_nothing(monkeypatch) -> None:
     assert metadata["browser_render_no_gain"] is True
 
 
+AWS_WAF = """<!DOCTYPE html><html lang="en"><head><title></title>
+<script>window.awsWafCookieDomainList = [];</script>
+<script src="https://abc.us-east-1.token.awswaf.com/abc/def/challenge.js"></script>
+</head><body><div id="challenge-container"></div>
+<script>AwsWafIntegration.getToken().then(() => window.location.reload(true));</script>
+<noscript><h1>JavaScript is disabled</h1>
+In order to continue, we need to verify that you're not a robot.
+This requires JavaScript. Enable JavaScript and then reload the page.</noscript>
+</body></html>"""
+
+
+def test_waf_that_blanks_the_browser_is_a_challenge_not_an_empty_page(monkeypatch) -> None:
+    # barchart.com: the AWS WAF shell renders to <body></body> in the browser.
+    calls = _fake_browser(monkeypatch, html="<html><head></head><body></body></html>")
+    monkeypatch.setattr(
+        fetchers, "_fetch_http", lambda source, config: (AWS_WAF, {"fetcher": "http"})
+    )
+    document = AgentCrawl().scrape("https://waf.example.org/", formats=["markdown"])
+    assert calls == ["https://waf.example.org/"]  # rendered once, no second browser run
+    assert document["metadata"]["error_type"] == "client_challenge"
+    assert "vendor: aws waf" in document["metadata"]["challenge_signals"]
+
+
 def test_long_page_is_not_rendered(monkeypatch) -> None:
     calls = _fake_browser(monkeypatch)
     page = ARTICLE.replace("</body>", "<script>1</script></body>")
