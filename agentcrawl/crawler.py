@@ -25,7 +25,13 @@ from .config import DEFAULT_USER_AGENT, CrawlConfig
 from .documents import markdown_from_fetched_content
 from .errors import classify_error, error_metadata, sanitize_error_message
 from .exceptions import FetchError
-from .fetchers import _read_bounded, _safe_urlopen, fetch_source, read_deadline_seconds
+from .fetchers import (
+    _read_bounded,
+    _safe_urlopen,
+    fetch_source,
+    page_deadline,
+    read_deadline_seconds,
+)
 from .html_tools import extract_html_facts, normalize_url, same_domain, url_allowed
 from .models import CrawlRun, MapResult, ScrapeDocument
 from .parsing import (
@@ -170,6 +176,21 @@ class AgentCrawl:
         ``max_age`` (seconds) reuses this process's fetch of the same page if
         it is younger than that, so reading outline then sections fetches once.
         """
+        with page_deadline(self.config):
+            return self._scrape(
+                source, formats, only_main_content, query, section, max_tokens, max_age
+            )
+
+    def _scrape(
+        self,
+        source: str,
+        formats: list[str] | None,
+        only_main_content: bool | None,
+        query: str | None,
+        section: str | None,
+        max_tokens: int | None,
+        max_age: float,
+    ) -> ScrapeDocument | dict[str, Any]:
         requested = formats or ["markdown"]
         from .browser_retry import attempt_browser_retry  # local import keeps scrape() cheap
 

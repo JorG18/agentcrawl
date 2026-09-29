@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import codecs
+import contextlib
 import contextvars
 import dataclasses
 import importlib.util
@@ -241,6 +242,20 @@ def _require_budget(ms: float, step: str) -> int:
     return left
 
 
+@contextlib.contextmanager
+def page_deadline(config: CrawlConfig):
+    """Start the page budget unless one is already running (a retry of the
+    same page, e.g. the browser retry after a challenge, shares it)."""
+    if _DEADLINE.get() is not None or config.page_budget_ms <= 0:
+        yield
+        return
+    token = _DEADLINE.set(time.monotonic() + config.page_budget_ms / 1000)
+    try:
+        yield
+    finally:
+        _DEADLINE.reset(token)
+
+
 def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     """Fetch ``source``; browser side outputs are added to the metadata."""
     if (config.browser_actions or config.screenshot or config.browser_session) and is_probably_url(
@@ -256,12 +271,10 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
             )
     capture: dict[str, Any] = {}
     token = _CAPTURE.set(capture)
-    budget = config.page_budget_ms
-    deadline_token = _DEADLINE.set(time.monotonic() + budget / 1000 if budget > 0 else None)
     try:
-        content, metadata = _fetch_source(source, config)
+        with page_deadline(config):
+            content, metadata = _fetch_source(source, config)
     finally:
-        _DEADLINE.reset(deadline_token)
         _CAPTURE.reset(token)
     if "screenshot" in capture:
         metadata["screenshot_png_base64"] = base64.b64encode(capture["screenshot"]).decode("ascii")
@@ -646,6 +659,9 @@ def _fetch_http(url: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
                 )
                 charset = _response_charset(response.headers)
                 content_type = _response_content_type(response.headers)
+                fetch_metadata["status_code"] = getattr(response, "status", None) or 200
+                if content_type:
+                    fetch_metadata["content_type"] = content_type
                 if audit_trail is not None:
                     audit_trail.record(
                         "GET",
@@ -1089,6 +1105,9 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             # Service workers can issue requests the route never sees.
             context_kwargs["service_workers"] = "block"
         context = browser.new_context(**context_kwargs)
+        if hasattr(context, "set_default_timeout"):
+            # Every later step (iframes, shadow DOM, content) shares the budget.
+            context.set_default_timeout(max(1, _budget_ms(config.timeout_ms)))
         blocked_types = set(config.browser_block_resources or ())
 
         def route_request(route):

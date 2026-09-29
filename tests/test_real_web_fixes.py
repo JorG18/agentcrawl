@@ -543,3 +543,12 @@ def test_one_budget_covers_every_step_of_a_page(monkeypatch) -> None:
     assert seen[0] <= 0.4  # the HTTP timeout is capped by the budget
     assert seen[1] == 0  # nothing left for the browser: no second minute
     assert "timed out" in str(info.value.__cause__ or info.value)
+
+
+def test_a_retry_of_the_same_page_shares_its_budget() -> None:
+    """The browser retry after a challenge started a fresh 45 s budget, so one
+    page took over two minutes."""
+    with fetchers.page_deadline(CrawlConfig(page_budget_ms=1_000)):
+        with fetchers.page_deadline(CrawlConfig(page_budget_ms=60_000)):
+            assert fetchers._budget_ms(60_000) <= 1_000
+    assert fetchers._budget_ms(60_000) == 60_000  # no page running: no cap

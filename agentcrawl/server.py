@@ -49,6 +49,7 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
         "headless",
         "timeout_ms",
         "page_budget_ms",
+        "browser_wait_ms",
         "http_retries",
         "http_retry_delay",
         "browser_fallback",
@@ -1284,6 +1285,10 @@ def _run_crawl(
     max_run_pages: int | None = None,
 ) -> dict[str, Any]:
     crawler = AgentCrawl(server.merged_config(payload.get("config", {})))
+    if payload.get("urls"):
+        return _run_batch(
+            crawler, payload, progress_callback, should_cancel, resume_state, checkpoint_callback
+        )
     result = crawler.crawl(
         payload["url"],
         max_pages=payload.get("max_pages"),
@@ -1300,6 +1305,53 @@ def _run_crawl(
         stop_after_irrelevant=payload.get("stop_after_irrelevant", 3),
     )
     return to_jsonable(result)
+
+
+def _run_batch(
+    crawler: AgentCrawl,
+    payload: dict[str, Any],
+    progress_callback: Any | None,
+    should_cancel: Any | None,
+    resume_state: dict[str, Any] | None,
+    checkpoint_callback: Any | None,
+) -> dict[str, Any]:
+    """A durable job over a list of URLs (Firecrawl's batch scrape).
+
+    Each page is saved as it finishes, so a restarted job skips the pages it
+    already has.
+    """
+    urls = list(payload["urls"])
+    done = {doc.get("url") for doc in (resume_state or {}).get("documents") or []}
+    documents: list[dict[str, Any]] = list((resume_state or {}).get("documents") or [])
+    errors: list[str] = []
+    cancelled = False
+    for index, url in enumerate(urls):
+        if url in done:
+            continue
+        if should_cancel is not None and should_cancel():
+            cancelled = True
+            break
+        with server.domain_slot(url):
+            document = to_jsonable(
+                crawler.scrape(
+                    url,
+                    formats=payload.get("formats") or ["markdown", "metadata"],
+                    only_main_content=payload.get("only_main_content"),
+                )
+            )
+        documents.append(document)
+        errors.extend(f"{url}: {error}" for error in document.get("errors") or [])
+        progress = {"completed": len(documents), "total": len(urls)}
+        if progress_callback is not None:
+            progress_callback(progress)
+        if checkpoint_callback is not None:
+            checkpoint_callback({"batch_index": index}, progress, document)
+    return {
+        "source": urls[0],
+        "documents": documents,
+        "errors": errors,
+        "metadata": {"batch": True, "cancelled": cancelled},
+    }
 
 
 def _scrape_cache_key(request: ScrapeRequest, owner_key: str = "") -> str:
@@ -1330,3 +1382,9 @@ def _attach_error_type(payload: dict[str, Any]) -> None:
     payload.setdefault("metadata", {}).setdefault(
         "error_type", classify_error(str(errors[0])) or "fetch_error"
     )
+
+
+# Firecrawl v2-compatible routes over the handlers above.
+from .firecrawl_compat import install as _install_firecrawl_compat  # noqa: E402
+
+_install_firecrawl_compat(app)
