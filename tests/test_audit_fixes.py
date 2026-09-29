@@ -450,53 +450,13 @@ def test_sqlite_store_memory_path_unsupported_by_design() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_browser_semaphore_uses_default_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without AGENTCRAWL_BROWSER_CONCURRENCY the helper must default to 2."""
+def test_browser_pool_size_default_override_and_floor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AGENTCRAWL_BROWSER_CONCURRENCY sets how many browsers stay open."""
+    from agentcrawl.fetchers import _browser_pool_size
+
     monkeypatch.delenv("AGENTCRAWL_BROWSER_CONCURRENCY", raising=False)
-    from agentcrawl import fetchers as fetchers_module
-    from agentcrawl.fetchers import _get_browser_semaphore
-
-    monkeypatch.setattr(fetchers_module, "_browser_sem", None)
-    sem = _get_browser_semaphore()
-    # Acquire two slots (the configured limit) before the third is rejected.
-    a = sem.acquire(blocking=False)
-    b = sem.acquire(blocking=False)
-    c = sem.acquire(blocking=False)
-    assert a is True
-    assert b is True
-    assert c is False  # third concurrent request is rejected
-    sem.release()
-    sem.release()
-
-
-def test_browser_semaphore_respects_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    """AGENTCRAWL_BROWSER_CONCURRENCY=4 must yield a semaphore with value 4."""
-    monkeypatch.setenv("AGENTCRAWL_BROWSER_CONCURRENCY", "4")
-    from agentcrawl import fetchers as fetchers_module
-    from agentcrawl.fetchers import _get_browser_semaphore
-
-    monkeypatch.setattr(fetchers_module, "_browser_sem", None)
-    sem = _get_browser_semaphore()
-    # We can acquire up to 4 slots before the 5th is rejected.
-    acquired = []
-    for _ in range(5):
-        if sem.acquire(blocking=False):
-            acquired.append(True)
-        else:
-            acquired.append(False)
-    assert acquired == [True, True, True, True, False]
-    for _ in range(4):
-        sem.release()
-
-
-def test_browser_semaphore_floors_to_one(monkeypatch: pytest.MonkeyPatch) -> None:
-    """AGENTCRAWL_BROWSER_CONCURRENCY=0 must not break the semaphore."""
+    assert _browser_pool_size() == 4
+    monkeypatch.setenv("AGENTCRAWL_BROWSER_CONCURRENCY", "6")
+    assert _browser_pool_size() == 6
     monkeypatch.setenv("AGENTCRAWL_BROWSER_CONCURRENCY", "0")
-    from agentcrawl import fetchers as fetchers_module
-    from agentcrawl.fetchers import _get_browser_semaphore
-
-    monkeypatch.setattr(fetchers_module, "_browser_sem", None)
-    sem = _get_browser_semaphore()
-    # Floor of 1 means we can still acquire one slot.
-    assert sem.acquire(blocking=False) is True
-    sem.release()
+    assert _browser_pool_size() == 1

@@ -58,7 +58,7 @@ jobs:
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: python scripts/release_notes.py "$TAG" > dist-notes.md
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: dist
           path: |
@@ -72,18 +72,21 @@ jobs:
     # do not depend on it.
     if: vars.PUBLISH_PYPI == 'true'
     runs-on: ubuntu-latest
-    # PyPI trusted publishing: the agentcrawl-ai project on pypi.org must list
-    # this repository, workflow release.yml and environment "pypi".
+    # Uploads with the PYPI_API_TOKEN secret. Without it the action falls back
+    # to trusted publishing, which needs agentcrawl-ai on pypi.org to list this
+    # repository, workflow release.yml and environment "pypi" (it did not, and
+    # the 0.4.x publish failed with "invalid-publisher").
     environment: pypi
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+          password: ${{ secrets.PYPI_API_TOKEN }}
 
   github-release:
     needs: build
@@ -91,7 +94,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: dist
       - name: Create GitHub Release

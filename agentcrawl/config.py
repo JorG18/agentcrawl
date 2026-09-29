@@ -36,11 +36,20 @@ class CrawlConfig:
 
     fetcher: str = "http"
     browser_backend: str = "playwright"
+    # "patchright" (the ``stealth`` extra) is Playwright patched against
+    # automation detection. With it installed, a page the normal browser
+    # gets as a challenge or a 403/429 is retried once with it.
+    browser_engine: str = "playwright"
     camofox_base_url: str = "http://127.0.0.1:9377"
     camofox_access_key: str | None = None
     camofox_user_id: str = "agentcrawl"
     headless: bool = True
     timeout_ms: int = 30_000
+    # Wall-clock budget for one page, shared by every step (HTTP attempts,
+    # waiting for a browser, navigation, interstitial, network idle,
+    # actions). The steps' own timeouts used to add up to over a minute.
+    # 0 turns it off.
+    page_budget_ms: int = 45_000
     # Socket timeout for the plain HTTP fetch when the browser fallback can
     # take over (capped by ``timeout_ms``). A server that has not answered in
     # this time is handed to the browser instead of retried at full timeout.
@@ -54,6 +63,9 @@ class CrawlConfig:
     domain_min_delay: float = 0.0
     wait_until: str = "domcontentloaded"
     user_agent: str | None = DEFAULT_USER_AGENT
+    # One proxy, or several separated by commas: the browser takes the next
+    # one for every page (and for the stealth retry). The HTTP fetch uses the
+    # HTTP(S)_PROXY environment variables.
     proxy: str | None = None
     geoip: bool = False
     humanize: bool = False
@@ -179,6 +191,11 @@ class CrawlConfig:
         normalized = {key: _validate_config_value(str(key), value) for key, value in config.items()}
         if "fetcher" in normalized:
             normalized["fetcher"] = _validate_fetcher(normalized["fetcher"])
+        if normalized.get("browser_engine", "playwright") not in BROWSER_ENGINES:
+            raise ValueError(
+                f"browser_engine must be one of {', '.join(BROWSER_ENGINES)}, "
+                f"got {normalized['browser_engine']!r}"
+            )
         if "browser_backend" in normalized:
             backend = normalized["browser_backend"]
             if backend not in BROWSER_BACKENDS:
@@ -193,6 +210,7 @@ class CrawlConfig:
 
 
 BROWSER_BACKENDS = ("playwright", "camofox")
+BROWSER_ENGINES = ("playwright", "patchright")
 FETCHERS = ("http", *BROWSER_BACKENDS)
 # "browser" is what people type; the engine name is "playwright". An unknown
 # name used to reach the fetcher and come back as "Unknown fetcher: browser",
@@ -252,6 +270,7 @@ _STR_FIELDS = frozenset(
     {
         "fetcher",
         "browser_backend",
+        "browser_engine",
         "camofox_base_url",
         "camofox_user_id",
         "output_format",
@@ -294,6 +313,7 @@ _INT_RANGES: dict[str, tuple[int, int]] = {
     "crawl_url_retries": (0, 20),
     "browser_wait_ms": (0, 3_600_000),
     "http_timeout_ms": (1, 3_600_000),
+    "page_budget_ms": (0, 3_600_000),
     "network_idle_ms": (0, 3_600_000),
     "browser_challenge_wait_ms": (0, 600_000),
     "max_attempts": (1, 100),
@@ -453,6 +473,18 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
         "allow_local_files": _env_flag("AGENTCRAWL_ALLOW_LOCAL_FILES", allow_local_files_default),
         "local_files_root": local_files_root_from_env(),
     }
+    # The user's own model, for schema generation and summaries (LangChain id,
+    # e.g. "anthropic:claude-haiku-4-5" with its API key in the environment).
+    for variable, key in (
+        ("AGENTCRAWL_LLM_MODEL", "llm_model"),
+        ("AGENTCRAWL_LLM_PROVIDER", "llm_provider"),
+    ):
+        value = os.getenv(variable, "").strip()
+        if value:
+            config[key] = value
+    engine = os.getenv("AGENTCRAWL_BROWSER_ENGINE", "").strip()
+    if engine:
+        config["browser_engine"] = engine
     backend = os.getenv("AGENTCRAWL_BROWSER_BACKEND", "").strip()
     if backend:
         config["browser_backend"] = backend
@@ -466,6 +498,9 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
     search_engine = os.getenv("AGENTCRAWL_SEARCH_ENGINE", "").strip().lower()
     if search_engine:
         config["search_engine"] = search_engine
+    page_budget_ms = os.getenv("AGENTCRAWL_PAGE_BUDGET_MS", "").strip()
+    if page_budget_ms.isdigit():
+        config["page_budget_ms"] = int(page_budget_ms)
     timeout_ms = os.getenv("AGENTCRAWL_TIMEOUT_MS", "").strip()
     if timeout_ms.isdigit():
         config["timeout_ms"] = int(timeout_ms)

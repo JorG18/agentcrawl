@@ -48,6 +48,8 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
         "browser_backend",
         "headless",
         "timeout_ms",
+        "page_budget_ms",
+        "browser_wait_ms",
         "http_retries",
         "http_retry_delay",
         "browser_fallback",
@@ -104,6 +106,9 @@ class ScrapeRequest(BaseModel):
     # Relevance query: when the page exceeds max_input_chars, keep the blocks
     # that best match it (BM25) instead of the head of the page.
     query: str | None = Field(default=None, max_length=1_000)
+    # ``formats=["outline"]`` lists the sections; ``section`` returns one.
+    section: str | None = Field(default=None, max_length=500)
+    max_tokens: int | None = Field(default=None, ge=50, le=1_000_000)
     cache: bool = True
     cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
     config: dict[str, Any] = Field(default_factory=dict)
@@ -329,6 +334,9 @@ class AgentCrawlServer:
                 DEFAULT_USER_AGENT,
             ),
             "allow_private_network": self.allow_private_network,
+            # Operator's model for summaries and schema generation.
+            "llm_model": os.getenv("AGENTCRAWL_LLM_MODEL") or None,
+            "llm_provider": os.getenv("AGENTCRAWL_LLM_PROVIDER") or None,
             # Remote callers choose the URLs: every redirect hop is checked
             # before it is sent (see CrawlConfig.browser_strict_network).
             "browser_strict_network": os.getenv("AGENTCRAWL_BROWSER_STRICT_NETWORK", "true").lower()
@@ -755,6 +763,8 @@ def _scrape_one(request: ScrapeRequest, api_key: str | None) -> dict[str, Any]:
             formats=request.formats,
             only_main_content=request.only_main_content,
             query=request.query,
+            section=request.section,
+            max_tokens=request.max_tokens,
         )
     payload = to_jsonable(result)
     payload.setdefault("metadata", {})["cache_hit"] = False
@@ -1278,6 +1288,10 @@ def _run_crawl(
     max_run_pages: int | None = None,
 ) -> dict[str, Any]:
     crawler = AgentCrawl(server.merged_config(payload.get("config", {})))
+    if payload.get("urls"):
+        return _run_batch(
+            crawler, payload, progress_callback, should_cancel, resume_state, checkpoint_callback
+        )
     result = crawler.crawl(
         payload["url"],
         max_pages=payload.get("max_pages"),
@@ -1296,6 +1310,53 @@ def _run_crawl(
     return to_jsonable(result)
 
 
+def _run_batch(
+    crawler: AgentCrawl,
+    payload: dict[str, Any],
+    progress_callback: Any | None,
+    should_cancel: Any | None,
+    resume_state: dict[str, Any] | None,
+    checkpoint_callback: Any | None,
+) -> dict[str, Any]:
+    """A durable job over a list of URLs (Firecrawl's batch scrape).
+
+    Each page is saved as it finishes, so a restarted job skips the pages it
+    already has.
+    """
+    urls = list(payload["urls"])
+    done = {doc.get("url") for doc in (resume_state or {}).get("documents") or []}
+    documents: list[dict[str, Any]] = list((resume_state or {}).get("documents") or [])
+    errors: list[str] = []
+    cancelled = False
+    for index, url in enumerate(urls):
+        if url in done:
+            continue
+        if should_cancel is not None and should_cancel():
+            cancelled = True
+            break
+        with server.domain_slot(url):
+            document = to_jsonable(
+                crawler.scrape(
+                    url,
+                    formats=payload.get("formats") or ["markdown", "metadata"],
+                    only_main_content=payload.get("only_main_content"),
+                )
+            )
+        documents.append(document)
+        errors.extend(f"{url}: {error}" for error in document.get("errors") or [])
+        progress = {"completed": len(documents), "total": len(urls)}
+        if progress_callback is not None:
+            progress_callback(progress)
+        if checkpoint_callback is not None:
+            checkpoint_callback({"batch_index": index}, progress, document)
+    return {
+        "source": urls[0],
+        "documents": documents,
+        "errors": errors,
+        "metadata": {"batch": True, "cancelled": cancelled},
+    }
+
+
 def _scrape_cache_key(request: ScrapeRequest, owner_key: str = "") -> str:
     payload = {
         # Bumped to 3 with per-key cache scoping: entries written by earlier
@@ -1306,6 +1367,8 @@ def _scrape_cache_key(request: ScrapeRequest, owner_key: str = "") -> str:
         "formats": sorted(request.formats),
         "only_main_content": request.only_main_content,
         "query": request.query,
+        "section": request.section,
+        "max_tokens": request.max_tokens,
         "config": request.config,
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -1322,3 +1385,9 @@ def _attach_error_type(payload: dict[str, Any]) -> None:
     payload.setdefault("metadata", {}).setdefault(
         "error_type", classify_error(str(errors[0])) or "fetch_error"
     )
+
+
+# Firecrawl v2-compatible routes over the handlers above.
+from .firecrawl_compat import install as _install_firecrawl_compat  # noqa: E402
+
+_install_firecrawl_compat(app)

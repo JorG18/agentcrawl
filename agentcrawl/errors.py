@@ -84,12 +84,40 @@ def classify_exception(exc: BaseException) -> str:
     return classify_error(str(exc)) or "fetch_error"
 
 
+# What an agent should do next, per error type: retrying a challenge or a
+# missing page as is only spends time.
+_NEXT_STEPS = {
+    "client_challenge": (
+        "The site answered with a bot challenge; retrying as is will not help. Try a "
+        "residential proxy (proxy=...), a saved login (session=...), or AgentCrawl Enhanced."
+    ),
+    "blocked": (
+        "The site refused this client. Try fetcher=playwright, a proxy (proxy=...) or a "
+        "saved login (session=...); retrying as is will fail again."
+    ),
+    "rate_limited": "Too many requests: wait before retrying, or crawl more slowly.",
+    "timeout": "The site was too slow for the page budget: retry once, or raise page_budget_ms.",
+    "not_found": "The page does not exist: check the URL, or map_site to find the right one.",
+    "tls_error": "The site's certificate is invalid, so the page cannot be read safely.",
+    "network_error": "The site could not be reached: check the host name or retry later.",
+    "section_not_found": "Pick an id or heading from metadata.sections.",
+    "browser_error": "The browser failed on this page: retry once, or try fetcher=http.",
+}
+
+
+def next_step(error_type: object) -> str | None:
+    return _NEXT_STEPS.get(str(error_type))
+
+
 def error_metadata(exc: BaseException) -> dict[str, object]:
     """``error_type`` / ``error_message`` / ``status_code`` for a failed fetch."""
+    error_type = classify_exception(exc)
     metadata: dict[str, object] = {
-        "error_type": classify_exception(exc),
+        "error_type": error_type,
         "error_message": sanitize_error_message(str(exc)),
     }
+    if next_step(error_type):
+        metadata["next_step"] = next_step(error_type)
     code = status_code_of(exc)
     if code is not None:
         metadata["status_code"] = code

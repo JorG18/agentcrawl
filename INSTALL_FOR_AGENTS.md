@@ -146,6 +146,9 @@ Success requires clean Markdown containing `json.dumps`.
 After registration:
 
 - Use `scrape_url` for one known URL, `scrape_many` for several.
+- For a long page, call `scrape_url` with `formats=["outline"]` first, then `section=<id>` for the part you need (and `max_tokens` to cap it); the page is downloaded once.
+- On an error, follow `metadata.next_step` instead of retrying as is.
+- Use `extract_structured` with `describe` when you have no schema (needs `AGENTCRAWL_LLM_MODEL`); keep the returned schema and pass it as `schema` next time.
 - Use `search_web` when there is a question but no URL (needs `AGENTCRAWL_SEARCH_ENGINE`).
 - Use `map_site` to discover site URLs without scraping all pages.
 - Use `crawl_site` for bounded multi-page extraction; pass `query` to read the most relevant pages first and stop when pages stop matching.

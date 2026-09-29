@@ -8,6 +8,8 @@ import urllib.error
 
 import pytest
 
+from agentcrawl import fetchers
+
 from agentcrawl import AgentCrawl
 from agentcrawl.airgap import AirgapViolation
 from agentcrawl.config import DEFAULT_USER_AGENT, CrawlConfig
@@ -246,6 +248,12 @@ class FakePlaywright:
     def __exit__(self, *_args):
         return False
 
+    def start(self):
+        return self
+
+    def stop(self):
+        pass
+
 
 def install_fake_playwright(monkeypatch):
     page = FakePage()
@@ -334,6 +342,8 @@ def test_playwright_closes_the_context_it_opened(monkeypatch) -> None:
 
     assert browser.context is not None
     assert browser.context.closed == 1
+    assert browser.closed == 0  # kept open for the next page
+    fetchers.shutdown_browser_pool()
     assert browser.closed == 1
 
 
@@ -349,6 +359,7 @@ def test_playwright_closes_resources_when_the_page_fails(monkeypatch) -> None:
         _fetch_playwright("https://example.com/", CrawlConfig(network_idle=False))
 
     assert browser.context.closed == 1
+    fetchers.shutdown_browser_pool()
     assert browser.closed == 1
 
 
@@ -566,3 +577,20 @@ def test_certificate_failure_falls_back_to_the_verifying_browser(monkeypatch) ->
     assert document.ok
     assert "Paragraph 4" in document.markdown
     assert document.metadata["fallback_from"] == "http"
+
+
+def test_browser_is_launched_once_for_many_pages(monkeypatch) -> None:
+    """Chromium was launched (and closed) for every page."""
+    _page, browser, chromium = install_fake_playwright(monkeypatch)
+    launches = []
+    real_launch = chromium.launch
+    monkeypatch.setattr(chromium, "launch", lambda **kw: launches.append(kw) or real_launch(**kw))
+    monkeypatch.setenv("AGENTCRAWL_BROWSER_CONCURRENCY", "1")
+
+    for _ in range(3):
+        _fetch_playwright("https://example.com/", CrawlConfig(network_idle=False))
+
+    assert len(launches) == 1
+    # A different launch setting (a proxy) gets a browser of its own.
+    _fetch_playwright("https://example.com/", CrawlConfig(network_idle=False, proxy="http://p:1"))
+    assert len(launches) == 2 and browser.closed == 1

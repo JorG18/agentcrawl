@@ -32,6 +32,9 @@ on:
       keep_html:
         description: Store the HTML AgentCrawl read for every page ("1" = yes)
         default: ""
+      stealth:
+        description: Install AgentCrawl's stealth extra (Patchright retry) ("1" = yes)
+        default: ""
       scrapegraph_pages:
         description: Pages sent to ScrapeGraphAI (about 2 credits each); 0 = all
         default: "50"
@@ -101,6 +104,10 @@ jobs:
             python -m pip install -e . crawl4ai
           else
             python -m pip install -e ".[browser]"
+          fi
+          if [ "${{ matrix.tool }}" = "agentcrawl" ] && [ -n "${{ inputs.stealth }}" ]; then
+            python -m pip install -e ".[stealth]"
+            python -m patchright install --with-deps chromium
           fi
           if [ "${{ matrix.tool }}" = "agentcrawl" ] || [ "${{ matrix.tool }}" = "crawl4ai" ]; then
             python -m playwright install --with-deps chromium

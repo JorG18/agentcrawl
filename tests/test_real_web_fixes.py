@@ -295,11 +295,11 @@ def test_queued_browser_fetch_waits_for_a_whole_browser_run(monkeypatch) -> None
     waits: list[float] = []
 
     class Busy:
-        def acquire(self, timeout):
-            waits.append(timeout)
-            return False
+        def run(self, launch_kwargs, job, wait_s):
+            waits.append(wait_s)
+            raise FetchError(f"waited {wait_s:.0f} s for a free browser")
 
-    monkeypatch.setattr(fetchers, "_get_browser_semaphore", lambda: Busy())
+    monkeypatch.setattr(fetchers, "_get_browser_pool", lambda: Busy())
     with pytest.raises(FetchError, match="waited 55 s"):
         fetchers._fetch_playwright("https://example.org/", CrawlConfig())
     assert waits == [55.0]  # 30 s load + 15 s interstitial + 10 s network idle
@@ -515,3 +515,40 @@ def test_bad_certificate_redirect_is_followed_with_verification(monkeypatch) -> 
     with pytest.raises(FetchError):  # airgap never leaves the named host this way
         fetchers._fetch_source("https://bare.example/", CrawlConfig(airgap=True))
     assert fetched == ["https://bare.example/"]
+
+
+def test_one_budget_covers_every_step_of_a_page(monkeypatch) -> None:
+    """HTTP timeout, browser navigation, interstitial and network idle each
+    had their own limit and together took over a minute."""
+    seen = []
+
+    def slow_http(url, config):
+        seen.append(fetchers._http_timeout_seconds(config))
+        time.sleep(0.45)
+        raise FetchError("HTTP fetch failed: The read operation timed out")
+
+    def fake_browser(url, config, **kwargs):
+        seen.append(fetchers._budget_ms(config.timeout_ms))
+        fetchers._require_budget(config.timeout_ms, "the page loaded")
+        return "<html></html>"
+
+    monkeypatch.setattr(fetchers, "_fetch_http", slow_http)
+    monkeypatch.setattr(fetchers, "_fetch_browser", fake_browser)
+    monkeypatch.setattr(fetchers, "_browser_backend_available", lambda backend: True)
+    monkeypatch.setattr(fetchers, "validate_remote_url", lambda url, **kwargs: None)
+
+    config = CrawlConfig(page_budget_ms=400)
+    with pytest.raises(FetchError) as info:
+        fetchers.fetch_source("https://example.org/", config)
+    assert seen[0] <= 0.4  # the HTTP timeout is capped by the budget
+    assert seen[1] == 0  # nothing left for the browser: no second minute
+    assert "timed out" in str(info.value.__cause__ or info.value)
+
+
+def test_a_retry_of_the_same_page_shares_its_budget() -> None:
+    """The browser retry after a challenge started a fresh 45 s budget, so one
+    page took over two minutes."""
+    with fetchers.page_deadline(CrawlConfig(page_budget_ms=1_000)):
+        with fetchers.page_deadline(CrawlConfig(page_budget_ms=60_000)):
+            assert fetchers._budget_ms(60_000) <= 1_000
+    assert fetchers._budget_ms(60_000) == 60_000  # no page running: no cap
