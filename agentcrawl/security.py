@@ -235,6 +235,43 @@ def _download_intermediate(url: str) -> bytes | None:
     return _intermediates[url]
 
 
+def redirect_past_invalid_certificate(url: str, timeout: float) -> str | None:
+    """Where a host whose certificate does not verify redirects to, if anywhere.
+
+    Many bare domains (gamepass.com, tbank.ru) serve a certificate for another
+    name and only redirect to the real site. Browsers stop there; Crawl4AI
+    ignores certificate errors altogether. Here only the status line and the
+    ``Location`` header are read, never the body, and only an ``https`` target
+    on another host is returned: that URL is then fetched with full
+    verification, so no unverified content is ever used.
+    """
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        return None
+    probe = ssl.create_default_context()
+    probe.check_hostname = False
+    probe.verify_mode = ssl.CERT_NONE  # the redirect is followed, nothing is trusted
+    connection = _PinnedHTTPSConnection(
+        parts.hostname, parts.port, timeout=timeout, context=probe, own_context=False
+    )
+    try:
+        connection.request("GET", parts.path or "/", headers={"accept": "text/html"})
+        response = connection.getresponse()
+        location = response.getheader("location") or ""
+        status = response.status
+    except (OSError, http.client.HTTPException, FetchError):
+        return None
+    finally:
+        connection.close()
+    if not (300 <= status < 400 and location):
+        return None
+    target = urllib.parse.urljoin(url, location.strip())
+    target_parts = urllib.parse.urlsplit(target)
+    if target_parts.scheme != "https" or target_parts.hostname in (None, parts.hostname):
+        return None
+    return target
+
+
 class _AIAPinnedHTTPSConnection(_PinnedHTTPSConnection):
     fetch_missing_intermediate = True
 

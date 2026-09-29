@@ -152,7 +152,9 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     return content, metadata
 
 
-def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
+def _fetch_source(
+    source: str, config: CrawlConfig, *, _past_certificate: bool = False
+) -> tuple[str, dict[str, Any]]:
     if not is_probably_url(source):
         check_local_source(source, allow=config.allow_local_files, root=config.local_files_root)
         return _fetch_local_file(source, ocr=config.ocr)
@@ -170,6 +172,14 @@ def _fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]
             content, http_metadata = _fetch_http(source, config)
             return _render_if_js_shell(source, content, http_metadata, config)
         except FetchError as exc:
+            if _is_tls_failure(exc) and not (config.airgap or _past_certificate):
+                from .security import redirect_past_invalid_certificate
+
+                target = redirect_past_invalid_certificate(source, _http_timeout_seconds(config))
+                if target:
+                    validate_remote_url(target, allow_private_network=config.allow_private_network)
+                    content, metadata = _fetch_source(target, config, _past_certificate=True)
+                    return content, {**metadata, "redirected_past_invalid_certificate": source}
             if not (
                 config.browser_fallback
                 and (
