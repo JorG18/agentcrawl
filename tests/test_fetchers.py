@@ -286,6 +286,8 @@ def test_playwright_presents_the_real_chrome_version(monkeypatch) -> None:
     assert "Chrome/147.0.0.0 Safari/537.36" in agent
     assert "Headless" not in agent and "AgentCrawl" not in agent
     assert "--disable-blink-features=AutomationControlled" in chromium.launch_kwargs["args"]
+    # Not chromium-headless-shell, whose client hints say "HeadlessChrome".
+    assert chromium.launch_kwargs["channel"] == "chromium"
 
     _fetch_playwright("https://example.com/", CrawlConfig(user_agent="Mine/1", network_idle=False))
     assert browser.context_kwargs["user_agent"] == "Mine/1"

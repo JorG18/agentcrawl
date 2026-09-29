@@ -905,13 +905,21 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
         )
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                headless=config.headless,
-                proxy={"server": config.proxy} if config.proxy else None,
+            launch_kwargs: dict[str, Any] = {
+                "headless": config.headless,
+                "proxy": {"server": config.proxy} if config.proxy else None,
                 # Without this Chromium sets navigator.webdriver, which bot
                 # managers (Cloudflare first) answer with a challenge.
-                args=["--disable-blink-features=AutomationControlled"],
-            )
+                "args": ["--disable-blink-features=AutomationControlled"],
+            }
+            try:
+                # Headless mode otherwise runs chromium-headless-shell, which
+                # sends ``Sec-CH-UA: "HeadlessChrome"`` with every request
+                # whatever the user agent says. The full Chromium does not.
+                browser = playwright.chromium.launch(channel="chromium", **launch_kwargs)
+            except Exception:
+                # Only the shell is installed (``install --only-shell``).
+                browser = playwright.chromium.launch(**launch_kwargs)
             # Cleanup has to happen *inside* the Playwright session: once the
             # ``with`` block exits the driver is already stopped, so a close
             # in the outer ``finally`` failed silently and leaked browser
