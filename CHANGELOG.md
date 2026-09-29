@@ -44,6 +44,10 @@ AgentCrawl now reads more of the open web than Crawl4AI on a 400-page random sam
 
 ### Benchmark
 
+- Same 400 pages, from a GitHub runner (datacenter network), pages with at least 500 characters of content: 0.4.5 read 223 and Crawl4AI 225. With the browser fixes 241; with the kept-open browsers and page budget 254 (report: 245 content pages against Crawl4AI's 225), median 2.1 s per page (Crawl4AI 2.1 s), p90 22 s (was 48 s), p95 40 s (was 62 s), total time for the 400 pages 3,085 s (was 5,767 s). Runs 36288315800, 36508925799, 36514612561.
+- apnews.com, princeton.edu and tracker.gg load from the runner; which Cloudflare sites pass changes a little from run to run with the runner's IP.
+- The `stealth` extra on the same sample (run 36514618722): 4 pages gained (ft.com among them), 7 lost, 244 in all: no measurable gain from a datacenter network, so it stays an opt-in extra.
+- Known limit: a page can still exceed the budget after it has been fetched (apnews.com, 2.9 MB of HTML, 95 s on the runner), and on a small machine four browsers slow plain HTTP pages down (median 2.0 s instead of 1.2 s).
 - The hard-to-scrape block of the web sample was always empty: one shared deadline was spent on the first category. Each category now gets its own share of time, Common Crawl lookups retry with backoff and stop once the index is down, and category sitemaps are read first.
 - Same 400 pages as the earlier run, local tools rerun (run 36288315800): AgentCrawl returned content on 223 pages (was 211), consensus recall 74.0% (was 65%), median 1.5 s per page. Crawl4AI in the same run: 225 pages, 79.6%, 2.1 s. Firecrawl's earlier result on these pages was 265 pages and 77.4%.
 - `--keep-html` stores the fetched HTML with AgentCrawl's results for offline diagnosis. A run reusing an earlier sample reports the earlier results of tools it did not rerun, and says so.
