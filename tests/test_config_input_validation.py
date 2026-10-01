@@ -123,3 +123,15 @@ def test_every_allowed_override_is_a_real_config_field() -> None:
     """A typo in the allowlist must not silently accept an unknown key."""
     known = set(CrawlConfig.__dataclass_fields__)
     assert _ALLOWED_CONFIG_OVERRIDES <= known
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [("geoip", True), ("humanize", True), ("reattempt_condition", "attempt < 1")],
+)
+def test_deprecated_keys_still_load_with_a_warning(key: str, value: object) -> None:
+    """Removed in 0.6; until then an existing config must keep loading."""
+    with pytest.warns(DeprecationWarning, match=key):
+        config = CrawlConfig.from_dict({key: value, "timeout_ms": 5000})
+    assert config.timeout_ms == 5000
+    assert not hasattr(config, key)

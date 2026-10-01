@@ -2,11 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-try:
-    from simpleeval import simple_eval
-except ImportError:
-    simple_eval = None
-
 from .config import CrawlConfig
 from .documents import markdown_from_fetched_content
 from .extraction import extract_answer
@@ -124,14 +119,4 @@ class CrawlGraph:
         return state
 
     def _should_reattempt(self, state: CrawlState) -> bool:
-        names = {
-            "empty": bool(state.get("empty")),
-            "validation_error": bool(state.get("validation_error")),
-            "attempt": int(state.get("attempt", 0)),
-        }
-        if simple_eval is None:
-            return bool(state.get("empty") or state.get("validation_error"))
-        try:
-            return bool(simple_eval(self.config.reattempt_condition, names=names))
-        except Exception:
-            return bool(state.get("empty") or state.get("validation_error"))
+        return bool(state.get("empty") or state.get("validation_error"))
