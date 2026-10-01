@@ -286,6 +286,15 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
         metadata["browser_actions_log"] = capture["actions"]
     if capture.get("dom"):
         metadata["browser_dom"] = capture["dom"]
+    # The truth about DNS pinning, by outcome: only the plain-HTTP path goes
+    # through the pinned handlers. Browser fetches resolve DNS themselves
+    # (documented limit, SECURITY.md), camofox is operator infrastructure
+    # reached the way a proxy is, and a local file touched no DNS at all —
+    # for those the key stays absent rather than claiming False.
+    if is_probably_url(source):
+        metadata["dns_pinned"] = (
+            metadata.get("fetcher") == "http" and not config.allow_private_network
+        )
     if metadata.get("fetcher") in {"playwright", "camofox"}:
         if isinstance(capture.get("status"), int):
             metadata["browser_status"] = capture["status"]
@@ -826,15 +835,18 @@ def _read_bounded(
             last = True
         else:
             last = False
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > limit:
+        if total + len(chunk) > limit:
+            # Checked before appending, so the body past the limit is never
+            # held in memory — including readers whose read(n) ignores n and
+            # returns everything in one piece.
             raise FetchError(
                 f"Response body exceeds the {limit} byte limit"
                 + (f" for {url}" if url else "")
                 + ". Raise max_response_bytes to accept larger pages."
             )
+        if not chunk:
+            break
+        total += len(chunk)
         chunks.append(chunk)
         if last:
             break
@@ -1017,6 +1029,9 @@ def _fetch_camofox(url: str, config: CrawlConfig) -> str:
                     base_url + f"/tabs/{urllib.parse.quote(tab_id, safe='')}?{query}",
                     config,
                     method="DELETE",
+                    # Best-effort cleanup: it must not raise through the
+                    # finally when the page budget is already spent.
+                    budgeted=False,
                 )
             except Exception:
                 pass
@@ -1028,6 +1043,7 @@ def _camofox_request(
     *,
     method: str,
     payload: dict[str, object] | None = None,
+    budgeted: bool = True,
 ) -> dict[str, object]:
     headers = {"content-type": "application/json"}
     if config.camofox_access_key:
@@ -1039,11 +1055,30 @@ def _camofox_request(
         method=method,
     )
     try:
-        with urllib.request.urlopen(request, timeout=config.timeout_ms / 1000) as response:
+        # The camofox service is operator-configured infrastructure, like a
+        # proxy: reachable whatever host it runs on (the default is localhost)
+        # and never caller-chosen, so it is exempt from the SSRF pinning the
+        # way proxied requests are. The page budget is not: a hung service
+        # must not hold a crawl worker past the page's own deadline.
+        if budgeted:
+            timeout = _require_budget(config.timeout_ms, "the camofox request") / 1000
+        else:
+            # Cleanup: even with the budget spent, one second is a faster,
+            # saner abandonment than a 0-second socket.
+            timeout = max(1.0, _budget_ms(config.timeout_ms) / 1000)
+        with _safe_urlopen(
+            request,
+            timeout=timeout,
+            allow_private_network=True,
+        ) as response:
             body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise FetchError(f"Camofox HTTP {exc.code}: {detail[:500]}") from exc
+    except TimeoutError as exc:
+        # A socket cut by the (possibly budget-capped) timeout is a timeout,
+        # not an opaque camofox failure.
+        raise FetchError(f"Camofox request failed: {exc}", error_type="timeout") from exc
     except Exception as exc:
         raise FetchError(f"Camofox request failed: {exc}") from exc
     if not isinstance(body, dict):
@@ -1328,8 +1363,13 @@ def _wait_out_interstitial(page: Any, budget_ms: int) -> int:
         return 0
     started = time.monotonic()
     deadline = started + budget_ms / 1000
-    while time.monotonic() < deadline:
-        page.wait_for_timeout(_INTERSTITIAL_POLL_MS)
+    while True:
+        remaining_ms = int((deadline - time.monotonic()) * 1000)
+        if remaining_ms <= 0:
+            break
+        # One poll never runs past the deadline: a fixed 500 ms wait could
+        # overshoot an almost-spent budget by nearly that much.
+        page.wait_for_timeout(min(_INTERSTITIAL_POLL_MS, remaining_ms))
         title = _safe_title(page)
         if title and not _SELF_CLEARING_TITLE_RE.match(title):
             try:

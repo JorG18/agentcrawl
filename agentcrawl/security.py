@@ -47,22 +47,32 @@ def check_local_source(source: str, *, allow: bool, root: str | None) -> None:
         raise LocalFileAccessError(LOCAL_FILE_OUTSIDE_ROOT_MESSAGE, "local_file_outside_root")
 
 
-def validate_remote_url(url: str, *, allow_private_network: bool = False) -> None:
-    if len(url) > 8192:
-        raise FetchError("URL exceeds the 8192 character limit.")
-    parsed = urllib.parse.urlsplit(url)
+def _validate_url_shape(parsed: urllib.parse.SplitResult) -> None:
+    """The static checks of ``validate_remote_url``: scheme, host, port, credentials.
+
+    Everything about the URL string itself, before any DNS is consulted —
+    shared by the main validator and by ``redirect_past_invalid_certificate``,
+    whose target is about to be fetched as if the caller had asked for it.
+    """
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise FetchError("Only absolute HTTP and HTTPS URLs are allowed.")
     try:
-        port = parsed.port or 0
+        _ = parsed.port  # raises ValueError on a malformed port
     except ValueError as exc:
         raise FetchError("Invalid URL port.") from exc
     if parsed.username or parsed.password:
         raise FetchError("URLs containing embedded credentials are not allowed.")
+
+
+def validate_remote_url(url: str, *, allow_private_network: bool = False) -> None:
+    if len(url) > 8192:
+        raise FetchError("URL exceeds the 8192 character limit.")
+    parsed = urllib.parse.urlsplit(url)
+    _validate_url_shape(parsed)
     if allow_private_network:
         return
 
-    resolve_public_addresses(parsed.hostname, port)
+    resolve_public_addresses(parsed.hostname, parsed.port or 0)
 
 
 # The SSRF guard is right to refuse 127.0.0.1 by default, but "not allowed" on
@@ -268,6 +278,14 @@ def redirect_past_invalid_certificate(url: str, timeout: float) -> str | None:
     target = urllib.parse.urljoin(url, location.strip())
     target_parts = urllib.parse.urlsplit(target)
     if target_parts.scheme != "https" or target_parts.hostname in (None, parts.hostname):
+        return None
+    # A hostile Location can smuggle what an input URL may not carry (embedded
+    # credentials, an unparseable port). The target must pass the same static
+    # checks as any URL the caller could have asked for; the follow-up fetch
+    # re-validates DNS. None leaves the honest tls_error standing.
+    try:
+        _validate_url_shape(target_parts)
+    except FetchError:
         return None
     return target
 
