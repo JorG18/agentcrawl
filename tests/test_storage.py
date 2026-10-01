@@ -1,6 +1,64 @@
 from agentcrawl.storage import SQLiteStore
 
 
+def test_prepare_restart_recovery_leaves_a_live_lease_alone(tmp_path) -> None:
+    """A running job whose schedule lease is still alive belongs to a live
+    worker: another process starting up must not "recover" it (that paused
+    the job until the lease expired and stamped a false interruption error)."""
+    store = SQLiteStore(tmp_path / "live-lease.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.acquire_schedule_lease(job, "pid-alive", lease_seconds=300)
+    assert store.claim_job(job)  # status = running, lease still held
+
+    assert store.prepare_restart_recovery() == 0
+    assert store.get_job(job)["status"] == "running"
+    assert store.get_job(job)["error"] is None  # no false interruption stamp
+
+
+def test_prepare_restart_recovery_requeues_an_expired_lease(tmp_path) -> None:
+    """The case the function exists for: the worker died holding the job —
+    its lease has expired, so the restart requeues it."""
+    store = SQLiteStore(tmp_path / "expired-lease.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    store.acquire_schedule_lease(job, "pid-dead", lease_seconds=300)
+    assert store.claim_job(job)
+    # Simulate the crash: the lease aged out while the job stays 'running'.
+    import sqlite3
+
+    with sqlite3.connect(tmp_path / "expired-lease.db") as conn:
+        conn.execute(
+            "update jobs set schedule_lock_expires_at = ? where id = ?",
+            (0.0, job),
+        )
+
+    assert store.prepare_restart_recovery() == 1
+    assert store.get_job(job)["status"] == "queued"
+
+
+def test_prepare_restart_recovery_counts_real_transitions_under_a_race(tmp_path) -> None:
+    """Concurrent recover passes over the same crashed job each ran the
+    UPDATE and counted the running rows they saw; the total reported more
+    recoveries than jobs. The count is now the rows each pass actually
+    transitioned."""
+    import threading
+
+    store = SQLiteStore(tmp_path / "race.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.claim_job(job)  # running, no lease (crash before claiming one)
+
+    results: list[int] = []
+    threads = [
+        threading.Thread(target=lambda: results.append(store.prepare_restart_recovery()))
+        for _ in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sum(results) == 1  # exactly one pass transitioned the job
+    assert store.get_job(job)["status"] == "queued"
+
+
 def test_prepare_restart_recovery_only_sweeps_jobs_it_finalizes(tmp_path) -> None:
     """Recovering a crashed 'running' job must not delete documents that
     belong to unrelated cancelled jobs from earlier runs."""

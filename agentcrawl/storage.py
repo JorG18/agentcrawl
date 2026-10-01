@@ -217,32 +217,40 @@ class SQLiteStore:
                 SQLiteStore._migrated_paths.add(path_key)
 
     def prepare_restart_recovery(self) -> int:
+        """Requeue ``running`` jobs that no live process still owns.
+
+        In a multi-worker deployment every process runs this on startup, so
+        a peer's in-flight job (its schedule lease alive) must be left alone:
+        reverting it paused the job until the lease expired and stamped a
+        misleading 'recovered' error on a job that never stopped. Only a
+        missing or expired lease means the worker really died. The return
+        counts the rows actually transitioned, not the running rows seen.
+        """
         now = time.time()
+        recovered = 0
         with self._connect() as conn:
-            # Capture the ids BEFORE the status updates so the cleanup below
-            # only touches jobs this pass actually transitioned. Sweeping
-            # every ``cancelled`` job in history would silently erase crawl
-            # documents the operator had not paginated out yet.
-            recovered_ids = [
-                str(row["id"])
-                for row in conn.execute("select id from jobs where status = 'running'").fetchall()
-            ]
             finalized_ids = [
                 str(row["id"])
                 for row in conn.execute(
                     "select id from jobs where status = 'cancelling'"
                 ).fetchall()
             ]
-            conn.execute(
+            cursor = conn.execute(
                 """
                 update jobs
                 set status = 'queued',
                     error = 'Recovered interrupted job after server restart.',
                     updated_at = ?
                 where status = 'running'
+                  and (
+                      schedule_lock is null
+                      or schedule_lock_expires_at is null
+                      or schedule_lock_expires_at < ?
+                  )
                 """,
-                (now,),
+                (now, now),
             )
+            recovered = int(cursor.rowcount or 0)
             conn.execute(
                 """
                 update jobs
@@ -266,7 +274,7 @@ class SQLiteStore:
                     """,
                     tuple(finalized_ids),
                 )
-        return len(recovered_ids)
+        return recovered
 
     @staticmethod
     def _insert_job_event(
