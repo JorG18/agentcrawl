@@ -65,3 +65,68 @@ def test_plain_callables_still_get_the_json_prompt() -> None:
     answer, error, _ = extract_answer("the price", ["Lamp $20"], SCHEMA, CrawlConfig(llm=llm))
     assert (answer, error) == ({"price": 20}, None)
     assert "Return valid JSON only" in prompts[0]
+
+
+class _ProviderStatusError(RuntimeError):
+    """What the real SDKs raise: an exception carrying the HTTP status."""
+
+    status_code = 429
+
+
+class _FailingStructuredModel:
+    def with_structured_output(self, schema):
+        def invoke(prompt):
+            raise _ProviderStatusError(
+                "Error code: 429 - Rate limit reached.\nsecond line of provider noise"
+            )
+
+        return types.SimpleNamespace(invoke=invoke)
+
+    def invoke(self, prompt):  # pragma: no cover - the failure happens first
+        raise AssertionError("free-text path used")
+
+
+def test_structured_output_provider_failure_is_classified_and_sanitized() -> None:
+    """A structured-output provider failure reaches the caller as the
+    project's vocabulary (classified type + sanitized detail + next_step),
+    not as the raw provider message: one line, bounded, no control chars."""
+    answer, error, _ = extract_answer(
+        "the price", ["Lamp $20"], SCHEMA, CrawlConfig(llm=_FailingStructuredModel())
+    )
+    assert answer == ""
+    assert error is not None
+    assert "[rate_limited]" in error
+    assert "next_step: Too many requests: wait before retrying" in error
+    assert "\n" not in error
+    assert len(error) <= 330  # classified prefix + 300-char sanitized detail
+
+
+def test_structured_output_provider_failure_still_reattempts(monkeypatch) -> None:
+    """The answer is empty, so CrawlGraph's auto_reattempt fires again (the
+    model gets the classified failure as previous_error) instead of giving up."""
+    from agentcrawl import graph as graph_module
+
+    # Hermetic: CrawlGraph imports fetch_source directly, so patch it there.
+    monkeypatch.setattr(
+        graph_module,
+        "fetch_source",
+        lambda source, config: ("<html><body><main><p>Lamp $20</p></main></body></html>", {}),
+    )
+    from agentcrawl.graph import CrawlGraph
+
+    calls: list[str] = []
+
+    class _Model:
+        def with_structured_output(self, schema):
+            def invoke(prompt):
+                calls.append(prompt)
+                if len(calls) == 1:
+                    raise _ProviderStatusError("Error code: 429 - Rate limit reached.")
+                return {"price": 20}
+
+            return types.SimpleNamespace(invoke=invoke)
+
+    result = CrawlGraph(CrawlConfig(llm=_Model())).run("https://example.com/", "the price", SCHEMA)
+    assert len(calls) == 2
+    assert result.answer == {"price": 20}
+    assert result.metadata["llm_calls"] == 2

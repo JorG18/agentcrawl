@@ -1252,6 +1252,19 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
                 payload={"page_quantum": server.crawl_job_page_quantum},
             )
             return
+        if metadata.get("batch_all_failed"):
+            # Every URL in the batch came back with errors: report the job as
+            # failed (Firecrawl distinguishes failed from completed) instead
+            # of a clean completion. The per-page errors stay in the stored
+            # result for inspection.
+            batch_errors = result.get("errors") or []
+            server.store.update_job(
+                job_id,
+                "failed",
+                result=result,
+                error=batch_errors[0] if batch_errors else "every URL in the batch failed",
+            )
+            return
         status = "cancelled" if metadata.get("cancelled") else "completed"
         server.store.update_job(job_id, status, result=result)
         server.store.record_usage(
@@ -1321,9 +1334,16 @@ def _run_batch(
     """A durable job over a list of URLs (Firecrawl's batch scrape).
 
     Each page is saved as it finishes, so a restarted job skips the pages it
-    already has.
+    already has. A batch whose every page came back with errors is not a
+    successful run: the ``batch_all_failed`` flag makes _run_crawl_job mark
+    the job failed while keeping the per-page errors inspectable.
     """
     urls = list(payload["urls"])
+    if not urls:
+        # Defense in depth: /v2/batch/scrape refuses an empty list and /v1
+        # validates its input, but a future direct caller of this helper must
+        # fail here with a clear error, not with an IndexError on urls[0].
+        raise ValueError("batch scrape received no URLs")
     done = {doc.get("url") for doc in (resume_state or {}).get("documents") or []}
     documents: list[dict[str, Any]] = list((resume_state or {}).get("documents") or [])
     errors: list[str] = []
@@ -1349,11 +1369,12 @@ def _run_batch(
             progress_callback(progress)
         if checkpoint_callback is not None:
             checkpoint_callback({"batch_index": index}, progress, document)
+    all_failed = bool(documents) and not cancelled and all(doc.get("errors") for doc in documents)
     return {
         "source": urls[0],
         "documents": documents,
         "errors": errors,
-        "metadata": {"batch": True, "cancelled": cancelled},
+        "metadata": {"batch": True, "cancelled": cancelled, "batch_all_failed": all_failed},
     }
 
 

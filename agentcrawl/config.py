@@ -329,6 +329,12 @@ _FLOAT_RANGES: dict[str, tuple[float, float]] = {
     "llm_temperature": (0.0, 2.0),
 }
 
+# The only float that means "unset" as None: llm_temperature is sent to the
+# model only when set (current Claude models reject any explicit temperature).
+# Every other ranged float (retry delays, ...) is a required number — a None
+# must fail validation here, not surface later as a TypeError mid-fetch.
+_FLOAT_NONE_OK = frozenset({"llm_temperature"})
+
 # Status codes are the one sequence that arrives as a bare scalar often enough
 # to matter: ``"403"`` used to be iterated into ``('4', '0', '3')``.
 _INT_SEQUENCE_FIELDS = frozenset({"browser_fallback_statuses"})
@@ -357,7 +363,7 @@ def _validate_config_value(key: str, value: Any) -> Any:
             raise ValueError(f"{key} must be between {low} and {high}, got {value}")
         return value
     if key in _FLOAT_RANGES:
-        if value is None:
+        if value is None and key in _FLOAT_NONE_OK:
             return None
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"{key} must be a number, got {type(value).__name__} ({value!r})")

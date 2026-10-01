@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from .config import CrawlConfig
+from .errors import classify_exception, next_step, sanitize_error_message
 from .llm import get_llm, invoke_llm
 from .utils import extract_json, schema_json, to_plain_data, validate_with_schema
 
@@ -32,7 +33,12 @@ def extract_answer(
             parsed = structured.invoke(system_prompt)
             return to_plain_data(validate_with_schema(parsed, schema)), None, None
         except Exception as exc:
-            return "", str(exc), None
+            # The provider's own message can carry endpoint URLs, prompt or
+            # response fragments; the caller gets the classified type, the
+            # sanitized detail and the project's next_step instead.
+            error_type = classify_exception(exc)
+            detail = sanitize_error_message(str(exc)) or error_type
+            return "", f"[{error_type}] {detail} (next_step: {next_step(error_type)})", None
     text = invoke_llm(llm, system_prompt)
 
     reasoning = None
