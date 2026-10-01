@@ -510,6 +510,14 @@ class SQLiteStore:
             stored_result = {**result, "documents": []}
             stored_result.setdefault("metadata", {})["document_count"] = len(documents)
         with self._connect() as conn:
+            # The worker looks for a cancel only between pages, so one that
+            # lands during the last page was accepted ('cancelling') and then
+            # overwritten here. Honour it; the pages already scraped are kept.
+            row = conn.execute(
+                "select cancel_requested from jobs where id = ?", (job_id,)
+            ).fetchone()
+            if row is not None and row["cancel_requested"] and status == "completed":
+                status = "cancelled"
             for document in documents:
                 conn.execute(
                     """

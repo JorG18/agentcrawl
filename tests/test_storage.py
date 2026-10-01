@@ -183,3 +183,28 @@ def test_list_crawl_failures_filters_domain_before_pagination(tmp_path) -> None:
     assert len(failures) == 1
     assert failures[0]["job_id"] == target_job
     assert failures[0]["url"] == "https://target.example/older"
+
+
+def test_a_cancel_that_lands_during_the_last_page_is_not_overwritten(tmp_path) -> None:
+    """The worker checks for a cancel only between pages: a cancel that
+    arrives while the last page is scraping was accepted by the API
+    (status 'cancelling') and then silently replaced by 'completed'. The
+    final write must honour it, keeping the pages already scraped."""
+    store = SQLiteStore(tmp_path / "late-cancel.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.claim_job(job)
+    assert store.request_job_cancel(job)  # lands mid-page
+
+    document = {"url": "https://example.com/", "markdown": "ok"}
+    store.update_job(job, "completed", result={"documents": [document], "metadata": {}})
+
+    assert store.get_job(job)["status"] == "cancelled"
+    assert [doc["url"] for doc in store.get_job_documents(job)] == ["https://example.com/"]
+
+
+def test_a_job_without_a_cancel_completes_as_before(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "no-cancel.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.claim_job(job)
+    store.update_job(job, "completed", result={"documents": [], "metadata": {}})
+    assert store.get_job(job)["status"] == "completed"
