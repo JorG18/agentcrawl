@@ -32,7 +32,9 @@ class CrawlConfig:
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_kwargs: dict[str, Any] = field(default_factory=dict)
-    llm_temperature: float = 0.0
+    # Sent only when set: current Claude models (Opus 5.5, Sonnet 5.5, Fable)
+    # reject a non-default temperature.
+    llm_temperature: float | None = None
 
     fetcher: str = "http"
     browser_backend: str = "playwright"
@@ -67,8 +69,6 @@ class CrawlConfig:
     # one for every page (and for the stealth retry). The HTTP fetch uses the
     # HTTP(S)_PROXY environment variables.
     proxy: str | None = None
-    geoip: bool = False
-    humanize: bool = False
     network_idle: bool = True
     # Longest wait for the network to go quiet after load. Pages with
     # analytics or live feeds never go idle; they are read as rendered.
@@ -136,7 +136,6 @@ class CrawlConfig:
     reasoning: bool = False
     auto_reattempt: bool = True
     max_attempts: int = 2
-    reattempt_condition: str = "empty or validation_error"
 
     parallelism: int = 4
     search_engine: str = "none"
@@ -184,6 +183,15 @@ class CrawlConfig:
             return config
         if config is None:
             return cls()
+        deprecated = _DEPRECATED_KEYS & set(config)
+        if deprecated:
+            warnings.warn(
+                f"Config keys {', '.join(sorted(deprecated))} have no effect and will be "
+                "removed in 0.6; drop them from your config.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            config = {key: value for key, value in config.items() if key not in deprecated}
         allowed = {field.name for field in cls.__dataclass_fields__.values()}
         unknown = sorted(set(config) - allowed)
         if unknown:
@@ -239,6 +247,11 @@ def _validate_fetcher(value: str) -> str:
 #
 # The table lives here so the library, the CLI and the API all share one
 # contract, and the API can turn the ``ValueError`` into a 400.
+# Accepted and ignored until 0.6 so existing configs keep loading: geoip and
+# humanize never did anything, and the reattempt rule is fixed to
+# "empty answer or validation error" (it was an expression nobody set).
+_DEPRECATED_KEYS = frozenset({"geoip", "humanize", "reattempt_condition"})
+
 _BOOL_FIELDS = frozenset(
     {
         "headless",
@@ -252,8 +265,6 @@ _BOOL_FIELDS = frozenset(
         "allow_private_network",
         "browser_strict_network",
         "allow_local_files",
-        "geoip",
-        "humanize",
         "network_idle",
         "screenshot",
         "ocr",
@@ -274,7 +285,6 @@ _STR_FIELDS = frozenset(
         "camofox_base_url",
         "camofox_user_id",
         "output_format",
-        "reattempt_condition",
         "search_engine",
     }
 )
@@ -327,6 +337,12 @@ _FLOAT_RANGES: dict[str, tuple[float, float]] = {
     "llm_temperature": (0.0, 2.0),
 }
 
+# The only float that means "unset" as None: llm_temperature is sent to the
+# model only when set (current Claude models reject any explicit temperature).
+# Every other ranged float (retry delays, ...) is a required number — a None
+# must fail validation here, not surface later as a TypeError mid-fetch.
+_FLOAT_NONE_OK = frozenset({"llm_temperature"})
+
 # Status codes are the one sequence that arrives as a bare scalar often enough
 # to matter: ``"403"`` used to be iterated into ``('4', '0', '3')``.
 _INT_SEQUENCE_FIELDS = frozenset({"browser_fallback_statuses"})
@@ -355,6 +371,8 @@ def _validate_config_value(key: str, value: Any) -> Any:
             raise ValueError(f"{key} must be between {low} and {high}, got {value}")
         return value
     if key in _FLOAT_RANGES:
+        if value is None and key in _FLOAT_NONE_OK:
+            return None
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"{key} must be a number, got {type(value).__name__} ({value!r})")
         low, high = _FLOAT_RANGES[key]

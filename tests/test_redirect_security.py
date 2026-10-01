@@ -4,6 +4,38 @@ import pytest
 
 from agentcrawl.exceptions import FetchError
 from agentcrawl.fetchers import _SafeRedirectHandler
+from agentcrawl.security import redirect_past_invalid_certificate
+
+
+def _stub_probe(monkeypatch, status: int, location: str) -> None:
+    """Answer the unverified probe request with a canned redirect."""
+    from agentcrawl import security
+
+    response_cls = type(
+        "_Response",
+        (),
+        {
+            "status": status,
+            "getheader": staticmethod(
+                lambda name, default=None: location if name.lower() == "location" else default
+            ),
+        },
+    )
+
+    class _Connection:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def request(self, *args, **kwargs):
+            pass
+
+        def getresponse(self):
+            return response_cls()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(security, "_PinnedHTTPSConnection", _Connection)
 
 
 class FakeHeaders:
@@ -58,3 +90,24 @@ def test_safe_redirect_handler_uses_private_network_flag() -> None:
     )
 
     assert redirected.full_url == "http://127.0.0.1/admin"
+
+
+def test_redirect_past_certificate_refuses_a_target_with_credentials(monkeypatch) -> None:
+    """A hostile Location can smuggle embedded credentials (user:pass@host) —
+    the same class the input validator refuses must not slip in sideways."""
+    _stub_probe(monkeypatch, 301, "https://user:pass@www.example.org/")
+    assert redirect_past_invalid_certificate("https://broken.example/", 1.0) is None
+
+
+def test_redirect_past_certificate_refuses_an_out_of_range_port(monkeypatch) -> None:
+    """A target whose port the URL parser rejects cannot be fetched; None
+    keeps the honest tls_error instead of following the smuggled hop."""
+    _stub_probe(monkeypatch, 301, "https://www.example.org:99999/")
+    assert redirect_past_invalid_certificate("https://broken.example/", 1.0) is None
+
+
+def test_redirect_past_certificate_still_follows_a_legitimate_target(monkeypatch) -> None:
+    """A plain https redirect to another host keeps working (gamepass.com)."""
+    _stub_probe(monkeypatch, 301, "https://www.example.org/")
+    target = redirect_past_invalid_certificate("https://broken.example/", 1.0)
+    assert target == "https://www.example.org/"

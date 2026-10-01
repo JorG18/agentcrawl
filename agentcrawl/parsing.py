@@ -310,10 +310,6 @@ def extraction_provenance(html: str, *, only_main_content: bool = True) -> dict[
     }
 
 
-def strip_boilerplate(html: str) -> str:
-    return extract_content_html(html, only_main_content=False)
-
-
 def markdown_structure_metrics(markdown: str) -> dict[str, int]:
     lines = markdown.splitlines()
     return {

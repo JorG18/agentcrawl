@@ -41,6 +41,44 @@ class _Response:
         return json.dumps(self.payload).encode("utf-8")
 
 
+def _rate_headers():
+    import email.message
+
+    headers = email.message.Message()
+    headers["Retry-After"] = "30"
+    return headers
+
+
+class _FakeHttpResp:
+    def __init__(self, body=b"<html>ok</html>"):
+        self._body = body
+        self._read = False
+        import email.message
+
+        self.headers = email.message.Message()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def geturl(self):
+        return "https://example.com/a"
+
+    def read1(self, n=-1):
+        if self._read:
+            return b""
+        self._read = True
+        return self._body
+
+    def read(self, n=-1):
+        return self.read1(n)
+
+    def close(self):
+        pass
+
+
 def test_decode_http_body_honors_declared_charset() -> None:
     body = "caf\u00e9 \u00f1and\u00fa".encode("iso-8859-1")
     assert _decode_http_body(body, "iso-8859-1") == "caf\u00e9 \u00f1and\u00fa"
@@ -83,6 +121,139 @@ def test_retry_delay_clamps_hostile_retry_after_values() -> None:
     assert _retry_delay(config, 0, "not-a-number") == config.http_retry_delay
 
 
+def test_long_retry_after_is_cut_by_the_page_budget(monkeypatch) -> None:
+    """A server's Retry-After is clamped to 30 s, but a page budget of under
+    a second must not sit out the whole wait: the retry loop gives up early
+    and the page budget, not Retry-After, bounds the worker."""
+    import time as _time_module
+
+    sleeps: list[float] = []
+
+    def fake_urlopen(request, timeout, **_kwargs):
+        raise urllib.error.HTTPError(request.full_url, 429, "slow down", _rate_headers(), None)
+
+    monkeypatch.setattr(fetchers, "_safe_urlopen", fake_urlopen)
+    monkeypatch.setattr(fetchers.time, "sleep", lambda s: sleeps.append(s))
+    config = CrawlConfig(
+        http_retries=3, http_retry_delay=0.0, page_budget_ms=500, browser_fallback=False
+    )
+    started = _time_module.monotonic()
+    with fetchers.page_deadline(config):
+        with pytest.raises(FetchError) as excinfo:
+            _fetch_http("https://example.com/a", config)
+    elapsed = _time_module.monotonic() - started
+    assert sleeps == []  # the budget can't cover the wait: no sleep at all
+    assert elapsed < 1.0  # cut early, not the full 30 s wait
+    assert excinfo.value.status_code == 429
+
+
+def test_long_retry_after_waits_fully_without_a_deadline(monkeypatch) -> None:
+    """No page deadline running (plain library use): the clamped Retry-After
+    wait happens as before, then the retry succeeds."""
+    attempts = {"n": 0}
+
+    def fake_urlopen(request, timeout, **_kwargs):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise urllib.error.HTTPError(request.full_url, 429, "slow down", _rate_headers(), None)
+        return _FakeHttpResp()
+
+    monkeypatch.setattr(fetchers, "_safe_urlopen", fake_urlopen)
+    monkeypatch.setattr(fetchers.time, "sleep", lambda s: sleeps_record.append(s))
+    sleeps_record: list[float] = []
+    config = CrawlConfig(http_retries=2, http_retry_delay=0.0)
+    html, metadata = _fetch_http("https://example.com/a", config)
+    assert attempts["n"] == 2
+    assert sleeps_record == [30.0]  # clamped Retry-After, fully waited
+    assert metadata["status_code"] == 200
+
+
+def test_read_bounded_cuts_a_whole_body_reader_at_the_limit() -> None:
+    """A reader whose read(n) ignores n (test doubles, third-party adapters)
+    used to have its whole oversized body materialized before the limit was
+    checked; now the body past the limit is never held in memory."""
+
+    class _WholeBodyOnly:
+        """Accepts ``n`` and ignores it, returning the whole body forever."""
+
+        def read(self, n=-1):
+            return b"x" * 1000
+
+    with pytest.raises(FetchError, match="exceeds the 10 byte limit"):
+        _read_bounded(_WholeBodyOnly(), 10)
+
+    class _NoAmt:
+        """No ``amt`` parameter: one call, whole body, at exactly the limit."""
+
+        def read(self):
+            return b"y" * 10
+
+    assert _read_bounded(_NoAmt(), 10) == b"y" * 10  # at the limit: fine
+    with pytest.raises(FetchError, match="exceeds the 9 byte limit"):
+        _read_bounded(_NoAmt(), 9)  # one byte over: cut before holding it
+
+
+def test_read_bounded_drip_still_hits_its_read_deadline() -> None:
+    """The slow-drip read deadline (classified as timeout) is untouched by
+    the streaming change."""
+    import time as _time_module
+
+    class _Drip:
+        def read1(self, n=-1):
+            _time_module.sleep(0.05)
+            return b"chunk"
+
+    with pytest.raises(FetchError, match="took longer than"):
+        _read_bounded(_Drip(), 1_000_000, deadline_seconds=0.2)
+
+
+def test_interstitial_polls_never_overshoot_the_budget() -> None:
+    """With an almost-spent budget the wait loop polls in the remaining-
+    time slices instead of fixed 500 ms steps that overshoot the deadline."""
+
+    class _Page:
+        def __init__(self):
+            self.waits: list[int] = []
+            self.title_calls = 0
+
+        def title(self):
+            self.title_calls += 1
+            return "Just a moment..."  # never clears
+
+        def wait_for_timeout(self, ms):
+            self.waits.append(ms)
+            import time
+
+            time.sleep(ms / 1000)
+
+    page = _Page()
+    waited = fetchers._wait_out_interstitial(page, 150)
+    assert sum(page.waits) <= 150  # no poll past the deadline
+    assert 100 <= waited <= 250  # about the budget, not the fixed 500 ms
+
+
+def test_interstitial_clears_within_the_first_poll() -> None:
+    """A page that clears immediately still gets exactly one short wait."""
+
+    class _Page:
+        def __init__(self):
+            self.waits: list[int] = []
+
+        def title(self):
+            return "Just a moment..." if len(self.waits) == 0 else "The real page"
+
+        def wait_for_timeout(self, ms):
+            self.waits.append(ms)
+
+        def wait_for_load_state(self, state, timeout):
+            pass
+
+    page = _Page()
+    waited = fetchers._wait_out_interstitial(page, 15_000)
+    assert page.waits == [500]  # full poll when the budget allows it
+    assert waited >= 1
+
+
 def test_camofox_fetch_creates_evaluates_and_closes_tab(monkeypatch) -> None:
     requests = []
     responses = iter(
@@ -93,11 +264,11 @@ def test_camofox_fetch_creates_evaluates_and_closes_tab(monkeypatch) -> None:
         ]
     )
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, **_kwargs):
         requests.append(request)
         return _Response(next(responses))
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(fetchers, "_safe_urlopen", fake_urlopen)
     config = CrawlConfig(
         fetcher="camofox",
         camofox_base_url="http://camofox.test:9377",
@@ -108,7 +279,11 @@ def test_camofox_fetch_creates_evaluates_and_closes_tab(monkeypatch) -> None:
     html, metadata = fetch_source("https://example.com", config)
 
     assert "Stealth page" in html
-    assert metadata == {"fetcher": "camofox", "final_url": "https://example.com"}
+    assert metadata == {
+        "fetcher": "camofox",
+        "final_url": "https://example.com",
+        "dns_pinned": False,
+    }
     assert [request.method for request in requests] == ["POST", "POST", "DELETE"]
     assert requests[0].headers["Authorization"] == "Bearer secret"
     assert requests[1].full_url.endswith("/tabs/tab-1/evaluate")
@@ -118,7 +293,7 @@ def test_camofox_fetch_creates_evaluates_and_closes_tab(monkeypatch) -> None:
 def test_camofox_closes_tab_after_evaluate_failure(monkeypatch) -> None:
     requests = []
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, **_kwargs):
         requests.append(request)
         if len(requests) == 1:
             return _Response({"tabId": "tab-2"})
@@ -126,12 +301,86 @@ def test_camofox_closes_tab_after_evaluate_failure(monkeypatch) -> None:
             raise urllib.error.HTTPError(request.full_url, 500, "failed", {}, None)
         return _Response({"ok": True})
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(fetchers, "_safe_urlopen", fake_urlopen)
 
     with pytest.raises(FetchError, match="Camofox HTTP 500"):
         _fetch_camofox("https://example.com", CrawlConfig(fetcher="camofox"))
 
     assert requests[-1].method == "DELETE"
+
+
+def test_camofox_hung_service_is_cut_by_the_page_budget(monkeypatch) -> None:
+    """A hung camofox service used to hold the worker until timeout_ms on its
+    own; now the page budget cuts it first and the error is a timeout."""
+    import time as _time_module
+
+    def hanging_urlopen(request, timeout, **_kwargs):
+        seen.append(timeout)
+        _time_module.sleep(timeout + 0.1)  # outlast whatever timeout was granted
+        raise TimeoutError("timed out")
+
+    seen: list[float] = []
+    monkeypatch.setattr(fetchers, "_safe_urlopen", hanging_urlopen)
+    config = CrawlConfig(
+        fetcher="camofox", camofox_base_url="http://camofox.test:9377", page_budget_ms=400
+    )
+    started = _time_module.monotonic()
+    with fetchers.page_deadline(config):
+        with pytest.raises(FetchError, match="timed out|Camofox") as excinfo:
+            _fetch_camofox("https://example.com", config)
+    elapsed = _time_module.monotonic() - started
+    assert "timeout" in str(excinfo.value) or "Camofox" in str(excinfo.value)
+    assert elapsed < 2.0  # cut by the budget, not hung for timeout_ms (default 30 s)
+    assert seen[0] <= 0.4  # the socket timeout is the budget remainder, not timeout_ms
+
+
+def test_dns_pinned_metadata_is_true_on_each_fetch_path(monkeypatch, tmp_path) -> None:
+    """The metadata says the truth per path: pinned only for the plain-HTTP
+    fetch of a URL; browser paths resolve DNS themselves; camofox is operator
+    infrastructure reached the way a proxy is."""
+    monkeypatch.setattr(
+        fetchers,
+        "_fetch_http",
+        lambda url, config: ("<html>ok</html>", {"fetcher": "http", "final_url": url}),
+    )
+    monkeypatch.setattr(fetchers, "_fetch_camofox", lambda url, config: "<html>camofox</html>")
+    _html, metadata = fetch_source("https://example.com", CrawlConfig(fetcher="http"))
+    assert metadata["dns_pinned"] is True
+    _html, metadata = fetch_source(
+        "https://example.com", CrawlConfig(fetcher="http", allow_private_network=True)
+    )
+    assert metadata["dns_pinned"] is False
+    page = tmp_path / "doc.md"
+    page.write_text("# doc", encoding="utf-8")
+    _html, metadata = fetch_source(str(page), CrawlConfig(fetcher="http"))
+    assert "dns_pinned" not in metadata  # a local file touched no DNS: absent, not False
+    _html, metadata = fetch_source("https://example.com", CrawlConfig(fetcher="camofox"))
+    assert metadata["dns_pinned"] is False
+    assert metadata["fetcher"] == "camofox"
+
+
+def test_camofox_normal_flow_still_works(monkeypatch) -> None:
+    """The safe-urlopen swap keeps the happy path (and the DELETE cleanup)
+    exactly as before."""
+    requests = []
+    responses = iter(
+        [
+            {"tabId": "tab-9"},
+            {"ok": True, "result": "<html><h1>Camofox page</h1></html>"},
+            {"ok": True},
+        ]
+    )
+
+    def fake_urlopen(request, timeout, **_kwargs):
+        requests.append(request)
+        return _Response(next(responses))
+
+    monkeypatch.setattr(fetchers, "_safe_urlopen", fake_urlopen)
+    config = CrawlConfig(fetcher="camofox", camofox_base_url="http://camofox.test:9377")
+    html, metadata = fetch_source("https://example.com", config)
+    assert "Camofox page" in html
+    assert metadata["fetcher"] == "camofox"
+    assert [request.method for request in requests] == ["POST", "POST", "DELETE"]
 
 
 def test_http_block_falls_back_to_camofox(monkeypatch) -> None:
@@ -157,6 +406,7 @@ def test_http_block_falls_back_to_camofox(monkeypatch) -> None:
         "fetcher": "camofox",
         "fallback_from": "http",
         "final_url": "https://example.com",
+        "dns_pinned": False,
     }
 
 

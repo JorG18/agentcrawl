@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .config import CrawlConfig
+from .errors import classify_exception, next_step, sanitize_error_message
 from .llm import get_llm, invoke_llm
 from .utils import extract_json, schema_json, to_plain_data, validate_with_schema
 
@@ -20,6 +22,23 @@ def extract_answer(
         system_prompt = _json_prompt(prompt, chunks, schema, config.reasoning, previous_error)
 
     llm = get_llm(config)
+    if schema is not None and not config.reasoning and hasattr(llm, "with_structured_output"):
+        # The provider returns parsed JSON; "Return valid JSON only" and
+        # extract_json stay for plain callables, which have no such feature.
+        try:
+            json_schema = json.loads(schema_json(schema))
+            # Some LangChain providers require a title on a dict schema.
+            json_schema.setdefault("title", "extraction")
+            structured = llm.with_structured_output(json_schema)
+            parsed = structured.invoke(system_prompt)
+            return to_plain_data(validate_with_schema(parsed, schema)), None, None
+        except Exception as exc:
+            # The provider's own message can carry endpoint URLs, prompt or
+            # response fragments; the caller gets the classified type, the
+            # sanitized detail and the project's next_step instead.
+            error_type = classify_exception(exc)
+            detail = sanitize_error_message(str(exc)) or error_type
+            return "", f"[{error_type}] {detail} (next_step: {next_step(error_type)})", None
     text = invoke_llm(llm, system_prompt)
 
     reasoning = None

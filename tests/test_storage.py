@@ -1,6 +1,64 @@
 from agentcrawl.storage import SQLiteStore
 
 
+def test_prepare_restart_recovery_leaves_a_live_lease_alone(tmp_path) -> None:
+    """A running job whose schedule lease is still alive belongs to a live
+    worker: another process starting up must not "recover" it (that paused
+    the job until the lease expired and stamped a false interruption error)."""
+    store = SQLiteStore(tmp_path / "live-lease.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.acquire_schedule_lease(job, "pid-alive", lease_seconds=300)
+    assert store.claim_job(job)  # status = running, lease still held
+
+    assert store.prepare_restart_recovery() == 0
+    assert store.get_job(job)["status"] == "running"
+    assert store.get_job(job)["error"] is None  # no false interruption stamp
+
+
+def test_prepare_restart_recovery_requeues_an_expired_lease(tmp_path) -> None:
+    """The case the function exists for: the worker died holding the job —
+    its lease has expired, so the restart requeues it."""
+    store = SQLiteStore(tmp_path / "expired-lease.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    store.acquire_schedule_lease(job, "pid-dead", lease_seconds=300)
+    assert store.claim_job(job)
+    # Simulate the crash: the lease aged out while the job stays 'running'.
+    import sqlite3
+
+    with sqlite3.connect(tmp_path / "expired-lease.db") as conn:
+        conn.execute(
+            "update jobs set schedule_lock_expires_at = ? where id = ?",
+            (0.0, job),
+        )
+
+    assert store.prepare_restart_recovery() == 1
+    assert store.get_job(job)["status"] == "queued"
+
+
+def test_prepare_restart_recovery_counts_real_transitions_under_a_race(tmp_path) -> None:
+    """Concurrent recover passes over the same crashed job each ran the
+    UPDATE and counted the running rows they saw; the total reported more
+    recoveries than jobs. The count is now the rows each pass actually
+    transitioned."""
+    import threading
+
+    store = SQLiteStore(tmp_path / "race.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.claim_job(job)  # running, no lease (crash before claiming one)
+
+    results: list[int] = []
+    threads = [
+        threading.Thread(target=lambda: results.append(store.prepare_restart_recovery()))
+        for _ in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sum(results) == 1  # exactly one pass transitioned the job
+    assert store.get_job(job)["status"] == "queued"
+
+
 def test_prepare_restart_recovery_only_sweeps_jobs_it_finalizes(tmp_path) -> None:
     """Recovering a crashed 'running' job must not delete documents that
     belong to unrelated cancelled jobs from earlier runs."""
@@ -125,3 +183,28 @@ def test_list_crawl_failures_filters_domain_before_pagination(tmp_path) -> None:
     assert len(failures) == 1
     assert failures[0]["job_id"] == target_job
     assert failures[0]["url"] == "https://target.example/older"
+
+
+def test_a_cancel_that_lands_during_the_last_page_is_not_overwritten(tmp_path) -> None:
+    """The worker checks for a cancel only between pages: a cancel that
+    arrives while the last page is scraping was accepted by the API
+    (status 'cancelling') and then silently replaced by 'completed'. The
+    final write must honour it, keeping the pages already scraped."""
+    store = SQLiteStore(tmp_path / "late-cancel.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.claim_job(job)
+    assert store.request_job_cancel(job)  # lands mid-page
+
+    document = {"url": "https://example.com/", "markdown": "ok"}
+    store.update_job(job, "completed", result={"documents": [document], "metadata": {}})
+
+    assert store.get_job(job)["status"] == "cancelled"
+    assert [doc["url"] for doc in store.get_job_documents(job)] == ["https://example.com/"]
+
+
+def test_a_job_without_a_cancel_completes_as_before(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "no-cancel.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.claim_job(job)
+    store.update_job(job, "completed", result={"documents": [], "metadata": {}})
+    assert store.get_job(job)["status"] == "completed"

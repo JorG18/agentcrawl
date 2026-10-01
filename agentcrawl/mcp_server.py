@@ -63,12 +63,13 @@ def scrape_url(
     use_cache: Annotated[
         bool,
         Field(
-            description="Server mode: use the cache. Keep true unless fresh content is required."
+            description="Reuse a recent read of this page (the server cache; locally, reads "
+            "from the last 10 minutes). False: always fetch fresh."
         ),
     ] = True,
     cache_ttl_seconds: Annotated[
         int | None,
-        Field(description="Server mode: cache lifetime in seconds."),
+        Field(description="How long a read may be reused, in seconds."),
     ] = None,
     only_main_content: Annotated[
         bool | None,
@@ -99,7 +100,8 @@ def scrape_url(
 
     Retries transient failures and renders JavaScript pages in a local browser
     when one is installed. A failure says why in metadata.error_type
-    (client_challenge, blocked, not_found, timeout, network_error...).
+    (client_challenge, blocked, not_found, timeout, network_error...) and what
+    to try instead in metadata.next_step.
     """
     overrides: dict[str, Any] = {}
     if browser_actions:
@@ -291,10 +293,12 @@ def extract_structured(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    """Extract JSON from a page with CSS selectors, no LLM.
+    """Extract JSON from a page with a CSS schema; applying a schema uses no LLM.
 
     Best for repeated structures (listings, products, tables): write the schema
     once, reuse it. baseSelector returns a list, otherwise one object.
+    With describe instead of a schema, the configured LLM writes the schema once
+    and returns it with the data.
     """
     from .css_extract import validate_css_schema
 

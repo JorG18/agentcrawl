@@ -5,6 +5,11 @@ HTTP 500, or a 200 whose ``error_type`` blamed the *network*, or a string
 ``"false"`` silently treated as true (the opposite of what it says). Patterns in
 ``include`` / ``exclude`` could crash a request with an uncompilable regex, and
 ``max_urls`` accepted a negative value.
+
+Later regression: the 0.5.0 prompt-audit made every ranged float accept ``None``
+(breaking ``http_retry_delay`` over the API with a mid-fetch ``TypeError``).
+Only ``llm_temperature`` means "unset" as ``None``; every other ranged float
+refuses it here so the caller gets a 400, not a 500.
 """
 
 from __future__ import annotations
@@ -33,6 +38,9 @@ client = TestClient(app, raise_server_exceptions=False)
         ({"user_agent": 123}, "user_agent must be a string or null"),
         ({"browser_fallback_statuses": "403"}, "Write [403] instead"),
         ({"allowlist_domains": "example.com"}, "must be a list of strings"),
+        ({"http_retry_delay": None}, "http_retry_delay must be a number"),
+        ({"crawl_retry_delay": None}, "crawl_retry_delay must be a number"),
+        ({"domain_min_delay": None}, "domain_min_delay must be a number"),
     ],
 )
 def test_wrong_config_values_raise_a_named_value_error(
@@ -41,6 +49,15 @@ def test_wrong_config_values_raise_a_named_value_error(
     with pytest.raises(ValueError) as excinfo:
         CrawlConfig.from_dict(override)
     assert expected_fragment in str(excinfo.value)
+
+
+def test_llm_temperature_is_the_only_float_that_accepts_none() -> None:
+    """``llm_temperature`` is sent to the model only when set (current Claude
+    models reject any explicit temperature), so None means "unset" there.
+    Every other ranged float is a required number: its None must fail here
+    instead of becoming a TypeError mid-fetch."""
+    assert CrawlConfig.from_dict({"llm_temperature": None}).llm_temperature is None
+    assert CrawlConfig.from_dict({"llm_temperature": 0.5}).llm_temperature == 0.5
 
 
 def test_browser_fallback_statuses_accepts_scalars_and_lists() -> None:
@@ -59,6 +76,8 @@ def test_browser_fallback_statuses_accepts_scalars_and_lists() -> None:
         {"max_input_chars": "x"},
         {"http_retries": "2"},
         {"headless": "false"},
+        {"http_retry_delay": None},
+        {"crawl_retry_delay": None},
     ],
 )
 def test_api_answers_400_for_a_wrong_config_type(override: dict[str, object]) -> None:
@@ -104,3 +123,15 @@ def test_every_allowed_override_is_a_real_config_field() -> None:
     """A typo in the allowlist must not silently accept an unknown key."""
     known = set(CrawlConfig.__dataclass_fields__)
     assert _ALLOWED_CONFIG_OVERRIDES <= known
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [("geoip", True), ("humanize", True), ("reattempt_condition", "attempt < 1")],
+)
+def test_deprecated_keys_still_load_with_a_warning(key: str, value: object) -> None:
+    """Removed in 0.6; until then an existing config must keep loading."""
+    with pytest.warns(DeprecationWarning, match=key):
+        config = CrawlConfig.from_dict({key: value, "timeout_ms": 5000})
+    assert config.timeout_ms == 5000
+    assert not hasattr(config, key)

@@ -35,7 +35,7 @@ re-run the full build — code is local AST, docs use the configured LLM backend
 graphify extract . --backend=claude-cli
 ```
 
-Two gotchas that make the graph look stale (both observed 2026-09-16):
+Two gotchas that make the graph look stale:
 
 1. `update` **skips** rewriting `GRAPH_REPORT.md` / `graph.html` when the code
    topology is unchanged ("No code-graph topology changes detected"), so after an

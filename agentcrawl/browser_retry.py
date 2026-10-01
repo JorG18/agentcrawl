@@ -16,7 +16,7 @@ Heuristics:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from .fetchers import FetchError, fetch_source
 from .html_tools import extract_html_facts
@@ -43,7 +43,6 @@ def _is_remote_url(source: str) -> bool:
 def attempt_browser_retry(
     source: str,
     *,
-    original_metadata: dict[str, Any],
     blocked_reason: str,
     original_config: "CrawlConfig",
     only_main_content: bool | None,

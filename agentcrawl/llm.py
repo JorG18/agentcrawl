@@ -22,7 +22,9 @@ def get_llm(config: CrawlConfig) -> Any:
     model = config.llm_model
     if config.llm_provider and ":" not in model:
         model = f"{config.llm_provider}:{model}"
-    kwargs = {"temperature": config.llm_temperature, **config.llm_kwargs}
+    kwargs = dict(config.llm_kwargs)
+    if config.llm_temperature is not None:
+        kwargs.setdefault("temperature", config.llm_temperature)
     return init_chat_model(model, **kwargs)
 
 

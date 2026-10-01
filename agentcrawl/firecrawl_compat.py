@@ -108,7 +108,16 @@ def _actions(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
             steps.append({"type": "scroll"})
         else:
             raise _refuse(f"action {kind!r} is not supported by AgentCrawl")
-    return steps
+    # The translated steps must meet the same bounds as the native config
+    # (at most MAX_ACTIONS steps, per-step limits): without this, the /v2
+    # border only caught an oversized list later in merged_config, and any
+    # path that skipped that re-validation would accept an unbounded list.
+    from .browser_actions import validate_actions
+
+    try:
+        return list(validate_actions(steps))
+    except ValueError as exc:
+        raise _refuse(str(exc)) from exc
 
 
 def _scrape_fields(body: dict[str, Any], *, skip: set[str] = frozenset()) -> dict[str, Any]:
@@ -325,6 +334,10 @@ async def batch_scrape(
             invalid.append(url)
     if not valid:
         raise _refuse("none of the URLs can be scraped")
+    # Firecrawl deduplicates a batch; the compat is the contract. Keep the
+    # first occurrence's position so the order the caller sent is preserved.
+    if len(valid) > len(set(valid)):
+        valid = list(dict.fromkeys(valid))
     config = fields.get("config", {})
     v1.server.validate_config_override(config)
     authorization = request.headers.get("authorization")

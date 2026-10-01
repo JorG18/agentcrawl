@@ -98,7 +98,6 @@ def test_browser_retry_document_carries_the_token_metrics(monkeypatch) -> None:
 
     document = attempt_browser_retry(
         "https://example.com/page",
-        original_metadata={},
         blocked_reason="client challenge",
         original_config=CrawlConfig(),
         only_main_content=None,

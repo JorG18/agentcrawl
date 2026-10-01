@@ -14,7 +14,7 @@ import urllib.parse
 from typing import Any, NamedTuple
 
 from . import __version__
-from .config import DEFAULT_USER_AGENT, CrawlConfig, local_files_root_from_env
+from .config import DEFAULT_USER_AGENT, CrawlConfig, _env_flag, local_files_root_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
 from .crawler import AgentCrawl
@@ -298,15 +298,8 @@ class AgentCrawlServer:
         # unauthenticated information disclosure on any network-exposed
         # deployment, so it now follows the API auth setting. Operators who
         # want the header-less browser view opt out explicitly here.
-        self.dashboard_public = os.getenv("AGENTCRAWL_DASHBOARD_PUBLIC", "").lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        self.allow_private_network = os.getenv(
-            "AGENTCRAWL_ALLOW_PRIVATE_NETWORK", "false"
-        ).lower() in {"1", "true", "yes", "on"}
+        self.dashboard_public = _env_flag("AGENTCRAWL_DASHBOARD_PUBLIC", False)
+        self.allow_private_network = _env_flag("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", False)
         # Web search is opt-in and operator-controlled: queries leave the host
         # for a third-party engine, so a request cannot pick or enable one.
         self.search_engine = os.getenv("AGENTCRAWL_SEARCH_ENGINE", "none").strip().lower()
@@ -321,13 +314,11 @@ class AgentCrawlServer:
             "camofox_base_url": os.getenv("AGENTCRAWL_CAMOFOX_URL", "http://127.0.0.1:9377"),
             "camofox_access_key": os.getenv("AGENTCRAWL_CAMOFOX_ACCESS_KEY") or None,
             "camofox_user_id": os.getenv("AGENTCRAWL_CAMOFOX_USER_ID", "agentcrawl"),
-            "headless": os.getenv("AGENTCRAWL_HEADLESS", "true").lower()
-            in {"1", "true", "yes", "on"},
+            "headless": _env_flag("AGENTCRAWL_HEADLESS", True),
             "timeout_ms": int(os.getenv("AGENTCRAWL_TIMEOUT_MS", "30000")),
             "http_retries": int(os.getenv("AGENTCRAWL_HTTP_RETRIES", "2")),
             "http_retry_delay": float(os.getenv("AGENTCRAWL_HTTP_RETRY_DELAY", "1.0")),
-            "browser_fallback": os.getenv("AGENTCRAWL_BROWSER_FALLBACK", "true").lower()
-            in {"1", "true", "yes", "on"},
+            "browser_fallback": _env_flag("AGENTCRAWL_BROWSER_FALLBACK", True),
             "domain_min_delay": float(os.getenv("AGENTCRAWL_DOMAIN_MIN_DELAY", "0.0")),
             "user_agent": os.getenv(
                 "AGENTCRAWL_USER_AGENT",
@@ -339,8 +330,7 @@ class AgentCrawlServer:
             "llm_provider": os.getenv("AGENTCRAWL_LLM_PROVIDER") or None,
             # Remote callers choose the URLs: every redirect hop is checked
             # before it is sent (see CrawlConfig.browser_strict_network).
-            "browser_strict_network": os.getenv("AGENTCRAWL_BROWSER_STRICT_NETWORK", "true").lower()
-            in {"1", "true", "yes", "on"},
+            "browser_strict_network": _env_flag("AGENTCRAWL_BROWSER_STRICT_NETWORK", True),
             # Operator-only: a request cannot pick a saved login (sessions.py).
             "browser_session": os.getenv("AGENTCRAWL_BROWSER_SESSION", "").strip() or None,
             "crawl_depth": int(os.getenv("AGENTCRAWL_CRAWL_DEPTH", "1")),
@@ -348,8 +338,7 @@ class AgentCrawlServer:
             "crawl_url_retries": int(os.getenv("AGENTCRAWL_CRAWL_URL_RETRIES", "2")),
             "crawl_retry_delay": float(os.getenv("AGENTCRAWL_CRAWL_RETRY_DELAY", "2.0")),
             "crawl_retry_max_delay": float(os.getenv("AGENTCRAWL_CRAWL_RETRY_MAX_DELAY", "60.0")),
-            "respect_robots_txt": os.getenv("AGENTCRAWL_RESPECT_ROBOTS_TXT", "true").lower()
-            in {"1", "true", "yes", "on"},
+            "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
         }
 
     def require_key(self, authorization: str | None = Header(default=None)) -> str | None:
@@ -1252,6 +1241,19 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
                 payload={"page_quantum": server.crawl_job_page_quantum},
             )
             return
+        if metadata.get("batch_all_failed"):
+            # Every URL in the batch came back with errors: report the job as
+            # failed (Firecrawl distinguishes failed from completed) instead
+            # of a clean completion. The per-page errors stay in the stored
+            # result for inspection.
+            batch_errors = result.get("errors") or []
+            server.store.update_job(
+                job_id,
+                "failed",
+                result=result,
+                error=batch_errors[0] if batch_errors else "every URL in the batch failed",
+            )
+            return
         status = "cancelled" if metadata.get("cancelled") else "completed"
         server.store.update_job(job_id, status, result=result)
         server.store.record_usage(
@@ -1321,9 +1323,16 @@ def _run_batch(
     """A durable job over a list of URLs (Firecrawl's batch scrape).
 
     Each page is saved as it finishes, so a restarted job skips the pages it
-    already has.
+    already has. A batch whose every page came back with errors is not a
+    successful run: the ``batch_all_failed`` flag makes _run_crawl_job mark
+    the job failed while keeping the per-page errors inspectable.
     """
     urls = list(payload["urls"])
+    if not urls:
+        # Defense in depth: /v2/batch/scrape refuses an empty list and /v1
+        # validates its input, but a future direct caller of this helper must
+        # fail here with a clear error, not with an IndexError on urls[0].
+        raise ValueError("batch scrape received no URLs")
     done = {doc.get("url") for doc in (resume_state or {}).get("documents") or []}
     documents: list[dict[str, Any]] = list((resume_state or {}).get("documents") or [])
     errors: list[str] = []
@@ -1349,11 +1358,12 @@ def _run_batch(
             progress_callback(progress)
         if checkpoint_callback is not None:
             checkpoint_callback({"batch_index": index}, progress, document)
+    all_failed = bool(documents) and not cancelled and all(doc.get("errors") for doc in documents)
     return {
         "source": urls[0],
         "documents": documents,
         "errors": errors,
-        "metadata": {"batch": True, "cancelled": cancelled},
+        "metadata": {"batch": True, "cancelled": cancelled, "batch_all_failed": all_failed},
     }
 
 
