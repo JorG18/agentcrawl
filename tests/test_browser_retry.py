@@ -31,7 +31,6 @@ def test_retry_returns_none_when_source_is_not_remote() -> None:
     cfg = CrawlConfig(browser_fallback=True)
     out = attempt_browser_retry(
         FIXTURE,
-        original_metadata={},
         blocked_reason="client challenge",
         original_config=cfg,
         only_main_content=True,

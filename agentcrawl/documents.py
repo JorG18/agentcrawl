@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import html
 import io
 import json
 from pathlib import Path
@@ -231,7 +230,3 @@ def _format_json_markdown(text: str) -> str:
     except Exception:
         text = text.strip()
     return f"```json\n{text}\n```"
-
-
-def html_from_plain_text(text: str) -> str:
-    return f"<pre><code>{html.escape(text)}</code></pre>"

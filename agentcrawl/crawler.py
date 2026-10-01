@@ -222,7 +222,6 @@ class AgentCrawl:
                 ):
                     retry = attempt_browser_retry(
                         source,
-                        original_metadata=fetch_metadata,
                         blocked_reason=blocked_reason,
                         original_config=self.config,
                         only_main_content=only_main_content,
@@ -1485,22 +1484,3 @@ def _load_robots(root_url: str, config: CrawlConfig) -> urllib.robotparser.Robot
     parser.set_url(robots_url)
     parser.parse(content.splitlines())
     return parser
-
-
-# ---------------------------------------------------------------------------
-# Token estimation
-# ---------------------------------------------------------------------------
-# Cheap, deterministic token estimate. The rule of thumb ~4 chars per token
-# is OpenAI's documented approximation for English-like text and is good
-# enough for an extraction-time signal that consumers can compare against
-# raw_html_tokens_estimate to see how much noise the extraction removed.
-# We deliberately avoid tiktoken at scrape time: keeping Community
-# dependency-light is more important than 5% accuracy on this metric.
-#
-# The implementation moved to ``utils.estimate_tokens`` so the browser-retry
-# document builder can report the same fields; this alias keeps the historical
-# import path working.
-
-
-def _estimate_tokens(text: str) -> int:
-    return estimate_tokens(text)

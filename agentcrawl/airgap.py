@@ -7,8 +7,8 @@ for Community:
    When set, every HTTP request performed through the urllib opener is
    intercepted and validated against a domain allowlist. Anything not
    matching the target's host (or subdomains in the allowlist) raises
-   ``AirgapViolation``. The hook is implemented as an opener factory so
-   it covers the fetchers and any other urllib-based path Community has.
+   ``AirgapViolation``. The hook is a urllib handler (``_AirgapHandler``)
+   that the HTTP fetcher installs in its opener.
 
 2. **Audit** (``audit=True`` in CrawlConfig):
    Records every HTTP request the engine performs (URL, method, status,
@@ -135,31 +135,6 @@ def _match(host: str, pattern: str) -> bool:
     return False
 
 
-def is_target_host_allowed(
-    target: str,
-    allowlist: Iterable[str],
-) -> tuple[bool, str | None]:
-    """Check whether a target URL's host matches the allowlist (or the
-    target host itself). Returns (ok, reason).
-
-    Semantics:
-    - empty allowlist:  target host is allowed, nothing else is.
-    - non-empty allowlist:  any matching pattern lets the host through.
-      The ``target`` host itself is always allowed in addition to the
-      allowlist (so the user's primary URL is never blocked).
-    """
-    parsed = urlparse(target)
-    target_host = (parsed.hostname or "").lower()
-    if not target_host:
-        return False, "no host in URL"
-    allowlist_items = list(allowlist)
-    if not allowlist_items:
-        return True, None
-    if any(_match(target_host, entry) for entry in allowlist_items):
-        return True, None
-    return False, f"host not in allowlist: {target_host}"
-
-
 class _AirgapHandler(urllib.request.BaseHandler):
     """Opener handler that validates each request against the airgap
     allowlist before letting it through."""
@@ -231,43 +206,6 @@ class _AirgapHandler(urllib.request.BaseHandler):
         return request
 
     https_request = http_request  # type: ignore[assignment]
-
-
-def build_airgap_opener(
-    target: str,
-    *,
-    airgap: bool,
-    allowlist: Iterable[str] = (),
-    audit: AuditTrail | None = None,
-    target_host: str | None = None,
-) -> urllib.request.OpenerDirector:
-    """Return an opener that enforces airgap + records audit entries.
-
-    When ``airgap`` is False and ``audit`` is None, this returns the
-    default urllib opener (zero-overhead bypass).
-    """
-    if not airgap and audit is None:
-        return urllib.request.build_opener()
-    handlers: list[urllib.request.BaseHandler] = []
-    if airgap:
-        handlers.append(
-            _AirgapHandler(
-                target=target,
-                allowlist=allowlist,
-                audit=audit,
-                target_host=target_host or urlparse(target).hostname,
-                enforce=True,
-            )
-        )
-    return urllib.request.build_opener(*handlers)
-
-
-def audit_metadata_from_env() -> AuditTrail | None:
-    """Convenience helper for ad-hoc CLI use: build an AuditTrail only
-    when ``AGENTCRAWL_AUDIT=1`` is set."""
-    if os.environ.get("AGENTCRAWL_AUDIT", "").lower() in {"1", "true", "yes"}:
-        return AuditTrail()
-    return None
 
 
 def airgap_from_env(

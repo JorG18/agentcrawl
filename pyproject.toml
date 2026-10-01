@@ -67,8 +67,6 @@ ollama = [
   "langchain-ollama>=1.1.0,<2.0.0",
   "pydantic>=2.13.4,<3.0.0",
 ]
-tracking = ["burr>=0.40.2"]
-rag = ["qdrant-client>=1.18.0,<2.0.0"]
 server = [
   "fastapi>=0.125.0,<1.0.0",
   "pydantic>=2.13.4,<3.0.0",

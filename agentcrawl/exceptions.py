@@ -19,7 +19,3 @@ class FetchError(AgentCrawlError):
         super().__init__(message)
         self.error_type = error_type
         self.status_code = status_code
-
-
-class ExtractionError(AgentCrawlError):
-    """Raised when LLM extraction or schema validation fails."""

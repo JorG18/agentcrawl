@@ -14,7 +14,7 @@ import urllib.parse
 from typing import Any, NamedTuple
 
 from . import __version__
-from .config import DEFAULT_USER_AGENT, CrawlConfig, local_files_root_from_env
+from .config import DEFAULT_USER_AGENT, CrawlConfig, _env_flag, local_files_root_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
 from .crawler import AgentCrawl
@@ -298,15 +298,8 @@ class AgentCrawlServer:
         # unauthenticated information disclosure on any network-exposed
         # deployment, so it now follows the API auth setting. Operators who
         # want the header-less browser view opt out explicitly here.
-        self.dashboard_public = os.getenv("AGENTCRAWL_DASHBOARD_PUBLIC", "").lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        self.allow_private_network = os.getenv(
-            "AGENTCRAWL_ALLOW_PRIVATE_NETWORK", "false"
-        ).lower() in {"1", "true", "yes", "on"}
+        self.dashboard_public = _env_flag("AGENTCRAWL_DASHBOARD_PUBLIC", False)
+        self.allow_private_network = _env_flag("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", False)
         # Web search is opt-in and operator-controlled: queries leave the host
         # for a third-party engine, so a request cannot pick or enable one.
         self.search_engine = os.getenv("AGENTCRAWL_SEARCH_ENGINE", "none").strip().lower()
@@ -321,13 +314,11 @@ class AgentCrawlServer:
             "camofox_base_url": os.getenv("AGENTCRAWL_CAMOFOX_URL", "http://127.0.0.1:9377"),
             "camofox_access_key": os.getenv("AGENTCRAWL_CAMOFOX_ACCESS_KEY") or None,
             "camofox_user_id": os.getenv("AGENTCRAWL_CAMOFOX_USER_ID", "agentcrawl"),
-            "headless": os.getenv("AGENTCRAWL_HEADLESS", "true").lower()
-            in {"1", "true", "yes", "on"},
+            "headless": _env_flag("AGENTCRAWL_HEADLESS", True),
             "timeout_ms": int(os.getenv("AGENTCRAWL_TIMEOUT_MS", "30000")),
             "http_retries": int(os.getenv("AGENTCRAWL_HTTP_RETRIES", "2")),
             "http_retry_delay": float(os.getenv("AGENTCRAWL_HTTP_RETRY_DELAY", "1.0")),
-            "browser_fallback": os.getenv("AGENTCRAWL_BROWSER_FALLBACK", "true").lower()
-            in {"1", "true", "yes", "on"},
+            "browser_fallback": _env_flag("AGENTCRAWL_BROWSER_FALLBACK", True),
             "domain_min_delay": float(os.getenv("AGENTCRAWL_DOMAIN_MIN_DELAY", "0.0")),
             "user_agent": os.getenv(
                 "AGENTCRAWL_USER_AGENT",
@@ -339,8 +330,7 @@ class AgentCrawlServer:
             "llm_provider": os.getenv("AGENTCRAWL_LLM_PROVIDER") or None,
             # Remote callers choose the URLs: every redirect hop is checked
             # before it is sent (see CrawlConfig.browser_strict_network).
-            "browser_strict_network": os.getenv("AGENTCRAWL_BROWSER_STRICT_NETWORK", "true").lower()
-            in {"1", "true", "yes", "on"},
+            "browser_strict_network": _env_flag("AGENTCRAWL_BROWSER_STRICT_NETWORK", True),
             # Operator-only: a request cannot pick a saved login (sessions.py).
             "browser_session": os.getenv("AGENTCRAWL_BROWSER_SESSION", "").strip() or None,
             "crawl_depth": int(os.getenv("AGENTCRAWL_CRAWL_DEPTH", "1")),
@@ -348,8 +338,7 @@ class AgentCrawlServer:
             "crawl_url_retries": int(os.getenv("AGENTCRAWL_CRAWL_URL_RETRIES", "2")),
             "crawl_retry_delay": float(os.getenv("AGENTCRAWL_CRAWL_RETRY_DELAY", "2.0")),
             "crawl_retry_max_delay": float(os.getenv("AGENTCRAWL_CRAWL_RETRY_MAX_DELAY", "60.0")),
-            "respect_robots_txt": os.getenv("AGENTCRAWL_RESPECT_ROBOTS_TXT", "true").lower()
-            in {"1", "true", "yes", "on"},
+            "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
         }
 
     def require_key(self, authorization: str | None = Header(default=None)) -> str | None:
