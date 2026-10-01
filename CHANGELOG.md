@@ -4,17 +4,38 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
-## Unreleased
+## 0.5.1 - 2026-09-30
+
+Fixes from an adversarial review of the server, fetchers and job storage, plus dead code and unused extras removed.
 
 ### Fixed
 
 - **LLM calls on current Claude models.** A temperature of 0.0 was sent on every LLM call; Claude Opus 5.5, Sonnet 5.5 and Fable reject any non-default temperature, so extraction, schema generation and summaries all failed on them. `llm_temperature` is now sent only when set.
+- **Cancelling a job during its last page sticks.** The worker checks for a cancel between pages, so a cancel that arrived while the last page was being scraped was accepted (`cancelling`) and then overwritten with `completed`. The job now ends `cancelled`, keeping the pages already scraped.
+- **A batch where every URL failed is a `failed` job**, as in Firecrawl, with the per-page errors still in the result; a partial failure still completes.
+- **`/v2/batch/scrape` deduplicates URLs** (first occurrence keeps its place), so a repeated URL is scraped and billed once.
+- **`/v2` actions are checked at the border**: more than 25 steps, or a step outside the limits, is a `400` before any job is created.
+- **The page budget bounds every wait**: Camofox requests (a hung service held the worker for the full `timeout_ms`) and the interstitial poll (it could overshoot the deadline by up to 500 ms).
+- **Restarting one worker no longer requeues its peers' jobs.** With `uvicorn --workers N`, each worker starting up reverted every `running` job to `queued`, pausing jobs that were still running elsewhere with a false "Recovered interrupted job" error. Only jobs whose schedule lease is missing or expired are recovered.
+- **Redirect-past-certificate targets pass the URL checks**: a `Location` with embedded credentials or an invalid port is refused, and the honest `tls_error` stands.
+- **Structured-output errors are classified and sanitized** (`[rate_limited] ... (next_step: ...)`) instead of the provider's raw message; the automatic reattempt is unchanged.
+- `dns_pinned` in the metadata says whether the fetch went through the pinned HTTP path (absent for local files); a response body over `max_response_bytes` is cut before the oversized chunk is kept.
 - **Tool descriptions matched 0.5.0 again.** MCP `extract_structured` said "no LLM" although `describe` uses one; `scrape_url`'s `use_cache` and `cache_ttl_seconds` said "server mode" although they also set the local reuse window; `scrape_url` now points agents at `metadata.next_step`. The agent install guide said "tagged GitHub release" above a PyPI command.
 
 ### Changed
 
 - **Schema extraction uses the model's structured output** (LangChain `with_structured_output`) when the model offers it; plain callables keep the JSON prompt and parser.
 - Summaries are asked for by purpose ("for someone deciding whether to read it in full") instead of a sentence count.
+- Boolean environment variables set to an empty string now take their default (`AGENTCRAWL_HEADLESS=""` meant `false` in the server and the default elsewhere).
+
+### Deprecated
+
+- **`geoip`, `humanize` and `reattempt_condition` have no effect** and will be removed in 0.6. They still load, with a `DeprecationWarning`. `geoip` and `humanize` never did anything; an automatic reattempt now always follows "empty answer or validation error", which was the default.
+
+### Removed
+
+- The `tracking` (burr) and `rag` (qdrant-client) extras: nothing used them. `simpleeval` left the `quality` extra.
+- Unused helpers: `airgap.build_airgap_opener`, `airgap.is_target_host_allowed`, `airgap.audit_metadata_from_env`, `documents.html_from_plain_text`, `parsing.strip_boilerplate`, `exceptions.ExtractionError`, and the `crawler._estimate_tokens` alias (use `utils.estimate_tokens`).
 
 ## 0.5.0 - 2026-09-29
 
