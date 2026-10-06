@@ -844,3 +844,60 @@ def test_browser_is_launched_once_for_many_pages(monkeypatch) -> None:
     # A different launch setting (a proxy) gets a browser of its own.
     _fetch_playwright("https://example.com/", CrawlConfig(network_idle=False, proxy="http://p:1"))
     assert len(launches) == 2 and browser.closed == 1
+
+
+class _TurnstilePage:
+    """A "Just a moment" page whose Turnstile clears once its checkbox is ticked."""
+
+    def __init__(self, box: dict | None):
+        self.clicks: list[tuple[float, float]] = []
+        box_ = box
+
+        class _Element:
+            def bounding_box(self):
+                return box_
+
+        class _Frame:
+            url = "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile"
+
+            def frame_element(self):
+                return _Element()
+
+        page = self
+
+        class _Mouse:
+            def click(self, x, y, delay):
+                page.clicks.append((x, y))
+
+        self.frames = [_Frame()]
+        self.mouse = _Mouse()
+
+    def title(self):
+        return "The real page" if self.clicks else "Just a moment..."
+
+    def wait_for_timeout(self, ms):
+        import time
+
+        time.sleep(ms / 1000)
+
+    def wait_for_load_state(self, state, timeout):
+        pass
+
+
+def test_turnstile_checkbox_is_ticked_when_the_page_does_not_clear(monkeypatch) -> None:
+    monkeypatch.setattr(fetchers, "_FIRST_CLICK_AFTER_S", 0.0)
+    page = _TurnstilePage({"x": 100, "y": 200, "width": 300, "height": 65})
+    capture: dict = {}
+    fetchers._wait_out_interstitial(page, 5_000, click=True, capture=capture)
+    assert page.clicks == [(128, 232.5)]  # the checkbox, left side of the widget
+    assert capture["challenge_clicks"] == 1
+
+
+def test_turnstile_is_not_clicked_when_disabled_or_invisible(monkeypatch) -> None:
+    monkeypatch.setattr(fetchers, "_FIRST_CLICK_AFTER_S", 0.0)
+    page = _TurnstilePage({"x": 0, "y": 0, "width": 300, "height": 65})
+    fetchers._wait_out_interstitial(page, 700, click=False)
+    assert page.clicks == []
+    hidden = _TurnstilePage({"x": 0, "y": 0, "width": 0, "height": 0})
+    fetchers._wait_out_interstitial(hidden, 700, click=True)
+    assert hidden.clicks == []

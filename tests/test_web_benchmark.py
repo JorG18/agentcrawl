@@ -232,3 +232,11 @@ def test_sitemap_children_matching_the_category_are_read_first(monkeypatch) -> N
     )
     assert url == "https://shop.com/product/blue-kettle"
     assert read[2] == "https://shop.com/sitemap-products.xml"
+
+
+def test_a_sitemap_url_list_is_content_not_thin() -> None:
+    from benchmarks.web.report import classify
+
+    urls = "\n".join(f"- https://example.com/page/{n}" for n in range(6))
+    assert classify({"markdown": urls}) == "content"
+    assert classify({"markdown": "- https://example.com/a"}) == "thin"

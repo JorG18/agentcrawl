@@ -14,6 +14,7 @@ import pathlib
 import atexit
 import concurrent.futures
 import queue
+import random
 import re
 import sys
 import threading
@@ -300,7 +301,12 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     if metadata.get("fetcher") in {"playwright", "camofox"}:
         if isinstance(capture.get("status"), int):
             metadata["browser_status"] = capture["status"]
-        for key in ("challenge_waited_ms", "network_idle_timeout", "stealth_retry"):
+        for key in (
+            "challenge_waited_ms",
+            "challenge_clicks",
+            "network_idle_timeout",
+            "stealth_retry",
+        ):
             if capture.get(key):
                 metadata[key] = capture[key]
     if config.browser_session and metadata.get("fetcher") == "playwright":
@@ -1264,7 +1270,12 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             # The navigation itself was refused: report the guard's
             # reason instead of Chromium's net::ERR_BLOCKED_BY_CLIENT.
             raise FetchError(guard.blocked[0]["reason"])
-        waited = _wait_out_interstitial(page, _budget_ms(config.browser_challenge_wait_ms))
+        waited = _wait_out_interstitial(
+            page,
+            _budget_ms(config.browser_challenge_wait_ms),
+            click=config.browser_challenge_click,
+            capture=capture,
+        )
         if waited and capture is not None:
             capture["challenge_waited_ms"] = waited
         if config.browser_wait_for_selector:
@@ -1358,20 +1369,32 @@ _SELF_CLEARING_TITLE_RE = re.compile(
     re.IGNORECASE,
 )
 _INTERSTITIAL_POLL_MS = 500
+# Cloudflare's Turnstile widget. Its checkbox sits at the left of the widget,
+# vertically centred; a managed challenge clears once a real browser ticks it.
+_TURNSTILE_FRAME_RE = re.compile(r"^https://challenges\.cloudflare\.com/")
+_FIRST_CLICK_AFTER_S = 2.0  # most "Just a moment" pages clear with no click
+_CLICK_EVERY_S = 3.0
+_MAX_CHALLENGE_CLICKS = 3
 
 
-def _wait_out_interstitial(page: Any, budget_ms: int) -> int:
+def _wait_out_interstitial(
+    page: Any, budget_ms: int, *, click: bool = False, capture: dict[str, Any] | None = None
+) -> int:
     """Wait up to ``budget_ms`` for a self-clearing interstitial to go away.
 
-    Only waits: the page's own script decides, nothing is solved, clicked or
-    disguised. Returns the milliseconds spent waiting (0 when the page was not
-    an interstitial). When the budget runs out the interstitial is returned as
-    is and reported as ``client_challenge``.
+    The page's own script decides. With ``click``, a Cloudflare Turnstile
+    checkbox still showing after a moment is ticked, as a person would, in
+    the user's own browser: no solver service, no CAPTCHA images. Returns the
+    milliseconds spent waiting (0 when the page was not an interstitial). When
+    the budget runs out the interstitial is returned as is and reported as
+    ``client_challenge``.
     """
     if budget_ms <= 0 or not _SELF_CLEARING_TITLE_RE.match(_safe_title(page)):
         return 0
     started = time.monotonic()
     deadline = started + budget_ms / 1000
+    clicks = 0
+    next_click = started + _FIRST_CLICK_AFTER_S
     while True:
         remaining_ms = int((deadline - time.monotonic()) * 1000)
         if remaining_ms <= 0:
@@ -1379,6 +1402,12 @@ def _wait_out_interstitial(page: Any, budget_ms: int) -> int:
         # One poll never runs past the deadline: a fixed 500 ms wait could
         # overshoot an almost-spent budget by nearly that much.
         page.wait_for_timeout(min(_INTERSTITIAL_POLL_MS, remaining_ms))
+        if click and clicks < _MAX_CHALLENGE_CLICKS and time.monotonic() >= next_click:
+            if _click_turnstile(page):
+                clicks += 1
+                if capture is not None:
+                    capture["challenge_clicks"] = clicks
+            next_click = time.monotonic() + _CLICK_EVERY_S
         title = _safe_title(page)
         if title and not _SELF_CLEARING_TITLE_RE.match(title):
             try:
@@ -1390,6 +1419,27 @@ def _wait_out_interstitial(page: Any, budget_ms: int) -> int:
                 pass
             break
     return max(1, int((time.monotonic() - started) * 1000))
+
+
+def _click_turnstile(page: Any) -> bool:
+    """Tick the Turnstile checkbox if its widget is visible; True when clicked."""
+    try:
+        for frame in page.frames:
+            if not _TURNSTILE_FRAME_RE.match(frame.url or ""):
+                continue
+            box = frame.frame_element().bounding_box()
+            if not box or box["width"] < 30 or box["height"] < 30:
+                return False  # still loading, or an invisible widget
+            page.mouse.click(
+                box["x"] + min(28, box["width"] / 2),
+                box["y"] + box["height"] / 2,
+                delay=random.randint(80, 180),
+            )
+            return True
+    except Exception:
+        # Mid-navigation: the challenge cleared while we looked.
+        return False
+    return False
 
 
 def _safe_title(page: Any) -> str:

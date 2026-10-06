@@ -71,8 +71,19 @@ _VENDOR_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("recaptcha/hcaptcha", re.compile(r"g-recaptcha|h-captcha|hcaptcha\.com", re.I)),
 )
 
+# Markers that only a bot wall carries: enough alone on a very short page.
+# Amazon's "continue shopping" wall is a bare form posting here, in every
+# storefront language.
+_WALL_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("amazon bot check", re.compile(r"/errors/validateCaptcha", re.I)),
+)
+
 # Challenge wording in the readable text.
 _PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "click the button below to continue shopping",
+        re.compile(r"click the button below to continue shopping", re.I),
+    ),
     ("client challenge", re.compile(r"client challenge", re.I)),
     (
         "required part of this site couldn't load",
@@ -151,13 +162,14 @@ def detect_challenge(html: str, visible_text: str) -> ChallengeVerdict:
         f"vendor: {label}" for label, pattern in _VENDOR_MARKERS if pattern.search(html or "")
     ]
     phrases = [label for label, pattern in _PHRASES if pattern.search(visible_text or "")]
+    walls = [f"vendor: {label}" for label, pattern in _WALL_MARKERS if pattern.search(html or "")]
     kinds = sum(1 for group in (titles, vendors, phrases) if group)
     # Wording alone is enough only on a very short page (an interstitial is a
     # sentence or two); otherwise two independent kinds of evidence are needed,
     # because each one alone also shows up on ordinary pages: "Access denied"
     # error pages, reCAPTCHA on a login form, a short post about bot checks.
-    if kinds >= 2 or (phrases and text_chars <= VERY_SHORT_PAGE_CHARS):
-        verdict.signals.extend(titles + vendors + phrases)
+    if kinds >= 2 or ((phrases or walls) and text_chars <= VERY_SHORT_PAGE_CHARS):
+        verdict.signals.extend(titles + vendors + walls + phrases)
     return verdict
 
 

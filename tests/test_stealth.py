@@ -37,7 +37,7 @@ def engines(monkeypatch):
         "find_spec",
         lambda name, *a: object() if name == "patchright" else real_find_spec(name, *a),
     )
-    monkeypatch.setattr(fetchers, "_wait_out_interstitial", lambda page, budget: 0)
+    monkeypatch.setattr(fetchers, "_wait_out_interstitial", lambda page, budget, **kwargs: 0)
     return playwright, patchright
 
 

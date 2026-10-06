@@ -39,6 +39,8 @@ from ..compare import _plain
 
 MIN_CONTENT_CHARS = 300
 MIN_SENTENCE_CHARS = 50
+MIN_URL_LINES = 5
+_URL_LINE_RE = re.compile(r"^\s*(?:[-*]\s+)?https?://\S+\s*$", re.M)
 
 _JUNK_RE = re.compile(
     r"just a moment|verify(?:ing)? (?:that )?you are (?:a )?human|checking your browser|"
@@ -61,6 +63,9 @@ def classify(result: dict[str, Any]) -> str:
     text = _plain(result.get("markdown") or "")
     readable = re.sub(r"\s+", " ", re.sub(r"https?://\S+|[#|>\-*_=\[\]()]", " ", text)).strip()
     if not readable:
+        # A sitemap read as its list of URLs is the document, not a thin page.
+        if not result.get("error") and len(_URL_LINE_RE.findall(text)) >= MIN_URL_LINES:
+            return "content"
         return "failed" if result.get("error") else "thin"
     # Challenge wording on a short page is a challenge; a long article may quote it.
     if len(readable) < 3000 and _JUNK_RE.search(readable):
