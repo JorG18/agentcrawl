@@ -572,8 +572,23 @@ def _is_hidden(node: _HTMLNode, *, classes: bool = True) -> bool:
         return _is_link_heavy(node)
     if visually_hidden and classes:
         return True
-    style = node.attr("style").replace(" ", "").lower()
-    return "display:none" in style or "visibility:hidden" in style
+    style = _style(node)
+    if style.get("display") == "none" or style.get("visibility") == "hidden":
+        return True
+    # Hidden text for prompt injection. A container that zeroes font-size to
+    # close inline-block gaps sets it again on its children: that is layout.
+    # opacity:0 is left alone: pages fade whole sections in with it.
+    return _ZERO_SIZE_RE.match(style.get("font-size", "x")) is not None and not any(
+        "font-size" in _style(child) for child in _walk_nodes(node)
+    )
+
+
+_ZERO_SIZE_RE = re.compile(r"0+(?:\.0+)?(?:px|pt|em|rem|%)?$")
+
+
+def _style(node: _HTMLNode) -> dict[str, str]:
+    declarations = (part.partition(":") for part in node.attr("style").lower().split(";"))
+    return {name.strip(): value.strip() for name, _, value in declarations if value.strip()}
 
 
 def _legacy_strip_boilerplate(html: str) -> str:
@@ -586,7 +601,15 @@ def _fallback_text(html: str) -> str:
     return html_module.unescape(" ".join(text.split()))
 
 
+# Invisible characters that carry no text: zero-width space/word joiner/BOM,
+# the Mongolian vowel separator, and Unicode tag characters (U+E0000-E007F,
+# used to smuggle instructions to a model). ZWJ/ZWNJ stay: emoji sequences
+# and Persian or Indic spelling need them.
+_INVISIBLE_CHARS = dict.fromkeys([0x200B, 0x2060, 0xFEFF, 0x180E, *range(0xE0000, 0xE0080)])
+
+
 def _clean_markdown(markdown: str, code_lang_map: dict[int, str] | None = None) -> str:
+    markdown = markdown.translate(_INVISIBLE_CHARS)
     lines = [line.rstrip() for line in markdown.replace("\r\n", "\n").splitlines()]
     cleaned: list[str] = []
     blank = False
