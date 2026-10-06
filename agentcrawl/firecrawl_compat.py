@@ -22,6 +22,8 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse
 
 from . import server as v1
+from .config import CrawlConfig
+from .crawler import check_json_pages
 
 router = APIRouter(prefix="/v2")
 
@@ -31,6 +33,7 @@ _FORMATS = {
     "rawHtml": "html",
     "links": "links",
     "summary": "summary",  # needs AGENTCRAWL_LLM_MODEL on the server
+    "json": "json",  # same; the request picks the schema, never the model
 }
 # Accepted, with no effect on the result here.
 _IGNORED = {
@@ -84,6 +87,17 @@ def _formats(raw: Any) -> list[str]:
     return [*dict.fromkeys(formats), "metadata"]
 
 
+def _json_options(body: dict[str, Any]) -> dict[str, Any]:
+    """Schema and prompt from ``{"type": "json", ...}`` (v2) or ``jsonOptions`` (v1)."""
+    options = dict(body.get("jsonOptions") or {})
+    for item in body.get("formats") or []:
+        if isinstance(item, dict) and item.get("type") == "json":
+            options.update({k: v for k, v in item.items() if k in {"schema", "prompt"}})
+    if options.get("schema") is None and not options.get("prompt"):
+        raise _refuse("the json format needs a schema or a prompt")
+    return {"schema": options.get("schema"), "prompt": options.get("prompt")}
+
+
 def _actions(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
     steps: list[dict[str, Any]] = []
     focused: str | None = None
@@ -124,8 +138,10 @@ def _scrape_fields(body: dict[str, Any], *, skip: set[str] = frozenset()) -> dic
     """Firecrawl scrape options -> keyword arguments of the v1 request models."""
     config: dict[str, Any] = {}
     fields: dict[str, Any] = {"formats": _formats(body.get("formats"))}
+    if "json" in fields["formats"]:
+        fields["json_options"] = _json_options(body)
     for key, value in body.items():
-        if key in skip or key in _IGNORED or key == "formats":
+        if key in skip or key in _IGNORED or key in {"formats", "jsonOptions"}:
             continue
         if key == "onlyMainContent":
             fields["only_main_content"] = bool(value)
@@ -171,6 +187,8 @@ def _document(data: dict[str, Any]) -> dict[str, Any]:
         doc["links"] = data["links"]
     if "summary" in data:
         doc["summary"] = data["summary"]
+    if "json" in data:
+        doc["json"] = data["json"]
     if data.get("screenshot"):
         doc["screenshot"] = "data:image/png;base64," + data["screenshot"]
     errors = data.get("errors") or []
@@ -262,6 +280,8 @@ async def search(
     options = body.get("scrapeOptions")
     fields = _scrape_fields(options) if options else {}
     fields.pop("config", None)
+    if fields.pop("json_options", None):
+        raise _refuse("the json format is for scrape and batch scrape, not search")
     result = v1.search(
         v1.SearchRequest(
             query=body.get("query") or "",
@@ -300,6 +320,9 @@ async def crawl(request: Request, api_key: str | None = Depends(v1.server.requir
             fields["query"] = str(value)
         elif key == "scrapeOptions":
             options = _scrape_fields(value)
+            if "json_options" in options:
+                # Each crawled page would be a paid LLM call nobody counted.
+                raise _refuse("the json format is for scrape and batch scrape, not crawl")
             fields["config"] = options.get("config", {})
         elif key in _CRAWL_DEFAULTS:
             if value != _CRAWL_DEFAULTS[key]:
@@ -340,6 +363,12 @@ async def batch_scrape(
         valid = list(dict.fromkeys(valid))
     config = fields.get("config", {})
     v1.server.validate_config_override(config)
+    try:
+        check_json_pages(
+            fields["formats"], len(valid), CrawlConfig.from_dict(v1.server.merged_config({}))
+        )
+    except ValueError as exc:
+        raise _refuse(str(exc)) from exc
     authorization = request.headers.get("authorization")
     if api_key is not None and not v1.server.is_owner_key(authorization):
         v1.server.check_rate_limit(api_key, units=len(valid) - 1)
@@ -348,6 +377,7 @@ async def batch_scrape(
         "urls": valid,
         "formats": fields["formats"],
         "only_main_content": fields.get("only_main_content"),
+        "json_options": fields.get("json_options"),
         "config": config,
     }
     job_id, created = v1.server.store.create_or_get_job("crawl", payload, owner_key=api_key or "")

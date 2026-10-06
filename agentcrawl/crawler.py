@@ -167,6 +167,7 @@ class AgentCrawl:
         section: str | None = None,
         max_tokens: int | None = None,
         max_age: float = 0,
+        json_options: dict[str, Any] | None = None,
     ) -> ScrapeDocument | dict[str, Any]:
         """Read one page.
 
@@ -175,10 +176,20 @@ class AgentCrawl:
         only that section, and ``max_tokens`` caps the Markdown returned.
         ``max_age`` (seconds) reuses this process's fetch of the same page if
         it is younger than that, so reading outline then sections fetches once.
+        ``formats=["json"]`` with ``json_options={"schema": ..., "prompt": ...}``
+        adds ``json``: data extracted by the configured LLM and validated
+        against the schema (``metadata.json_error`` says why it is missing).
         """
         with page_deadline(self.config):
             return self._scrape(
-                source, formats, only_main_content, query, section, max_tokens, max_age
+                source,
+                formats,
+                only_main_content,
+                query,
+                section,
+                max_tokens,
+                max_age,
+                json_options,
             )
 
     def _scrape(
@@ -190,6 +201,7 @@ class AgentCrawl:
         section: str | None,
         max_tokens: int | None,
         max_age: float,
+        json_options: dict[str, Any] | None = None,
     ) -> ScrapeDocument | dict[str, Any]:
         requested = formats or ["markdown"]
         from .browser_retry import attempt_browser_retry  # local import keeps scrape() cheap
@@ -344,6 +356,8 @@ class AgentCrawl:
             )
             if "summary" in requested:
                 payload["summary"] = summary
+            if "json" in requested:
+                payload["json"] = self._json(document, json_options or {})
             return payload
         except FetchError as exc:
             message = str(exc)
@@ -489,6 +503,7 @@ class AgentCrawl:
         max_workers: int | None = None,
         per_host_concurrency: int = 2,
         query: str | None = None,
+        json_options: dict[str, Any] | None = None,
     ) -> list[ScrapeDocument | dict[str, Any]]:
         """Scrape several sources concurrently, returning results in input order.
 
@@ -504,6 +519,7 @@ class AgentCrawl:
         source_list = list(sources)
         if not source_list:
             return []
+        check_json_pages(formats, len(source_list), self.config)
         workers = max(1, min(max_workers or self.config.parallelism, len(source_list)))
         host_limits: dict[str, threading.BoundedSemaphore] = {}
         host_lock = threading.Lock()
@@ -523,6 +539,7 @@ class AgentCrawl:
                         formats=formats,
                         only_main_content=only_main_content,
                         query=query,
+                        json_options=json_options,
                     )
                 except Exception as exc:  # one broken source must not sink the batch
                     document = ScrapeDocument(
@@ -994,6 +1011,42 @@ class AgentCrawl:
             },
         )
 
+    def _json(self, document: ScrapeDocument, options: dict[str, Any]) -> Any:
+        """The page as data, by the user's configured LLM; ``None`` with a reason.
+
+        Same chunking, schema validation and retry as :meth:`AgentCrawler.extract`,
+        on the Markdown already read. The model, its key and endpoint come from
+        the configuration only, never from the request.
+        """
+        from .graph import CrawlGraph
+        from .llm import get_llm
+
+        schema = options.get("schema")
+        prompt = str(options.get("prompt") or "").strip()
+        if schema is None and not prompt:
+            document.metadata["json_error"] = "json needs a schema, a prompt or both"
+            return None
+        try:
+            get_llm(self.config)
+        except ValueError:
+            document.metadata["json_error"] = (
+                "no LLM configured (next_step: set AGENTCRAWL_LLM_MODEL to a model you "
+                "choose, a small one is enough, or extract the data from the markdown yourself)"
+            )
+            return None
+        graph = CrawlGraph(self.config)
+        state: Any = {
+            "prompt": prompt or "Extract the data described by the schema from this page.",
+            "schema": schema,
+            "markdown": document.markdown,
+        }
+        state = graph.reattempt_if_needed(graph.extract(graph.chunk(state)))
+        document.metadata["json_llm_calls"] = state.get("llm_calls", 0)
+        if state.get("validation_error"):
+            document.metadata["json_error"] = sanitize_error_message(state["validation_error"])
+            return None
+        return state.get("answer")
+
     def _summary(self, document: ScrapeDocument) -> str | None:
         """A short summary by the configured LLM; a failure is noted, not fatal."""
         from .llm import get_llm, invoke_llm
@@ -1251,6 +1304,16 @@ def _remember_fetch(source: str, config: CrawlConfig, html: str, metadata: dict[
         _FETCH_CACHE[(source, repr(config))] = (time.monotonic(), html, dict(metadata))
         while len(_FETCH_CACHE) > _FETCH_CACHE_SIZE:
             _FETCH_CACHE.pop(next(iter(_FETCH_CACHE)))
+
+
+def check_json_pages(formats: list[str] | None, pages: int, config: CrawlConfig) -> None:
+    """Refuse a ``json`` batch over ``llm_max_pages``: each page is a paid LLM call."""
+    if formats and "json" in formats and pages > config.llm_max_pages:
+        raise ValueError(
+            f"formats=['json'] sends each page to the LLM; {pages} pages exceed "
+            f"llm_max_pages={config.llm_max_pages} (AGENTCRAWL_LLM_MAX_PAGES). "
+            "Split the batch or raise the limit."
+        )
 
 
 def _format_document(

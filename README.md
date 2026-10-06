@@ -440,6 +440,20 @@ Do not expose the API without authentication, TLS, request limits, and network c
 
 AgentCrawl Community does not require an LLM for scraping, crawling, API, Docker, or MCP usage. Prompt-driven `extract()` (and `POST /v1/extract`) is optional: install `agentcrawl-ai[llm]` and configure `llm` or `llm_model`, or `agentcrawl-ai[ollama]` with `llm_provider="ollama"` to keep extraction on your machine. Pass a Pydantic model or a JSON Schema object as the schema: the answer is validated against it, and a wrong shape is sent back to the model with the failing path (`$.price: expected number, got string`) instead of being returned. With a model configured (`AGENTCRAWL_LLM_MODEL`, e.g. `anthropic:claude-haiku-4-5`), `generate_css_schema(url, "each product: name, price")` writes a CSS schema once, checked by running it on the page, and `formats=["summary"]` adds a short summary. Built-in web search is disabled by default; keep search in your agent/provider layer unless you explicitly configure a search backend.
 
+### Your model, your cost: pages as JSON for an agent
+
+Your agent can run on a large model while a small one you choose reads the pages. With `formats=["json"]` and a JSON Schema, the page goes to the configured model and only the validated JSON comes back, so the page never enters the agent's context. In MCP, pass `schema` to `scrape_many` (one URL is fine); in the API, `json_options: {"schema": ..., "prompt": ...}`; on `/v2`, Firecrawl's `{"type": "json", "schema": ...}` format.
+
+```bash
+# Any LangChain model id; any OpenAI-compatible endpoint works, e.g. OpenRouter:
+export AGENTCRAWL_LLM_MODEL=openai:openai/gpt-4o-mini
+export OPENAI_API_KEY=<your OpenRouter key>
+export OPENAI_BASE_URL=https://openrouter.ai/api/v1
+export AGENTCRAWL_LLM_MAX_PAGES=20   # pages one call may send to the model (default 20)
+```
+
+The model, its key and endpoint come only from your configuration, never from a request, so a caller cannot switch you to an expensive model or send your key elsewhere. A batch over `AGENTCRAWL_LLM_MAX_PAGES` is refused before any call, and crawls do not take `json` (each page would be a call). With no model configured, `metadata.json_error` says so and the agent reads the Markdown instead.
+
 ## Development
 
 ```bash

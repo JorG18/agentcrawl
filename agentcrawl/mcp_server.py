@@ -56,6 +56,15 @@ def _crawler() -> AgentCrawl:
 LOCAL_MAX_AGE_S = 600
 
 
+def _json_request(
+    formats: list[str] | None, schema: dict[str, Any] | None
+) -> tuple[list[str], dict[str, Any] | None]:
+    """Formats and json options for a call; asking for data skips the Markdown."""
+    if schema is None:
+        return formats or ["markdown", "links", "metadata"], None
+    return [*dict.fromkeys([*(formats or ["metadata"]), "json"])], {"schema": schema}
+
+
 @mcp.tool(annotations=_READS_WEB)
 def scrape_url(
     url: Annotated[str, Field(description="Public HTTP(S) page URL to extract.")],
@@ -177,24 +186,37 @@ def scrape_many(
         str | None,
         Field(description="What you are looking for; long pages keep the most relevant passages."),
     ] = None,
+    schema: Annotated[
+        dict[str, Any] | None,
+        Field(description="JSON Schema: the user's LLM returns the page as json, not text."),
+    ] = None,
 ) -> dict[str, Any]:
-    """Read several known URLs in one call, in order; each page fails on its own."""
+    """Read known URLs in one call, in order; each page fails on its own.
+
+    With schema (one URL is fine), each page comes back as json from the user's LLM.
+    """
     if len(urls) > 100:
         return {"success": False, "error": "scrape_many accepts at most 100 URLs per call."}
+    formats, json_options = _json_request(formats, schema)
     client = _client()
     if client is not None:
         return client.scrape_many(
             urls,
-            formats=formats or ["markdown", "links", "metadata"],
+            formats=formats,
+            json_options=json_options,
             only_main_content=only_main_content,
             query=query,
         )
-    documents = _crawler().scrape_many(
-        urls,
-        formats=formats or ["markdown", "links", "metadata"],
-        only_main_content=only_main_content,
-        query=query,
-    )
+    try:
+        documents = _crawler().scrape_many(
+            urls,
+            formats=formats,
+            json_options=json_options,
+            only_main_content=only_main_content,
+            query=query,
+        )
+    except ValueError as exc:  # over the LLM page cap
+        return {"success": False, "error": str(exc)}
     items = [
         {"url": url, "success": not document.get("errors"), "data": document}
         for url, document in zip(urls, (to_jsonable(doc) for doc in documents))

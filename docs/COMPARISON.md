@@ -12,6 +12,7 @@ Use this page to pick the right tool for the job. These projects overlap, but ea
 | Firecrawl | Hosted web context API with search, scrape, crawl, map, batch jobs, structured output, media parsing, SDKs, and browser actions. | Hosted API with open-source components. |
 | Crawl4AI | Deep browser and crawler control for LLM-ready Markdown, sessions, cookies, proxies, hooks, screenshots, and extraction strategies. | Local library, CLI, Docker, and self-hosted API options. |
 | ScrapeGraphAI | Prompt-driven structured extraction and graph-style scraping pipelines across websites and local documents. | Python library, hosted API, SDKs, integrations, and MCP options. |
+| Scrapling | Python scraping library with browser-fingerprinted HTTP, Playwright and stealth (Patchright) fetchers that can click through Cloudflare Turnstile, persistent sessions, and selectors that relocate elements after a site changes. | Python library, interactive shell, Docker, and MCP server (the agent picks the fetcher and a CSS selector; no main-content detection). |
 | Jina Reader | Simple URL-to-LLM-text and search-to-context access through `r.jina.ai` and `s.jina.ai`. | Hosted reader/search API with an open-source branch. |
 | Crawlee | General-purpose crawling framework with queues, routing, storage, sessions, proxies, HTTP crawlers, and browser crawlers. | Python/TypeScript crawler framework. |
 | Stagehand | Browser automation with natural-language actions, repeatable workflows, and structured browser extraction. | Browser automation SDK. |
@@ -39,6 +40,8 @@ Use Firecrawl when you want a hosted API with broad web-scale infrastructure, me
 Use Crawl4AI when your workflow needs fine-grained browser automation controls, custom hooks, proxy/session handling, screenshots, or advanced local crawling strategies.
 
 Use ScrapeGraphAI when your main workflow is prompt-driven structured extraction through LLM pipeline graphs, especially across mixed web and local document sources.
+
+Use Scrapling when you write the scraper yourself in Python and want low-level fetcher control, stealth browsing with a Turnstile click, and selectors that survive layout changes.
 
 Use Jina Reader when you want the simplest possible hosted URL-to-text or search-to-context endpoint.
 
