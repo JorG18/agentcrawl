@@ -4,13 +4,15 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
-## Unreleased (0.5.2)
+## 0.5.2 - 2026-10-05
+
+Pages as JSON from the model you configure, hidden-text hardening against prompt injection, and MCP tool annotations.
 
 ### Added
 
-- **Scrapling in the comparisons.** `docs/COMPARISON.md` lists it; `benchmarks/compare.py` and the web benchmark can run it.
 - **Pages as JSON from your own model (`formats=["json"]`).** A JSON Schema (and/or a prompt) turns each page into validated data by the LLM you configured (`AGENTCRAWL_LLM_MODEL`; any OpenAI-compatible endpoint, e.g. OpenRouter, via `OPENAI_BASE_URL`), with the same validation and retry as `extract()`. Your agent gets only the JSON, not the page. MCP: `schema` on `scrape_many` (one URL is fine). API: `json_options` on `/v1/scrape` and `/v1/scrape_many`. Firecrawl `/v2`: the `json` format on scrape and batch scrape. The model, key and endpoint are configuration only, never request fields. `AGENTCRAWL_LLM_MAX_PAGES` (default 20) refuses a bigger batch before any call; `/v2` crawl and search refuse `json`. Without a model, `metadata.json_error` says what to do. A missing `json` is not cached.
 - **MCP tool annotations.** Every tool says whether it only reads (`readOnlyHint`), reaches the open web (`openWorldHint`), or deletes something (`destructiveHint`, only `clear_cache`). Clients use these to ask for fewer confirmations on reads.
+- **Scrapling in the comparisons.** `docs/COMPARISON.md` lists it; `benchmarks/compare.py` and the web benchmark can run it.
 
 ### Fixed
 
