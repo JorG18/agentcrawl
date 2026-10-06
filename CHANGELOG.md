@@ -6,6 +6,10 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ## Unreleased (0.5.2)
 
+### Added
+
+- **MCP tool annotations.** Every tool says whether it only reads (`readOnlyHint`), reaches the open web (`openWorldHint`), or deletes something (`destructiveHint`, only `clear_cache`). Clients use these to ask for fewer confirmations on reads.
+
 ### Fixed
 
 - **Hidden text no longer reaches the model.** Text styled `font-size:0` (a prompt-injection trick) is dropped, unless it is a container that only zeroes the gap between inline blocks and sizes its children again. Invisible characters are stripped from the Markdown: zero-width space, word joiner, BOM, Mongolian vowel separator and Unicode tag characters (U+E0000-E007F, used to smuggle instructions to a model). Zero-width joiners stay (emoji, Persian and Indic spelling), and `opacity:0` is not treated as hidden: pages fade whole sections in from it.

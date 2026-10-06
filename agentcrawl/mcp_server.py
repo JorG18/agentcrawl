@@ -5,6 +5,7 @@ from typing import Annotated, Any
 
 try:
     from mcp.server.fastmcp import FastMCP
+    from mcp.types import ToolAnnotations
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError("Install agentcrawl[mcp] to run the MCP server.") from exc
 from pydantic import Field
@@ -15,6 +16,18 @@ from .remote_client import AgentCrawlClient
 from .serializers import to_jsonable
 
 mcp = FastMCP("agentcrawl")
+
+# Hints for clients (permission prompts, parallel calls). Reads change nothing
+# on the user's side; the server cache they fill is not the user's data.
+_READS_WEB = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
+_READS_LOCAL = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+_STARTS_JOB = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True)
+_CANCELS_JOB = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+)
+_DELETES_CACHE = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False
+)
 
 
 def _client() -> AgentCrawlClient | None:
@@ -43,7 +56,7 @@ def _crawler() -> AgentCrawl:
 LOCAL_MAX_AGE_S = 600
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_WEB)
 def scrape_url(
     url: Annotated[str, Field(description="Public HTTP(S) page URL to extract.")],
     formats: Annotated[
@@ -146,7 +159,7 @@ def scrape_url(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_WEB)
 def scrape_many(
     urls: Annotated[
         list[str],
@@ -197,7 +210,7 @@ def scrape_many(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_WEB)
 def search_web(
     query: Annotated[str, Field(description="What to search the web for.", min_length=1)],
     limit: Annotated[
@@ -233,7 +246,7 @@ def search_web(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_WEB)
 def check_changes(
     url: Annotated[str, Field(description="Public HTTP(S) page URL to re-read.")],
     previous_markdown: Annotated[
@@ -272,7 +285,7 @@ def check_changes(
     return _crawler().diff(url, previous if has_previous else None)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_WEB)
 def extract_structured(
     url: Annotated[str, Field(description="Public HTTP(S) page URL to extract from.")],
     schema: Annotated[
@@ -322,7 +335,7 @@ def extract_structured(
     return {"success": not result["errors"], "data": result}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_WEB)
 def map_site(
     url: Annotated[str, Field(description="Public HTTP(S) site or page URL.")],
     max_urls: Annotated[
@@ -337,7 +350,7 @@ def map_site(
     return to_jsonable(_crawler().map(url, max_urls=max_urls))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_STARTS_JOB)
 def crawl_site(
     url: Annotated[str, Field(description="Public HTTP(S) starting URL.")],
     max_pages: Annotated[
@@ -381,7 +394,7 @@ def crawl_site(
     return to_jsonable(_crawler().crawl(url, max_pages=max_pages, max_depth=max_depth, query=query))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_LOCAL)
 def get_job(
     job_id: Annotated[str, Field(description="Job ID returned by crawl_site.")],
     offset: Annotated[
@@ -405,7 +418,7 @@ def get_job(
     return client.job(job_id, offset=offset, limit=limit)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_LOCAL)
 def job_events(
     job_id: Annotated[str, Field(description="Crawl job ID to inspect.")],
     event_type: Annotated[
@@ -421,7 +434,7 @@ def job_events(
     return client.job_events(job_id, event_type=event_type, limit=limit)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_CANCELS_JOB)
 def cancel_job(
     job_id: Annotated[str, Field(description="Running or queued crawl job ID.")],
 ) -> dict[str, Any]:
@@ -432,7 +445,7 @@ def cancel_job(
     return client.cancel_job(job_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_LOCAL)
 def inspect_failures(
     job_id: Annotated[
         str | None,
@@ -466,7 +479,7 @@ def inspect_failures(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_STARTS_JOB)
 def retry_failures(
     job_id: Annotated[
         str, Field(description="Crawl job ID whose retryable URL failures to requeue.")
@@ -498,7 +511,7 @@ def retry_failures(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_LOCAL)
 def usage() -> dict[str, Any]:
     """Return AgentCrawl usage counters. This is an operator tool, not scraping."""
     client = _client()
@@ -507,7 +520,7 @@ def usage() -> dict[str, Any]:
     return client.usage()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READS_LOCAL)
 def cache_stats() -> dict[str, Any]:
     """Return AgentCrawl cache, job, and service statistics for diagnostics."""
     client = _client()
@@ -516,7 +529,7 @@ def cache_stats() -> dict[str, Any]:
     return client.stats()
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DELETES_CACHE)
 def clear_cache(
     domain: Annotated[
         str | None,

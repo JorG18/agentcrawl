@@ -137,3 +137,14 @@ def test_mcp_forwards_idempotency_and_pagination(monkeypatch) -> None:
             },
         ),
     ]
+
+
+def test_every_tool_tells_clients_whether_it_changes_anything() -> None:
+    from agentcrawl.mcp_server import mcp
+
+    tools = {tool.name: tool.annotations for tool in mcp._tool_manager.list_tools()}
+    assert all(annotations is not None for annotations in tools.values()), tools
+    assert tools["scrape_url"].readOnlyHint and tools["get_job"].readOnlyHint
+    assert tools["crawl_site"].readOnlyHint is False
+    assert tools["crawl_site"].destructiveHint is False
+    assert tools["clear_cache"].destructiveHint is True
