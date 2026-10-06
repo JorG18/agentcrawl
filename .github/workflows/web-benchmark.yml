@@ -25,7 +25,7 @@ on:
         default: "2026"
       tools:
         description: Comma-separated tools
-        default: "agentcrawl,crawl4ai,firecrawl,scrapegraph,tavily"
+        default: "agentcrawl,crawl4ai,scrapling,firecrawl,scrapegraph,tavily"
       sample_from_run:
         description: Reuse the sample of an earlier run (its run id) instead of drawing one
         default: ""
@@ -102,6 +102,9 @@ jobs:
           python -m pip install --upgrade pip
           if [ "${{ matrix.tool }}" = "crawl4ai" ]; then
             python -m pip install -e . crawl4ai
+          elif [ "${{ matrix.tool }}" = "scrapling" ]; then
+            python -m pip install -e . "scrapling[fetchers,ai]"
+            scrapling install
           else
             python -m pip install -e ".[browser]"
           fi
