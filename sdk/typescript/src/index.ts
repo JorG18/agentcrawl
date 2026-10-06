@@ -15,6 +15,8 @@ export type Format =
   | "links"
   | "metadata"
   | "chunks"
+  | "json"
+  | "summary"
   | "screenshot";
 
 export type BrowserAction =
@@ -36,6 +38,8 @@ export interface ScrapeOptions {
   formats?: Format[];
   onlyMainContent?: boolean;
   query?: string;
+  /** With formats ["json"]: the server's own LLM returns the page as this data. */
+  json?: { schema?: Json; prompt?: string };
   cache?: boolean;
   cacheTtlSeconds?: number;
   config?: CrawlConfig;
@@ -200,6 +204,7 @@ function scrapeBody(options: ScrapeOptions): Json {
     formats: options.formats ?? ["markdown", "links", "metadata"],
     only_main_content: options.onlyMainContent,
     query: options.query,
+    json_options: options.json,
     cache: options.cache ?? true,
     cache_ttl_seconds: options.cacheTtlSeconds,
     config: options.config ?? {},

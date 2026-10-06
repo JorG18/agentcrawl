@@ -106,3 +106,14 @@ test("an HTTP error throws AgentCrawlError with the server's detail", async () =
     return true;
   });
 });
+
+test("scrapeMany asks for json with the schema, never a model", async () => {
+  const client = new AgentCrawlClient({ baseUrl });
+  const schema = { type: "object", properties: { name: { type: "string" } } };
+
+  await client.scrapeMany(["https://example.com"], { formats: ["json"], json: { schema } });
+
+  const body = seen.at(-1)!.body;
+  assert.deepEqual(body.json_options, { schema });
+  assert.deepEqual(body.formats, ["json"]);
+});
