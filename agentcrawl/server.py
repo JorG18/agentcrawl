@@ -17,7 +17,7 @@ from . import __version__
 from .config import DEFAULT_USER_AGENT, CrawlConfig, _env_flag, local_files_root_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
-from .crawler import AgentCrawl
+from .crawler import AgentCrawl, check_json_pages
 from .css_extract import validate_css_schema
 from .html_tools import validate_url_patterns
 from .search import search_web
@@ -99,6 +99,16 @@ class JobScope(NamedTuple):
     is_owner: bool
 
 
+class JsonOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_: dict[str, Any] | None = Field(default=None, alias="schema")
+    prompt: str | None = Field(default=None, max_length=10_000)
+
+    def as_options(self) -> dict[str, Any]:
+        return {"schema": self.schema_, "prompt": self.prompt}
+
+
 class ScrapeRequest(BaseModel):
     url: str = Field(min_length=1, max_length=8192)
     formats: list[str] = Field(default_factory=lambda: ["markdown", "links", "metadata"])
@@ -109,6 +119,9 @@ class ScrapeRequest(BaseModel):
     # ``formats=["outline"]`` lists the sections; ``section`` returns one.
     section: str | None = Field(default=None, max_length=500)
     max_tokens: int | None = Field(default=None, ge=50, le=1_000_000)
+    # formats=["json"]: {"schema": JSON Schema, "prompt": str}; the model is the
+    # operator's (AGENTCRAWL_LLM_MODEL), never chosen by the request.
+    json_options: JsonOptions | None = None
     cache: bool = True
     cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
     config: dict[str, Any] = Field(default_factory=dict)
@@ -122,6 +135,7 @@ class ScrapeManyRequest(BaseModel):
     formats: list[str] = Field(default_factory=lambda: ["markdown", "links", "metadata"])
     only_main_content: bool | None = None
     query: str | None = Field(default=None, max_length=1_000)
+    json_options: JsonOptions | None = None
     cache: bool = True
     cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
     config: dict[str, Any] = Field(default_factory=dict)
@@ -328,6 +342,7 @@ class AgentCrawlServer:
             # Operator's model for summaries and schema generation.
             "llm_model": os.getenv("AGENTCRAWL_LLM_MODEL") or None,
             "llm_provider": os.getenv("AGENTCRAWL_LLM_PROVIDER") or None,
+            "llm_max_pages": int(os.getenv("AGENTCRAWL_LLM_MAX_PAGES", "20")),
             # Remote callers choose the URLs: every redirect hop is checked
             # before it is sent (see CrawlConfig.browser_strict_network).
             "browser_strict_network": _env_flag("AGENTCRAWL_BROWSER_STRICT_NETWORK", True),
@@ -754,13 +769,16 @@ def _scrape_one(request: ScrapeRequest, api_key: str | None) -> dict[str, Any]:
             query=request.query,
             section=request.section,
             max_tokens=request.max_tokens,
+            json_options=request.json_options.as_options() if request.json_options else None,
         )
     payload = to_jsonable(result)
     payload.setdefault("metadata", {})["cache_hit"] = False
     payload["metadata"]["cache_enabled"] = use_cache
     _attach_error_type(payload)
     response = {"success": not bool(payload.get("errors")), "data": payload}
-    if use_cache and response["success"]:
+    # A missing json (no model, provider error) is not a result to replay.
+    json_failed = "json" in request.formats and payload.get("json") is None
+    if use_cache and response["success"] and not json_failed:
         ttl_seconds = request.cache_ttl_seconds or server.cache_ttl_seconds
         server.store.set_cache(cache_key, request.url, response, ttl_seconds, owner_key=owner_key)
     server.store.record_usage(api_key, "/v1/scrape")
@@ -781,6 +799,12 @@ def scrape_many(
     batch.
     """
     server.validate_config_override(request.config)
+    try:
+        check_json_pages(
+            request.formats, len(request.urls), CrawlConfig.from_dict(server.merged_config({}))
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if api_key is not None and not server.is_owner_key(authorization):
         # One unit per URL; ``require_key`` already charged the first.
         server.check_rate_limit(api_key, units=len(request.urls) - 1)
@@ -790,6 +814,7 @@ def scrape_many(
         formats=request.formats,
         only_main_content=request.only_main_content,
         query=request.query,
+        json_options=request.json_options,
         cache=request.cache,
         cache_ttl_seconds=request.cache_ttl_seconds,
         config=request.config,
@@ -1349,6 +1374,7 @@ def _run_batch(
                     url,
                     formats=payload.get("formats") or ["markdown", "metadata"],
                     only_main_content=payload.get("only_main_content"),
+                    json_options=payload.get("json_options"),
                 )
             )
         documents.append(document)
@@ -1379,6 +1405,7 @@ def _scrape_cache_key(request: ScrapeRequest, owner_key: str = "") -> str:
         "query": request.query,
         "section": request.section,
         "max_tokens": request.max_tokens,
+        "json_options": request.json_options.as_options() if request.json_options else None,
         "config": request.config,
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))

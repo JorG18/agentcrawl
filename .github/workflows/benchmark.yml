@@ -35,7 +35,7 @@ jobs:
       - name: Install AgentCrawl and the compared extractors
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" html2text trafilatura crawl4ai
+          python -m pip install -e ".[dev]" html2text trafilatura crawl4ai "scrapling[ai]"
           # Crawl4AI renders through Playwright's Chromium.
           python -m playwright install --with-deps chromium
       - name: Snapshot the neutral corpus

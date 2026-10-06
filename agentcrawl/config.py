@@ -35,6 +35,9 @@ class CrawlConfig:
     # Sent only when set: current Claude models (Opus 5.5, Sonnet 5.5, Fable)
     # reject a non-default temperature.
     llm_temperature: float | None = None
+    # Pages one call may send to the LLM for formats=["json"]: each costs the
+    # user money, so a batch over this is refused instead of run.
+    llm_max_pages: int = 20
 
     fetcher: str = "http"
     browser_backend: str = "playwright"
@@ -327,6 +330,7 @@ _INT_RANGES: dict[str, tuple[int, int]] = {
     "network_idle_ms": (0, 3_600_000),
     "browser_challenge_wait_ms": (0, 600_000),
     "max_attempts": (1, 100),
+    "llm_max_pages": (1, 10_000),
 }
 
 _FLOAT_RANGES: dict[str, tuple[float, float]] = {
@@ -519,6 +523,9 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
     page_budget_ms = os.getenv("AGENTCRAWL_PAGE_BUDGET_MS", "").strip()
     if page_budget_ms.isdigit():
         config["page_budget_ms"] = int(page_budget_ms)
+    llm_max_pages = os.getenv("AGENTCRAWL_LLM_MAX_PAGES", "").strip()
+    if llm_max_pages.isdigit():
+        config["llm_max_pages"] = int(llm_max_pages)
     timeout_ms = os.getenv("AGENTCRAWL_TIMEOUT_MS", "").strip()
     if timeout_ms.isdigit():
         config["timeout_ms"] = int(timeout_ms)

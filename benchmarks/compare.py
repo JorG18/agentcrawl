@@ -192,12 +192,24 @@ class _Crawl4AI:
         self._loop.close()
 
 
+def _scrapling() -> Extractor:
+    # The conversion its MCP server returns: <body> minus noise and hidden
+    # text, then markdownify (no main-content detection).
+    from scrapling.core.shell import Convertor
+    from scrapling.parser import Selector
+
+    return lambda html: "".join(
+        Convertor._extract_content(Selector(html), "markdown", main_content_only=True)
+    )
+
+
 ADAPTERS: dict[str, tuple[str, Callable[[], Extractor]]] = {
     "agentcrawl": ("agentcrawl-ai", _agentcrawl),
     "html2text-baseline": ("html2text", _html2text_baseline),
     "trafilatura": ("trafilatura", _trafilatura),
     "crawl4ai": ("crawl4ai", lambda: _Crawl4AI(fit=False)),
     "crawl4ai-fit": ("crawl4ai", lambda: _Crawl4AI(fit=True)),
+    "scrapling": ("scrapling", _scrapling),
 }
 
 

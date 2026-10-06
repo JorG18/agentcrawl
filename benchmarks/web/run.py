@@ -300,9 +300,26 @@ def run_tavily(pages: list[dict[str, Any]], concurrency: int, key: str) -> list[
         return [result for chunk in pool.map(batch, batches) for result in chunk]
 
 
+def run_scrapling(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
+    # Its strongest local mode, as an agent would pick it for a hard site:
+    # Patchright with the Turnstile click, then the markdown its MCP returns.
+    from scrapling.core.shell import Convertor
+    from scrapling.fetchers import StealthyFetcher
+
+    def call(url: str) -> dict[str, Any]:
+        page = StealthyFetcher.fetch(
+            url, headless=True, solve_cloudflare=True, timeout=PAGE_TIMEOUT_S * 1000
+        )
+        markdown = "".join(Convertor._extract_content(page, "markdown", main_content_only=True))
+        return {"markdown": markdown, "status_code": page.status}
+
+    return _run_threaded(pages, "scrapling", concurrency, call)
+
+
 TOOLS = {
     "agentcrawl": (None, run_agentcrawl),
     "crawl4ai": (None, run_crawl4ai),
+    "scrapling": (None, run_scrapling),
     "firecrawl": ("FIRECRAWL_API_KEY", run_firecrawl),
     "scrapegraph": ("SCRAPEGRAPH_API_KEY", run_scrapegraph),
     "tavily": ("TAVILY_API_KEY", run_tavily),

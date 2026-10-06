@@ -27,6 +27,7 @@ class AgentCrawlClient:
         query: str | None = None,
         section: str | None = None,
         max_tokens: int | None = None,
+        json_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self._post(
             "/v1/scrape",
@@ -37,6 +38,7 @@ class AgentCrawlClient:
                 "query": query,
                 "section": section,
                 "max_tokens": max_tokens,
+                "json_options": json_options,
                 "cache": cache,
                 "cache_ttl_seconds": cache_ttl_seconds,
                 "config": config or {},
@@ -53,6 +55,7 @@ class AgentCrawlClient:
         cache: bool = True,
         cache_ttl_seconds: int | None = None,
         query: str | None = None,
+        json_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self._post(
             "/v1/scrape_many",
@@ -61,6 +64,7 @@ class AgentCrawlClient:
                 "formats": formats or ["markdown", "links", "metadata"],
                 "only_main_content": only_main_content,
                 "query": query,
+                "json_options": json_options,
                 "cache": cache,
                 "cache_ttl_seconds": cache_ttl_seconds,
                 "config": config or {},

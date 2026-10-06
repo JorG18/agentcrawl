@@ -4,6 +4,20 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## Unreleased (0.5.2)
+
+### Added
+
+- **Scrapling in the comparisons.** `docs/COMPARISON.md` lists it; `benchmarks/compare.py` and the web benchmark can run it.
+- **Pages as JSON from your own model (`formats=["json"]`).** A JSON Schema (and/or a prompt) turns each page into validated data by the LLM you configured (`AGENTCRAWL_LLM_MODEL`; any OpenAI-compatible endpoint, e.g. OpenRouter, via `OPENAI_BASE_URL`), with the same validation and retry as `extract()`. Your agent gets only the JSON, not the page. MCP: `schema` on `scrape_many` (one URL is fine). API: `json_options` on `/v1/scrape` and `/v1/scrape_many`. Firecrawl `/v2`: the `json` format on scrape and batch scrape. The model, key and endpoint are configuration only, never request fields. `AGENTCRAWL_LLM_MAX_PAGES` (default 20) refuses a bigger batch before any call; `/v2` crawl and search refuse `json`. Without a model, `metadata.json_error` says what to do. A missing `json` is not cached.
+- **MCP tool annotations.** Every tool says whether it only reads (`readOnlyHint`), reaches the open web (`openWorldHint`), or deletes something (`destructiveHint`, only `clear_cache`). Clients use these to ask for fewer confirmations on reads.
+
+### Fixed
+
+- **Hidden text no longer reaches the model.** Text styled `font-size:0` (a prompt-injection trick) is dropped, unless it is a container that only zeroes the gap between inline blocks and sizes its children again. Invisible characters are stripped from the Markdown: zero-width space, word joiner, BOM, Mongolian vowel separator and Unicode tag characters (U+E0000-E007F, used to smuggle instructions to a model). Zero-width joiners stay (emoji, Persian and Indic spelling), and `opacity:0` is not treated as hidden: pages fade whole sections in from it.
+- **XML over HTTP.** A sitemap served as `application/xml` or `text/xml` came back as one run-on line. It is now a list of its URLs (`document_type: sitemap` or `sitemap_index`, `sitemap_url_count`); other XML is kept verbatim in a fenced block, like a local `.xml` file. XHTML served as XML is still read as a page.
+- **AWS WAF challenges.** Its no-JavaScript page ("verify that you're not a robot") is recognized. When the browser gets a blank page back from the WAF, the result is `client_challenge` instead of an empty success, and no second browser run is made.
+
 ## 0.5.1 - 2026-09-30
 
 Fixes from an adversarial review of the server, fetchers and job storage, plus dead code and unused extras removed.

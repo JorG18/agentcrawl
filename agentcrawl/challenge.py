@@ -100,7 +100,7 @@ _PHRASES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "not a robot",
-        re.compile(r"(?:confirm|prove) (?:that )?you(?:'re| are) not a (?:robot|bot)", re.I),
+        re.compile(r"(?:confirm|prove|verify) (?:that )?you(?:'re| are) not a (?:robot|bot)", re.I),
     ),
 )
 
