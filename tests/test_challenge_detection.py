@@ -109,3 +109,24 @@ def test_robot_block_notice_is_a_challenge() -> None:
         "this? You are browsing much faster than is typical of a human being.</p></body></html>"
     )
     assert _blocked_page_reason(html) == "blocked as a robot"
+
+
+def test_amazon_continue_shopping_wall_is_a_challenge() -> None:
+    from agentcrawl.challenge import detect_challenge
+
+    english = (
+        "<html><body><h4>Click the button below to continue shopping</h4>"
+        '<form method="get" action="/errors/validateCaptcha"><button>Continue shopping</button>'
+        "</form><a href='/conditions'>Conditions of Use</a></body></html>"
+    )
+    assert detect_challenge(english, "Click the button below to continue shopping").is_challenge
+    arabic = english.replace("Click the button below to continue shopping", "انقر فوق الزر أدناه")
+    assert detect_challenge(arabic, "انقر فوق الزر أدناه لمتابعة التسوق").is_challenge
+
+
+def test_a_product_page_linking_the_captcha_path_is_content() -> None:
+    from agentcrawl.challenge import detect_challenge
+
+    text = "Product description. " * 80
+    html = f"<html><body><p>{text}</p><a href='/errors/validateCaptcha'>x</a></body></html>"
+    assert not detect_challenge(html, text).is_challenge

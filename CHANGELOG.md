@@ -4,6 +4,17 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## Unreleased
+
+### Added
+
+- **Cloudflare Turnstile checkbox.** While the local browser waits out a "Just a moment..." page, a Turnstile checkbox still showing after two seconds is ticked, as a person would (up to three times, three seconds apart; `metadata.challenge_clicks`). Your own browser only: no solver service, no image CAPTCHAs. Turn it off with `browser_challenge_click=false` or `AGENTCRAWL_BROWSER_CHALLENGE_CLICK=false`. On the 400-page web benchmark, 14 Cloudflare pages that Scrapling read and AgentCrawl did not (even with Patchright) needed this.
+
+### Fixed
+
+- **Amazon's "continue shopping" bot wall** came back as a thin page; it is now `client_challenge`, in every storefront language (its `/errors/validateCaptcha` form on a very short page).
+- **Web benchmark:** a sitemap returned as its list of URLs counted as `thin`; five or more bare URL lines now count as content.
+
 ## 0.5.2 - 2026-10-05
 
 Pages as JSON from the model you configure, hidden-text hardening against prompt injection, and MCP tool annotations.

@@ -77,8 +77,11 @@ class CrawlConfig:
     # analytics or live feeds never go idle; they are read as rendered.
     network_idle_ms: int = 10_000
     # Longest wait for a self-clearing interstitial ("Just a moment...") to
-    # finish in the local browser. It only waits; nothing is solved or evaded.
+    # finish in the local browser.
     browser_challenge_wait_ms: int = 15_000
+    # During that wait, tick a Cloudflare Turnstile checkbox that is still
+    # showing, as a person would. Local browser only; no solver services.
+    browser_challenge_click: bool = True
     browser_wait_for_selector: str | None = None
     browser_wait_ms: int = 0
     browser_block_resources: tuple[str, ...] = field(default_factory=tuple)
@@ -277,6 +280,7 @@ _BOOL_FIELDS = frozenset(
         "relevance_chunking",
         "browser_iframes",
         "browser_shadow_dom",
+        "browser_challenge_click",
     }
 )
 
@@ -489,6 +493,7 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
         "audit": _env_flag("AGENTCRAWL_AUDIT", False),
         "allow_private_network": _env_flag("AGENTCRAWL_ALLOW_PRIVATE_NETWORK", False),
         "browser_strict_network": _env_flag("AGENTCRAWL_BROWSER_STRICT_NETWORK", False),
+        "browser_challenge_click": _env_flag("AGENTCRAWL_BROWSER_CHALLENGE_CLICK", True),
         "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
         "browser_fallback": _env_flag("AGENTCRAWL_BROWSER_FALLBACK", True),
         "ocr": _env_flag("AGENTCRAWL_OCR", False),

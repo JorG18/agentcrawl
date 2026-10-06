@@ -19,7 +19,8 @@ agentcrawl scrape https://docs.python.org/3/library/json.html
 Pages that only render with JavaScript need the browser extra (`[browser]`, then
 `python -m playwright install chromium`); `agentcrawl doctor` tells you whether
 the browser can start. The browser presents itself as the Chrome it is and waits
-out self-clearing checks such as Cloudflare's "Just a moment…"; the optional
+out self-clearing checks such as Cloudflare's "Just a moment…", ticking the
+Turnstile checkbox when one is still showing, as a person would; the optional
 `[stealth]` extra retries a refused page once with Patchright. A page that still
 asks for a CAPTCHA comes back as `error_type: "client_challenge"` with the
 signals seen and a `next_step`, never as content.
@@ -366,7 +367,10 @@ feed = AgentCrawl(
 
 Sites that challenge automated browsers: the `stealth` extra retries a page the
 browser got as a challenge or a 403/429 once with Patchright, on the next proxy
-if you gave several. It waits; it never solves a CAPTCHA.
+if you gave several. Both browsers wait out "Just a moment…" pages and tick a
+Cloudflare Turnstile checkbox that is still showing, in your own browser
+(`AGENTCRAWL_BROWSER_CHALLENGE_CLICK=false` turns that off). No solver service is
+called and no image CAPTCHA is attempted.
 
 ```bash
 python -m pip install "agentcrawl-ai[stealth]"
