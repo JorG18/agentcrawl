@@ -104,3 +104,15 @@ def test_scrape_returns_chunks_format(tmp_path: Path) -> None:
 def test_chunk_tokens_is_validated() -> None:
     with pytest.raises(ValueError):
         CrawlConfig.from_dict({"chunk_tokens": 10})
+
+
+def test_single_oversized_line_is_split() -> None:
+    chunks = chunk_markdown("word " * 400, "https://e.x/", max_tokens=50)
+    assert all(c["estimated_tokens"] <= 50 for c in chunks)
+    assert "".join(c["text"].replace(" ", "") for c in chunks) == "word" * 400
+
+
+def test_single_unbroken_token_is_split() -> None:
+    chunks = chunk_markdown("a" * 5000, "https://e.x/", max_tokens=50)
+    assert all(c["estimated_tokens"] <= 50 for c in chunks)
+    assert "".join(c["text"] for c in chunks) == "a" * 5000
