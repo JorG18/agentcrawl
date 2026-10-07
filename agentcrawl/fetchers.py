@@ -167,6 +167,9 @@ def shutdown_browser_pool() -> None:
         pool.close()
 
 
+_CROSS_HOST_HEADERS = frozenset({"user-agent", "accept", "accept-encoding", "accept-language"})
+
+
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
     def __init__(self, *, allow_private_network: bool = False):
         self.allow_private_network = allow_private_network
@@ -174,7 +177,14 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         validate_remote_url(newurl, allow_private_network=self.allow_private_network)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and (
+            urllib.parse.urlsplit(newurl).hostname != urllib.parse.urlsplit(req.full_url).hostname
+        ):
+            # urllib copies every header to the new URL; another host must not
+            # get an API key or a validator meant for this one.
+            new.headers = {k: v for k, v in new.headers.items() if k.lower() in _CROSS_HOST_HEADERS}
+        return new
 
 
 def _safe_urlopen(

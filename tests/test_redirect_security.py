@@ -111,3 +111,22 @@ def test_redirect_past_certificate_still_follows_a_legitimate_target(monkeypatch
     _stub_probe(monkeypatch, 301, "https://www.example.org/")
     target = redirect_past_invalid_certificate("https://broken.example/", 1.0)
     assert target == "https://www.example.org/"
+
+
+def _redirect(monkeypatch, newurl: str):
+    monkeypatch.setattr("agentcrawl.fetchers.validate_remote_url", lambda *a, **k: None)
+    request = Request(
+        "https://google.serper.dev/search", headers={"X-API-KEY": "k", "User-Agent": "ua"}
+    )
+    return _SafeRedirectHandler().redirect_request(request, None, 302, "Found", {}, newurl)
+
+
+def test_cross_host_redirect_drops_credentials(monkeypatch) -> None:
+    new = _redirect(monkeypatch, "https://other.example/x")
+    assert "X-api-key" not in new.headers
+    assert new.headers["User-agent"] == "ua"
+
+
+def test_same_host_redirect_keeps_headers(monkeypatch) -> None:
+    new = _redirect(monkeypatch, "https://google.serper.dev/other")
+    assert new.headers["X-api-key"] == "k"
