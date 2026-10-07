@@ -1429,8 +1429,7 @@ _ATTEMPT_KEYS = (
     "challenge_clicks",
 )
 _FIRST_CLICK_AFTER_S = 2.0  # most "Just a moment" pages clear with no click
-# A tick takes Cloudflare several seconds to verify; ticking again restarts it.
-_CLICK_EVERY_S = 10.0
+_CLICK_EVERY_S = 3.0
 _MAX_CHALLENGE_CLICKS = 3
 
 

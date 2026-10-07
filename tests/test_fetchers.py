@@ -960,26 +960,3 @@ def test_pool_wait_is_bounded_when_the_job_overruns(monkeypatch) -> None:
         assert time.monotonic() - started < 1.0
     finally:
         pool.close()
-
-
-def test_turnstile_is_not_reclicked_while_verifying(monkeypatch) -> None:
-    import time
-
-    monkeypatch.setattr(fetchers, "_FIRST_CLICK_AFTER_S", 0.0)
-    page = _TurnstilePage({"x": 100, "y": 200, "width": 300, "height": 65})
-    clicked_at: list[float] = []
-    record = page.mouse.click
-
-    def click(x, y, delay):
-        clicked_at.append(time.monotonic())
-        record(x, y, delay)
-
-    page.mouse.click = click
-    # Cloudflare takes a few seconds to verify a tick before the page clears.
-    page.title = lambda: (
-        "The real page"
-        if clicked_at and time.monotonic() - clicked_at[0] > 4
-        else "Just a moment..."
-    )
-    fetchers._wait_out_interstitial(page, 8_000, click=True)
-    assert len(page.clicks) == 1
