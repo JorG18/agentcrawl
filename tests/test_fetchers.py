@@ -946,3 +946,17 @@ def test_each_browser_attempt_records_its_challenge(monkeypatch) -> None:
     assert metadata["stealth_retry"] == "patchright"
     assert [a["engine"] for a in metadata["challenge_attempts"]] == ["playwright"]
     assert metadata["challenge_attempts"][0]["turnstile_frame"] == "none"
+
+
+def test_pool_wait_is_bounded_when_the_job_overruns(monkeypatch) -> None:
+    import time
+
+    install_fake_playwright(monkeypatch)
+    pool = fetchers._BrowserPool(1)
+    try:
+        started = time.monotonic()
+        with pytest.raises(FetchError):
+            pool.run({"engine": "playwright"}, lambda browser: time.sleep(1.5), 0.2)
+        assert time.monotonic() - started < 1.0
+    finally:
+        pool.close()

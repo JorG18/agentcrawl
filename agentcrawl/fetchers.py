@@ -83,8 +83,13 @@ class _BrowserPool:
                 raise FetchError(
                     f"browser concurrency limit reached (waited {wait_s:.0f} s for a free browser)"
                 ) from None
-            # Already running: its own timeouts end it.
-            return future.result()
+            # Already running: its own timeouts normally end it, but a hang
+            # before the page budget applies must not hold the caller forever.
+            try:
+                return future.result(timeout=wait_s)
+            except concurrent.futures.TimeoutError:
+                future.add_done_callback(lambda f: f.exception())  # read a late error
+                raise FetchError("browser page did not finish within its budget") from None
 
     def close(self) -> None:
         for _thread in self._threads:

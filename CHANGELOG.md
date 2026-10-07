@@ -18,6 +18,7 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 ### Fixed
 
 - **Chunks over `max_tokens`.** A single line longer than the budget (minified code, a one-line table) became one oversized chunk; it is now cut at spaces, or mid-word when one word alone is too long.
+- **Browser pool:** a page that overran its wait and could no longer be cancelled was waited on without limit; the caller now gets a `FetchError` after a second, equal wait.
 - **Turnstile click** gave up at the first, invisible widget frame instead of looking for a visible one.
 - **Browser launch:** when the full Chromium fails to start and the headless shell is used instead, the reason is logged as a warning (the shell announces itself as HeadlessChrome, which bot managers refuse).
 - **Amazon's "continue shopping" bot wall** came back as a thin page; it is now `client_challenge`, in every storefront language (its `/errors/validateCaptcha` form on a very short page).
