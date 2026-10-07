@@ -22,6 +22,7 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 ### Fixed
 
 - **Chunks over `max_tokens`.** A single line longer than the budget (minified code, a one-line table) became one oversized chunk; it is now cut at spaces, or mid-word when one word alone is too long.
+- **The Patchright retry never ran** since 0.5.0: Playwright and Patchright shared the browser pool's threads, and a thread can host one sync driver only ("Sync API inside the asyncio loop"). Each engine now has its own pool; every "no gain from stealth" measurement since 0.5.0 measured nothing.
 - **Browser pool:** a page that overran its wait and could no longer be cancelled was waited on without limit; the caller now gets a `FetchError` after a second, equal wait.
 - **Turnstile click** gave up at the first, invisible widget frame instead of looking for a visible one.
 - **Browser launch:** when the full Chromium fails to start and the headless shell is used instead, the reason is logged as a warning (the shell announces itself as HeadlessChrome, which bot managers refuse).

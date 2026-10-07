@@ -150,25 +150,28 @@ def _close_quietly(resource: Any) -> None:
             pass
 
 
-_browser_pool: _BrowserPool | None = None
+# One pool per engine: a thread can host one sync driver only, so Patchright
+# refused to start ("Sync API inside the asyncio loop") in a thread that
+# already ran Playwright, and the stealth retry never ran.
+_browser_pools: dict[str, _BrowserPool] = {}
 _browser_pool_lock = threading.Lock()
 
 
-def _get_browser_pool() -> _BrowserPool:
-    global _browser_pool
+def _get_browser_pool(engine: str = "playwright") -> _BrowserPool:
     with _browser_pool_lock:
-        if _browser_pool is None:
-            _browser_pool = _BrowserPool(_browser_pool_size())
+        if not _browser_pools:
             atexit.register(shutdown_browser_pool)
-        return _browser_pool
+        if engine not in _browser_pools:
+            _browser_pools[engine] = _BrowserPool(_browser_pool_size())
+        return _browser_pools[engine]
 
 
 def shutdown_browser_pool() -> None:
     """Close every kept-open browser (also run at interpreter exit)."""
-    global _browser_pool
     with _browser_pool_lock:
-        pool, _browser_pool = _browser_pool, None
-    if pool is not None:
+        pools = list(_browser_pools.values())
+        _browser_pools.clear()
+    for pool in pools:
         pool.close()
 
 
@@ -1164,7 +1167,7 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
             # Per-attempt keys: the stealth retry must not inherit the first run's.
             for key in _ATTEMPT_KEYS:
                 capture.pop(key, None)
-        html = _get_browser_pool().run(
+        html = _get_browser_pool(engine).run(
             launch_kwargs,
             lambda browser: _render_page(browser, url, config, guard),
             max(1, wait_ms / 1000),

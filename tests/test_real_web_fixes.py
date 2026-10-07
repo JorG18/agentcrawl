@@ -15,6 +15,7 @@ Chromium is not installed.
 from __future__ import annotations
 
 import http.server
+import importlib.util
 import socket
 import threading
 import time
@@ -324,7 +325,7 @@ def test_queued_browser_fetch_waits_for_a_whole_browser_run(monkeypatch) -> None
             waits.append(wait_s)
             raise FetchError(f"waited {wait_s:.0f} s for a free browser")
 
-    monkeypatch.setattr(fetchers, "_get_browser_pool", lambda: Busy())
+    monkeypatch.setattr(fetchers, "_get_browser_pool", lambda engine="playwright": Busy())
     with pytest.raises(FetchError, match="waited 55 s"):
         fetchers._fetch_playwright("https://example.org/", CrawlConfig())
     assert waits == [55.0]  # 30 s load + 15 s interstitial + 10 s network idle
@@ -577,3 +578,17 @@ def test_a_retry_of_the_same_page_shares_its_budget() -> None:
         with fetchers.page_deadline(CrawlConfig(page_budget_ms=60_000)):
             assert fetchers._budget_ms(60_000) <= 1_000
     assert fetchers._budget_ms(60_000) == 60_000  # no page running: no cap
+
+
+@browser
+@pytest.mark.skipif(importlib.util.find_spec("patchright") is None, reason="no [stealth] extra")
+def test_patchright_retry_runs_after_a_refused_browser_page(site, monkeypatch) -> None:
+    """Both drivers in one pool thread: Patchright's sync API refused to start
+    ("Sync API inside the asyncio loop"), so the stealth retry never ran."""
+    monkeypatch.setenv("AGENTCRAWL_BROWSER_CONCURRENCY", "1")
+    doc = _crawler().scrape(f"{site}/denied")
+    assert "asyncio" not in doc.metadata.get("browser_fallback_error", "")
+    assert [a["engine"] for a in doc.metadata["challenge_attempts"]] == [
+        "playwright",
+        "patchright",
+    ]
