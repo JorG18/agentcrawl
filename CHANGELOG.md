@@ -4,11 +4,13 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
-## Unreleased
+## 0.5.3 - 2026-10-06
+
+The Patchright retry actually runs, a Turnstile checkbox is ticked in your own browser, per-attempt challenge diagnostics, and a redirect header leak fixed.
 
 ### Added
 
-- **Cloudflare Turnstile checkbox.** While the local browser waits out a "Just a moment..." page, a Turnstile checkbox still showing after two seconds is ticked, as a person would (up to three times, three seconds apart; `metadata.challenge_clicks`). Your own browser only: no solver service, no image CAPTCHAs. Turn it off with `browser_challenge_click=false` or `AGENTCRAWL_BROWSER_CHALLENGE_CLICK=false`. On the 400-page web benchmark, 14 Cloudflare pages that Scrapling read and AgentCrawl did not (even with Patchright) needed this.
+- **Cloudflare Turnstile checkbox.** While the local browser waits out a "Just a moment..." page, a Turnstile checkbox still showing after two seconds is ticked, as a person would (up to three times, three seconds apart; `metadata.challenge_clicks`). Your own browser only: no solver service, no image CAPTCHAs. Turn it off with `browser_challenge_click=false` or `AGENTCRAWL_BROWSER_CHALLENGE_CLICK=false`. On the 400-page web benchmark, 14 Cloudflare pages that Scrapling read and AgentCrawl did not needed this; it cleared some of them.
 - **`metadata.challenge_attempts`.** One entry per browser run that met a challenge (engine, browser version, HTTP status, page title, whether a Turnstile widget was visible, wait and clicks), so a plain run and its Patchright retry can be told apart; `challenge_clicks` and `challenge_waited_ms` still describe the last run. Also present when the browser fallback failed, whether the HTTP error or the challenge is the one reported.
 
 ### Deprecated
