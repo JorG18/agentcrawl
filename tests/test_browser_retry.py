@@ -116,3 +116,40 @@ def test_browser_retry_path_not_triggered_when_already_using_browser(monkeypatch
     )
     assert doc.ok is False
     assert doc.metadata.get("error_type") == "client_challenge"
+
+
+def test_failed_browser_retry_keeps_its_challenge_attempts(monkeypatch) -> None:
+    """A 200 challenge the browser could not clear lost the browser's diagnostics."""
+    challenge = _challenge_html()
+    attempts = [{"engine": "playwright", "challenge_clicks": 3}]
+
+    def fake_fetch(source, config):
+        if config.fetcher == "http":
+            return challenge, {"fetcher": "http"}
+        return challenge, {"fetcher": "playwright", "challenge_attempts": attempts}
+
+    monkeypatch.setattr("agentcrawl.crawler.fetch_source", fake_fetch)
+    monkeypatch.setattr("agentcrawl.browser_retry.fetch_source", fake_fetch)
+    doc = AgentCrawl({"fetcher": "http", "browser_backend": "playwright"}).scrape(
+        "https://example.test/challenge"
+    )
+    assert doc.metadata["error_type"] == "client_challenge"
+    assert doc.metadata["challenge_attempts"] == attempts
+
+
+def test_browser_retry_error_keeps_its_challenge_attempts(monkeypatch) -> None:
+    challenge = _challenge_html()
+
+    def fake_fetch(source, config):
+        if config.fetcher == "http":
+            return challenge, {"fetcher": "http"}
+        exc = FetchError("browser got HTTP 403")
+        exc.challenge_attempts = [{"engine": "patchright", "status": 403}]
+        raise exc
+
+    monkeypatch.setattr("agentcrawl.crawler.fetch_source", fake_fetch)
+    monkeypatch.setattr("agentcrawl.browser_retry.fetch_source", fake_fetch)
+    doc = AgentCrawl({"fetcher": "http", "browser_backend": "playwright"}).scrape(
+        "https://example.test/challenge"
+    )
+    assert doc.metadata["challenge_attempts"] == [{"engine": "patchright", "status": 403}]

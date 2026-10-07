@@ -48,11 +48,14 @@ def attempt_browser_retry(
     only_main_content: bool | None,
     requested: list[str],
     query: str | None = None,
+    diagnostics: dict | None = None,
 ) -> ScrapeDocument | None:
     """Try fetching ``source`` with the configured browser backend.
 
     Returns a fully populated ScrapeDocument on success, or ``None`` on any
     failure (so the caller can fall back to the original challenge error).
+    When the browser met a challenge too, its ``challenge_attempts`` go into
+    ``diagnostics`` so the challenge error can still show them.
     """
     if not _is_remote_url(source):
         return None
@@ -66,7 +69,9 @@ def attempt_browser_retry(
 
     try:
         html, fetch_metadata = fetch_source(source, browser_config)
-    except FetchError:
+    except FetchError as exc:
+        if diagnostics is not None and getattr(exc, "challenge_attempts", None):
+            diagnostics["challenge_attempts"] = exc.challenge_attempts
         return None
     except Exception as exc:  # noqa: BLE001
         logger.debug("browser_retry: unexpected fetch error: %s", exc)
@@ -76,6 +81,8 @@ def attempt_browser_retry(
     from .crawler import _blocked_page_reason
 
     if _blocked_page_reason(html):
+        if diagnostics is not None and fetch_metadata.get("challenge_attempts"):
+            diagnostics["challenge_attempts"] = fetch_metadata["challenge_attempts"]
         return None
 
     try:

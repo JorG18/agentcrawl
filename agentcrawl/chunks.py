@@ -67,12 +67,16 @@ def chunk_markdown(
 
 
 def _split_oversized(block: str, max_tokens: int) -> list[str]:
-    """Cut a block larger than the budget at line boundaries (never mid-line)."""
+    """Cut a block larger than the budget at line boundaries.
+
+    A single line over the budget (minified code, a one-line table) is cut
+    at spaces, or mid-word when one word alone is too long.
+    """
     if estimate_tokens(block) <= max_tokens:
         return [block]
     parts: list[str] = []
     current: list[str] = []
-    for line in block.split("\n"):
+    for line in (piece for raw in block.split("\n") for piece in _wrap(raw, max_tokens)):
         if current and estimate_tokens("\n".join([*current, line])) > max_tokens:
             parts.append("\n".join(current))
             current = []
@@ -82,10 +86,22 @@ def _split_oversized(block: str, max_tokens: int) -> list[str]:
     return parts
 
 
+def _wrap(line: str, max_tokens: int) -> list[str]:
+    limit = max(1, max_tokens) * 4  # estimate_tokens counts 4 characters a token
+    pieces: list[str] = []
+    while len(line) > limit:
+        cut = line.rfind(" ", 0, limit + 1)
+        if cut <= 0:
+            cut = limit
+        pieces.append(line[:cut])
+        line = line[cut:].lstrip(" ")
+    pieces.append(line)
+    return pieces
+
+
 def _chunk(blocks: list[str], headings: list[str], url: str) -> dict[str, Any]:
     text = "\n\n".join(blocks)
     return {
-        "id": 0,
         "text": text,
         "heading": " > ".join(headings),
         "url": url,

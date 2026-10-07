@@ -9,6 +9,7 @@ import importlib
 import importlib.util
 import itertools
 import json
+import logging
 import os
 import pathlib
 import atexit
@@ -41,9 +42,15 @@ from .exceptions import FetchError
 from .security import check_local_source, pinned_handlers, validate_remote_url
 from .utils import is_probably_url
 
+logger = logging.getLogger(__name__)
+
 
 def _browser_pool_size() -> int:
-    """Browsers kept open at once (``AGENTCRAWL_BROWSER_CONCURRENCY``, default 4)."""
+    """Browsers kept open at once per engine (``AGENTCRAWL_BROWSER_CONCURRENCY``, default 4).
+
+    With the ``[stealth]`` extra, Patchright retries get a pool of their own,
+    so up to twice this many browsers can be open.
+    """
     try:
         return max(1, int(os.getenv("AGENTCRAWL_BROWSER_CONCURRENCY", "4")))
     except ValueError:
@@ -80,8 +87,13 @@ class _BrowserPool:
                 raise FetchError(
                     f"browser concurrency limit reached (waited {wait_s:.0f} s for a free browser)"
                 ) from None
-            # Already running: its own timeouts end it.
-            return future.result()
+            # Already running: its own timeouts normally end it, but a hang
+            # before the page budget applies must not hold the caller forever.
+            try:
+                return future.result(timeout=wait_s)
+            except concurrent.futures.TimeoutError:
+                future.add_done_callback(lambda f: f.exception())  # read a late error
+                raise FetchError("browser page did not finish within its budget") from None
 
     def close(self) -> None:
         for _thread in self._threads:
@@ -127,8 +139,10 @@ def _launch_chromium(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
         # ``Sec-CH-UA: "HeadlessChrome"`` with every request whatever the
         # user agent says. The full Chromium does not.
         return playwright.chromium.launch(channel="chromium", **launch_kwargs)
-    except Exception:
-        # Only the shell is installed (``install --only-shell``).
+    except Exception as exc:
+        # Only the shell is installed (``install --only-shell``). Say so: the
+        # shell announces itself as HeadlessChrome, which bot managers refuse.
+        logger.warning("full Chromium failed to launch, using the headless shell: %s", exc)
         return playwright.chromium.launch(**launch_kwargs)
 
 
@@ -140,26 +154,32 @@ def _close_quietly(resource: Any) -> None:
             pass
 
 
-_browser_pool: _BrowserPool | None = None
+# One pool per engine: a thread can host one sync driver only, so Patchright
+# refused to start ("Sync API inside the asyncio loop") in a thread that
+# already ran Playwright, and the stealth retry never ran.
+_browser_pools: dict[str, _BrowserPool] = {}
 _browser_pool_lock = threading.Lock()
 
 
-def _get_browser_pool() -> _BrowserPool:
-    global _browser_pool
+def _get_browser_pool(engine: str = "playwright") -> _BrowserPool:
     with _browser_pool_lock:
-        if _browser_pool is None:
-            _browser_pool = _BrowserPool(_browser_pool_size())
+        if not _browser_pools:
             atexit.register(shutdown_browser_pool)
-        return _browser_pool
+        if engine not in _browser_pools:
+            _browser_pools[engine] = _BrowserPool(_browser_pool_size())
+        return _browser_pools[engine]
 
 
 def shutdown_browser_pool() -> None:
     """Close every kept-open browser (also run at interpreter exit)."""
-    global _browser_pool
     with _browser_pool_lock:
-        pool, _browser_pool = _browser_pool, None
-    if pool is not None:
+        pools = list(_browser_pools.values())
+        _browser_pools.clear()
+    for pool in pools:
         pool.close()
+
+
+_CROSS_HOST_HEADERS = frozenset({"user-agent", "accept", "accept-encoding", "accept-language"})
 
 
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -169,7 +189,16 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         validate_remote_url(newurl, allow_private_network=self.allow_private_network)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        old, target = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        if new is not None and (
+            target.hostname != old.hostname or (old.scheme == "https" and target.scheme != "https")
+        ):
+            # urllib copies every header to the new URL; another host must not
+            # get an API key or a validator meant for this one, nor may it go
+            # out in cleartext after an https -> http downgrade.
+            new.headers = {k: v for k, v in new.headers.items() if k.lower() in _CROSS_HOST_HEADERS}
+        return new
 
 
 def _safe_urlopen(
@@ -281,6 +310,11 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     try:
         with page_deadline(config):
             content, metadata = _fetch_source(source, config)
+    except FetchError as exc:
+        # A failed browser rescue still says what the browser met.
+        if capture.get("challenge_attempts"):
+            exc.challenge_attempts = capture["challenge_attempts"]
+        raise
     finally:
         _CAPTURE.reset(token)
     if "screenshot" in capture:
@@ -304,6 +338,7 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
         for key in (
             "challenge_waited_ms",
             "challenge_clicks",
+            "challenge_attempts",
             "network_idle_timeout",
             "stealth_retry",
         ):
@@ -1133,11 +1168,25 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
             config.timeout_ms + config.browser_challenge_wait_ms + config.network_idle_ms,
             "the browser started",
         )
-        return _get_browser_pool().run(
+        capture = _CAPTURE.get()
+        if capture is not None:
+            # Per-attempt keys: the stealth retry must not inherit the first run's.
+            for key in _ATTEMPT_KEYS:
+                capture.pop(key, None)
+        html = _get_browser_pool(engine).run(
             launch_kwargs,
             lambda browser: _render_page(browser, url, config, guard),
             max(1, wait_ms / 1000),
         )
+        if capture is not None and (
+            capture.get("challenge_waited_ms") or _refused_in_browser(html, capture)
+        ):
+            # Every browser run that met a challenge, not only the last one,
+            # so a plain run and its Patchright retry can be told apart.
+            attempt = {"engine": engine}
+            attempt.update((key, capture[key]) for key in _ATTEMPT_KEYS if key in capture)
+            capture.setdefault("challenge_attempts", []).append(attempt)
+        return html
 
     engine = config.browser_engine
     if engine == "patchright" and importlib.util.find_spec("patchright") is None:
@@ -1276,8 +1325,12 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             click=config.browser_challenge_click,
             capture=capture,
         )
-        if waited and capture is not None:
-            capture["challenge_waited_ms"] = waited
+        if capture is not None:
+            if waited:
+                capture["challenge_waited_ms"] = waited
+            capture["browser_version"] = str(getattr(browser, "version", "") or "")
+            capture["challenge_title"] = _safe_title(page)[:80]
+            capture["turnstile_frame"] = _turnstile_frame_state(page)
         if config.browser_wait_for_selector:
             page.wait_for_selector(
                 config.browser_wait_for_selector,
@@ -1372,6 +1425,15 @@ _INTERSTITIAL_POLL_MS = 500
 # Cloudflare's Turnstile widget. Its checkbox sits at the left of the widget,
 # vertically centred; a managed challenge clears once a real browser ticks it.
 _TURNSTILE_FRAME_RE = re.compile(r"^https://challenges\.cloudflare\.com/")
+# What one browser run records about a challenge (see ``challenge_attempts``).
+_ATTEMPT_KEYS = (
+    "status",
+    "browser_version",
+    "challenge_title",
+    "turnstile_frame",
+    "challenge_waited_ms",
+    "challenge_clicks",
+)
 _FIRST_CLICK_AFTER_S = 2.0  # most "Just a moment" pages clear with no click
 _CLICK_EVERY_S = 3.0
 _MAX_CHALLENGE_CLICKS = 3
@@ -1429,7 +1491,7 @@ def _click_turnstile(page: Any) -> bool:
                 continue
             box = frame.frame_element().bounding_box()
             if not box or box["width"] < 30 or box["height"] < 30:
-                return False  # still loading, or an invisible widget
+                continue  # still loading, or an invisible widget: another may show
             page.mouse.click(
                 box["x"] + min(28, box["width"] / 2),
                 box["y"] + box["height"] / 2,
@@ -1440,6 +1502,21 @@ def _click_turnstile(page: Any) -> bool:
         # Mid-navigation: the challenge cleared while we looked.
         return False
     return False
+
+
+def _turnstile_frame_state(page: Any) -> str:
+    """ "visible", "hidden" or "none": whether a Turnstile widget was on the page."""
+    state = "none"
+    try:
+        for frame in page.frames:
+            if _TURNSTILE_FRAME_RE.match(frame.url or ""):
+                box = frame.frame_element().bounding_box()
+                if box and box["width"] >= 30 and box["height"] >= 30:
+                    return "visible"
+                state = "hidden"
+    except Exception:
+        pass
+    return state
 
 
 def _safe_title(page: Any) -> str:
