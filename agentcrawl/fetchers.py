@@ -46,7 +46,11 @@ logger = logging.getLogger(__name__)
 
 
 def _browser_pool_size() -> int:
-    """Browsers kept open at once (``AGENTCRAWL_BROWSER_CONCURRENCY``, default 4)."""
+    """Browsers kept open at once per engine (``AGENTCRAWL_BROWSER_CONCURRENCY``, default 4).
+
+    With the ``[stealth]`` extra, Patchright retries get a pool of their own,
+    so up to twice this many browsers can be open.
+    """
     try:
         return max(1, int(os.getenv("AGENTCRAWL_BROWSER_CONCURRENCY", "4")))
     except ValueError:
@@ -186,11 +190,13 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         validate_remote_url(newurl, allow_private_network=self.allow_private_network)
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        old, target = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
         if new is not None and (
-            urllib.parse.urlsplit(newurl).hostname != urllib.parse.urlsplit(req.full_url).hostname
+            target.hostname != old.hostname or (old.scheme == "https" and target.scheme != "https")
         ):
             # urllib copies every header to the new URL; another host must not
-            # get an API key or a validator meant for this one.
+            # get an API key or a validator meant for this one, nor may it go
+            # out in cleartext after an https -> http downgrade.
             new.headers = {k: v for k, v in new.headers.items() if k.lower() in _CROSS_HOST_HEADERS}
         return new
 

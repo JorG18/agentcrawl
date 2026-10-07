@@ -224,6 +224,7 @@ class AgentCrawl:
                 # AND the original fetcher was non-browser; it does not turn
                 # Community into a Cloudflare bypass.
                 retry = None
+                retry_diagnostics: dict[str, Any] = {}
                 if (
                     self.config.browser_fallback
                     and (self.config.fetcher or "http") == "http"
@@ -240,6 +241,7 @@ class AgentCrawl:
                         only_main_content=only_main_content,
                         requested=requested,
                         query=query,
+                        diagnostics=retry_diagnostics,
                     )
                 if retry is not None:
                     if formats is None:
@@ -253,6 +255,7 @@ class AgentCrawl:
                     text="",
                     metadata={
                         **fetch_metadata,
+                        **retry_diagnostics,
                         "error_type": "client_challenge",
                         "next_step": next_step("client_challenge"),
                         "error_message": sanitize_error_message(

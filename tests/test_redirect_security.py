@@ -130,3 +130,17 @@ def test_cross_host_redirect_drops_credentials(monkeypatch) -> None:
 def test_same_host_redirect_keeps_headers(monkeypatch) -> None:
     new = _redirect(monkeypatch, "https://google.serper.dev/other")
     assert new.headers["X-api-key"] == "k"
+
+
+def test_https_to_http_redirect_on_the_same_host_drops_credentials(monkeypatch) -> None:
+    new = _redirect(monkeypatch, "http://google.serper.dev/search")
+    assert "X-api-key" not in new.headers
+
+
+def test_http_to_https_upgrade_keeps_headers(monkeypatch) -> None:
+    monkeypatch.setattr("agentcrawl.fetchers.validate_remote_url", lambda *a, **k: None)
+    request = Request("http://google.serper.dev/search", headers={"X-API-KEY": "k"})
+    new = _SafeRedirectHandler().redirect_request(
+        request, None, 301, "Moved", {}, "https://google.serper.dev/search"
+    )
+    assert new.headers["X-api-key"] == "k"

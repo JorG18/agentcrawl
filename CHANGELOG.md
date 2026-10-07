@@ -9,7 +9,7 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 ### Added
 
 - **Cloudflare Turnstile checkbox.** While the local browser waits out a "Just a moment..." page, a Turnstile checkbox still showing after two seconds is ticked, as a person would (up to three times, three seconds apart; `metadata.challenge_clicks`). Your own browser only: no solver service, no image CAPTCHAs. Turn it off with `browser_challenge_click=false` or `AGENTCRAWL_BROWSER_CHALLENGE_CLICK=false`. On the 400-page web benchmark, 14 Cloudflare pages that Scrapling read and AgentCrawl did not (even with Patchright) needed this.
-- **`metadata.challenge_attempts`.** One entry per browser run that met a challenge (engine, browser version, HTTP status, page title, whether a Turnstile widget was visible, wait and clicks), so a plain run and its Patchright retry can be told apart; `challenge_clicks` and `challenge_waited_ms` still describe the last run. Also present when the browser fallback failed and the HTTP error is the one reported.
+- **`metadata.challenge_attempts`.** One entry per browser run that met a challenge (engine, browser version, HTTP status, page title, whether a Turnstile widget was visible, wait and clicks), so a plain run and its Patchright retry can be told apart; `challenge_clicks` and `challenge_waited_ms` still describe the last run. Also present when the browser fallback failed, whether the HTTP error or the challenge is the one reported.
 
 ### Deprecated
 
@@ -17,12 +17,12 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ### Security
 
-- **Redirects to another host no longer carry the request's headers.** urllib copied every header (a search API key, cache validators) to the redirect target; only `User-Agent`, `Accept`, `Accept-Encoding` and `Accept-Language` follow a redirect to a different hostname now.
+- **Redirects to another host no longer carry the request's headers.** urllib copied every header (a search API key, cache validators) to the redirect target; only `User-Agent`, `Accept`, `Accept-Encoding` and `Accept-Language` follow a redirect to a different hostname or from https to http now.
 
 ### Fixed
 
 - **Chunks over `max_tokens`.** A single line longer than the budget (minified code, a one-line table) became one oversized chunk; it is now cut at spaces, or mid-word when one word alone is too long.
-- **The Patchright retry never ran** since 0.5.0: Playwright and Patchright shared the browser pool's threads, and a thread can host one sync driver only ("Sync API inside the asyncio loop"). Each engine now has its own pool; every "no gain from stealth" measurement since 0.5.0 measured nothing.
+- **The Patchright retry never ran** since 0.5.0: Playwright and Patchright shared the browser pool's threads, and a thread can host one sync driver only ("Sync API inside the asyncio loop"). Each engine now has its own pool, so with `[stealth]` up to twice `AGENTCRAWL_BROWSER_CONCURRENCY` browsers can be open; every "no gain from stealth" measurement since 0.5.0 measured nothing.
 - **Browser pool:** a page that overran its wait and could no longer be cancelled was waited on without limit; the caller now gets a `FetchError` after a second, equal wait.
 - **Turnstile click** gave up at the first, invisible widget frame instead of looking for a visible one.
 - **Browser launch:** when the full Chromium fails to start and the headless shell is used instead, the reason is logged as a warning (the shell announces itself as HeadlessChrome, which bot managers refuse).
