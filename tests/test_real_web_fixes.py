@@ -167,6 +167,8 @@ def test_cdn_error_page_in_the_browser_is_not_content(site) -> None:
     assert doc.metadata["error_type"] == "blocked"
     assert doc.metadata["browser_fallback_error"] == "browser got HTTP 403"
     assert doc.markdown == ""
+    # The browser run is still described when the HTTP error is the one reported.
+    assert doc.metadata["challenge_attempts"][0]["status"] == 403
 
 
 @browser

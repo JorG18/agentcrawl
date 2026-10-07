@@ -301,6 +301,11 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     try:
         with page_deadline(config):
             content, metadata = _fetch_source(source, config)
+    except FetchError as exc:
+        # A failed browser rescue still says what the browser met.
+        if capture.get("challenge_attempts"):
+            exc.challenge_attempts = capture["challenge_attempts"]
+        raise
     finally:
         _CAPTURE.reset(token)
     if "screenshot" in capture:

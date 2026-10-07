@@ -378,6 +378,9 @@ class AgentCrawl:
                 failure_metadata["browser_fallback_error"] = sanitize_error_message(
                     str(fallback_error)
                 )
+            attempts = getattr(exc, "challenge_attempts", None)
+            if attempts:
+                failure_metadata["challenge_attempts"] = attempts
             document = ScrapeDocument(
                 url=source,
                 markdown="",
