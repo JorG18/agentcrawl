@@ -11,10 +11,6 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 - **Cloudflare Turnstile checkbox.** While the local browser waits out a "Just a moment..." page, a Turnstile checkbox still showing after two seconds is ticked, as a person would (up to three times, three seconds apart; `metadata.challenge_clicks`). Your own browser only: no solver service, no image CAPTCHAs. Turn it off with `browser_challenge_click=false` or `AGENTCRAWL_BROWSER_CHALLENGE_CLICK=false`. On the 400-page web benchmark, 14 Cloudflare pages that Scrapling read and AgentCrawl did not (even with Patchright) needed this.
 - **`metadata.challenge_attempts`.** One entry per browser run that met a challenge (engine, browser version, HTTP status, page title, whether a Turnstile widget was visible, wait and clicks), so a plain run and its Patchright retry can be told apart; `challenge_clicks` and `challenge_waited_ms` still describe the last run. Also present when the browser fallback failed and the HTTP error is the one reported.
 
-### Changed
-
-- **Browser launch closer to a person's Chrome:** no `--enable-automation` default flag, and the language set browser-wide (`--lang`, `--accept-lang`) so Web Workers and `Accept-Language` agree with the page's `en-US` locale.
-
 ### Deprecated
 
 - **`ExtractionGraph`, `MultiExtractionGraph`, `SearchGraph`** warn on use and will be removed in 0.6: they only wrapped `AgentCrawl(...).extract` / `.search`, untested and undocumented.

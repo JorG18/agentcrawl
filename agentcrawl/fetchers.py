@@ -1152,13 +1152,9 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
             # Without this Chromium sets navigator.webdriver, which bot
             # managers (Cloudflare first) answer with a challenge. Patchright
             # handles it itself.
-            "args": (
-                ["--disable-blink-features=AutomationControlled"] if engine == "playwright" else []
-            )
-            # The context's locale stops at the main thread: Web Workers and
-            # Accept-Language keep the browser's, a mismatch Cloudflare checks.
-            + ["--lang=en-US", "--accept-lang=en-US,en"],
-            "ignore_default_args": ["--enable-automation"],
+            "args": ["--disable-blink-features=AutomationControlled"]
+            if engine == "playwright"
+            else [],
         }
         # Wait as long as one browser run may take (load, interstitial, network
         # idle): a shorter wait failed pages that were simply queued behind others.

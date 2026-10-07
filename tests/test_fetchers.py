@@ -547,10 +547,6 @@ def test_playwright_presents_the_real_chrome_version(monkeypatch) -> None:
     assert "--disable-blink-features=AutomationControlled" in chromium.launch_kwargs["args"]
     # Not chromium-headless-shell, whose client hints say "HeadlessChrome".
     assert chromium.launch_kwargs["channel"] == "chromium"
-    # No automation banner flag; one browser-wide language (workers included).
-    assert chromium.launch_kwargs["ignore_default_args"] == ["--enable-automation"]
-    assert "--lang=en-US" in chromium.launch_kwargs["args"]
-    assert "--accept-lang=en-US,en" in chromium.launch_kwargs["args"]
 
     _fetch_playwright("https://example.com/", CrawlConfig(user_agent="Mine/1", network_idle=False))
     assert browser.context_kwargs["user_agent"] == "Mine/1"
