@@ -113,6 +113,8 @@ def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result
                 "network_idle_timeout",
                 "challenge_waited_ms",
                 "challenge_clicks",
+                "challenge_attempts",
+                "stealth_retry",
                 "final_url",
             )
             if metadata.get(key) is not None

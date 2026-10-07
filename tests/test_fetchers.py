@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import codecs
 import json
+import importlib.util
 import sys
 import types
 import urllib.error
@@ -901,3 +902,47 @@ def test_turnstile_is_not_clicked_when_disabled_or_invisible(monkeypatch) -> Non
     hidden = _TurnstilePage({"x": 0, "y": 0, "width": 0, "height": 0})
     fetchers._wait_out_interstitial(hidden, 700, click=True)
     assert hidden.clicks == []
+
+
+def test_turnstile_click_skips_an_invisible_widget_for_a_visible_one(monkeypatch) -> None:
+    monkeypatch.setattr(fetchers, "_FIRST_CLICK_AFTER_S", 0.0)
+    page = _TurnstilePage({"x": 100, "y": 200, "width": 300, "height": 65})
+    hidden = _TurnstilePage({"x": 0, "y": 0, "width": 0, "height": 0})
+    page.frames = hidden.frames + page.frames
+    fetchers._wait_out_interstitial(page, 5_000, click=True)
+    assert page.clicks == [(128, 232.5)]
+
+
+def test_each_browser_attempt_records_its_challenge(monkeypatch) -> None:
+    """Metadata kept only the last run, so whether the Patchright retry saw
+    or ticked the widget was unknown (F1)."""
+    challenge = (
+        "<html><head><title>Just a moment...</title></head><body>"
+        "<div>Enable JavaScript and cookies to continue</div>"
+        '<script src="/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1"></script>'
+        "</body></html>"
+    )
+    plain_page, _browser, _chromium = install_fake_playwright(monkeypatch)
+    plain_page.content = lambda: challenge
+    stealth_page = FakePage()
+    stealth_page.content = lambda: (
+        "<html><body><main>" + "Real text. " * 40 + "</main></body></html>"
+    )
+    stealth_module = types.SimpleNamespace(
+        sync_playwright=lambda: FakePlaywright(FakeChromium(FakeBrowser(stealth_page)))
+    )
+    monkeypatch.setitem(sys.modules, "patchright.sync_api", stealth_module)
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *a: object() if name == "patchright" else real_find_spec(name, *a),
+    )
+
+    _html, metadata = fetchers.fetch_source(
+        "https://example.com/", CrawlConfig(fetcher="playwright", network_idle=False)
+    )
+
+    assert metadata["stealth_retry"] == "patchright"
+    assert [a["engine"] for a in metadata["challenge_attempts"]] == ["playwright"]
+    assert metadata["challenge_attempts"][0]["turnstile_frame"] == "none"

@@ -9,9 +9,12 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 ### Added
 
 - **Cloudflare Turnstile checkbox.** While the local browser waits out a "Just a moment..." page, a Turnstile checkbox still showing after two seconds is ticked, as a person would (up to three times, three seconds apart; `metadata.challenge_clicks`). Your own browser only: no solver service, no image CAPTCHAs. Turn it off with `browser_challenge_click=false` or `AGENTCRAWL_BROWSER_CHALLENGE_CLICK=false`. On the 400-page web benchmark, 14 Cloudflare pages that Scrapling read and AgentCrawl did not (even with Patchright) needed this.
+- **`metadata.challenge_attempts`.** One entry per browser run that met a challenge (engine, browser version, HTTP status, page title, whether a Turnstile widget was visible, wait and clicks), so a plain run and its Patchright retry can be told apart; `challenge_clicks` and `challenge_waited_ms` still describe the last run.
 
 ### Fixed
 
+- **Turnstile click** gave up at the first, invisible widget frame instead of looking for a visible one.
+- **Browser launch:** when the full Chromium fails to start and the headless shell is used instead, the reason is logged as a warning (the shell announces itself as HeadlessChrome, which bot managers refuse).
 - **Amazon's "continue shopping" bot wall** came back as a thin page; it is now `client_challenge`, in every storefront language (its `/errors/validateCaptcha` form on a very short page).
 - **Web benchmark:** a sitemap returned as its list of URLs counted as `thin`; five or more bare URL lines now count as content.
 
