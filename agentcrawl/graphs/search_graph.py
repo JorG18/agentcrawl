@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 from ..client import AgentCrawler
@@ -16,6 +17,11 @@ class SearchGraph:
         query: str | None = None,
         schema: Any | None = None,
     ):
+        warnings.warn(
+            "SearchGraph is deprecated and will be removed in 0.6; use AgentCrawl(...).search instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.prompt = prompt
         self.query = query or prompt
         self.schema = schema

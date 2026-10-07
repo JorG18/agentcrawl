@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 from ..client import AgentCrawler
@@ -16,6 +17,11 @@ class ExtractionGraph:
         config: dict[str, Any] | None = None,
         schema: Any | None = None,
     ):
+        warnings.warn(
+            "ExtractionGraph is deprecated and will be removed in 0.6; use AgentCrawl(...).extract instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.prompt = prompt
         self.source = source
         self.schema = schema
