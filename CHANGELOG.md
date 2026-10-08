@@ -4,6 +4,14 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## Unreleased
+
+`crawl` fetches two pages at a time instead of one.
+
+### Changed
+
+- **Concurrent crawl.** `crawl` now fetches up to `crawl_concurrency` pages at the same time (default 2, the same per-host limit `scrape_many` uses) and drops to one at a time for the rest of the run once the site answers `rate_limited`. Results keep the order the pages were dispatched in, pages in flight count against `max_pages` and the job page quantum, and a cancelled or early-stopped run puts them back in the checkpoint queue, so resuming loses nothing. Set `crawl_concurrency: 1` for the old behaviour. 20 pages of docs.python.org: 7-11 s one at a time, under 6 s with the default, about 5 s with 4; past that the time goes to parsing, not to the network.
+
 ## 0.5.4 - 2026-10-08
 
 Homepages wrapped in an `index` container are no longer returned nearly empty, and the browser fallback covers more refusals.
