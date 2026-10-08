@@ -43,6 +43,16 @@ By default the MCP exposes the core tools an agent needs: `scrape_url`, `scrape_
 
 The MCP only fetches URLs by default: local file paths are refused, because an agent can be steered by the pages it reads. To let it read a docs folder, set `AGENTCRAWL_ALLOW_LOCAL_FILES=true` and `AGENTCRAWL_LOCAL_FILES_ROOT=/path/to/docs`. The Python library and the CLI still read local files by default.
 
+### Agents: skill 🧩
+
+An agent skill (Claude Code, Codex, Cursor, OpenClaw and other clients that read `SKILL.md`) teaches the agent when and how to use AgentCrawl, including reading long pages section by section:
+
+```bash
+npx skills add JorG18/agentcrawl
+```
+
+The skill lives in [skills/agentcrawl/SKILL.md](skills/agentcrawl/SKILL.md).
+
 ### Developers: Python + CLI 🧪
 
 ```bash
