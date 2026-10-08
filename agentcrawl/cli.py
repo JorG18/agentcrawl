@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.request
 from importlib.metadata import PackageNotFoundError, version
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -636,9 +637,12 @@ def _backup(db_path: str, output_dir: str, env_file: str | None = None) -> dict[
     db_backup = target_dir / f"agentcrawl-{timestamp}.db"
     manifest_path = target_dir / f"agentcrawl-{timestamp}.manifest.json"
 
-    with sqlite3.connect(source) as source_conn, sqlite3.connect(db_backup) as backup_conn:
+    with (
+        closing(sqlite3.connect(source)) as source_conn,
+        closing(sqlite3.connect(db_backup)) as backup_conn,
+    ):
         source_conn.backup(backup_conn)
-    with sqlite3.connect(db_backup) as conn:
+    with closing(sqlite3.connect(db_backup)) as conn:
         integrity = str(conn.execute("pragma integrity_check").fetchone()[0])
 
     copied_env: str | None = None
@@ -671,7 +675,7 @@ def _restore(backup_db: str, db_path: str, *, force: bool = False) -> dict[str, 
         raise SystemExit(f"Backup database not found: {source}")
     if target.exists() and not force:
         raise SystemExit(f"Refusing to overwrite existing database without --force: {target}")
-    with sqlite3.connect(source) as conn:
+    with closing(sqlite3.connect(source)) as conn:
         integrity = str(conn.execute("pragma integrity_check").fetchone()[0])
     if integrity != "ok":
         raise SystemExit(f"Backup integrity check failed: {integrity}")

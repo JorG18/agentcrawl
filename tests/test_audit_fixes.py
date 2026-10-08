@@ -388,15 +388,15 @@ def test_sqlite_store_migration_runs_once_per_path(tmp_path: Path, monkeypatch) 
     original_connect = SQLiteStore._connect
 
     class Tracking:
-        def __init__(self, conn):
-            self.conn = conn
+        def __init__(self, connection_context):
+            self.connection_context = connection_context
 
         def __enter__(self):
-            self.conn.__enter__()
+            self.conn = self.connection_context.__enter__()
             return self
 
         def __exit__(self, *args):
-            return self.conn.__exit__(*args)
+            return self.connection_context.__exit__(*args)
 
         def execute(self, sql, params=()):
             calls.append(sql.lower())

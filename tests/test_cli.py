@@ -196,3 +196,30 @@ def test_doctor_browser_check_without_the_extra_is_skipped() -> None:
     check = _check_browser(False)
     assert check["skipped"] is True
     assert "playwright install chromium" in check["detail"]
+
+
+def test_backup_and_restore_close_their_connections(tmp_path: Path, monkeypatch, capsys) -> None:
+    database = tmp_path / "agentcrawl.db"
+    with sqlite3.connect(database) as conn:
+        conn.execute("create table sample (value text)")
+    opened: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    def tracking_connect(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr(sqlite3, "connect", tracking_connect)
+    assert main(["backup", "--db", str(database), "--output-dir", str(tmp_path / "b")]) == 0
+    backup_db = json.loads(capsys.readouterr().out)["database"]
+    restored = tmp_path / "restored.db"
+    assert main(["restore", "--backup-db", backup_db, "--db", str(restored)]) == 0
+
+    assert len(opened) == 4
+    for conn in opened:
+        try:
+            conn.execute("select 1")
+        except sqlite3.ProgrammingError:
+            continue  # closed, as it should be
+        raise AssertionError("connection left open")

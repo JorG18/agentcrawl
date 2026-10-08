@@ -1,3 +1,5 @@
+import pytest
+
 from agentcrawl.storage import SQLiteStore
 
 
@@ -106,15 +108,15 @@ def test_cleanup_cache_checkpoints_wal(tmp_path, monkeypatch) -> None:
     original_connect = SQLiteStore._connect
 
     class TrackingConnection:
-        def __init__(self, conn):
-            self.conn = conn
+        def __init__(self, connection_context):
+            self.connection_context = connection_context
 
         def __enter__(self):
-            self.conn.__enter__()
+            self.conn = self.connection_context.__enter__()
             return self
 
         def __exit__(self, *args):
-            return self.conn.__exit__(*args)
+            return self.connection_context.__exit__(*args)
 
         def execute(self, sql, parameters=()):
             calls.append(sql.lower())
@@ -208,3 +210,37 @@ def test_a_job_without_a_cancel_completes_as_before(tmp_path) -> None:
     assert store.claim_job(job)
     store.update_job(job, "completed", result={"documents": [], "metadata": {}})
     assert store.get_job(job)["status"] == "completed"
+
+
+def test_store_closes_every_connection(tmp_path, monkeypatch) -> None:
+    import sqlite3
+
+    opened: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    def tracking_connect(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr(sqlite3, "connect", tracking_connect)
+    store = SQLiteStore(tmp_path / "closing.db")
+    job_id = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.get_job(job_id) is not None
+
+    assert len(opened) >= 3
+    for conn in opened:
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("select 1")  # raises only on a closed connection
+
+
+def test_store_rolls_back_a_failed_write(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "rollback.db")
+    with pytest.raises(RuntimeError):
+        with store._connect() as conn:
+            conn.execute(
+                "insert into jobs (id, type, status, request_json, created_at, updated_at)"
+                " values ('x', 'crawl', 'queued', '{}', 0, 0)"
+            )
+            raise RuntimeError("boom")
+    assert store.get_job("x") is None
