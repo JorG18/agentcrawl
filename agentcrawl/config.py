@@ -64,7 +64,19 @@ class CrawlConfig:
     browser_fallback: bool = True
     # 405/421/444 and certificate failures come from edge proxies and servers
     # that answer scripts differently from browsers (web-sample benchmark).
-    browser_fallback_statuses: tuple[int, ...] = (403, 405, 421, 429, 444, 500, 502, 503, 504)
+    browser_fallback_statuses: tuple[int, ...] = (
+        401,
+        402,
+        403,
+        405,
+        421,
+        429,
+        444,
+        500,
+        502,
+        503,
+        504,
+    )
     domain_min_delay: float = 0.0
     wait_until: str = "domcontentloaded"
     user_agent: str | None = DEFAULT_USER_AGENT

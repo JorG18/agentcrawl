@@ -830,6 +830,36 @@ def test_certificate_failure_falls_back_to_the_verifying_browser(monkeypatch) ->
     assert document.metadata["fallback_from"] == "http"
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        "HTTP Error 401: Unauthorized",
+        "HTTP Error 402: Payment Required",
+        "Remote end closed connection without response",
+    ],
+)
+def test_refusals_of_the_http_client_fall_back_to_the_browser(monkeypatch, error) -> None:
+    """Sites that answer the HTTP client 401/402 or hang up on it served the
+    page to a browser (web-sample benchmark: biyiyd, usatoday, gismeteo)."""
+    monkeypatch.setattr(
+        "agentcrawl.fetchers._fetch_http",
+        lambda url, config: (_ for _ in ()).throw(
+            FetchError(f"HTTP fetch failed for {url}: {error}")
+        ),
+    )
+    monkeypatch.setattr("agentcrawl.fetchers._browser_backend_available", lambda backend: True)
+    article = "".join(f"<p>Paragraph {i} of a real page.</p>" for i in range(5))
+    monkeypatch.setattr(
+        "agentcrawl.fetchers._fetch_browser",
+        lambda url, config, backend=None: f"<html><body><main>{article}</main></body></html>",
+    )
+
+    document = AgentCrawl({"fetcher": "http"}).scrape("https://example.com/")
+
+    assert document.ok
+    assert document.metadata["fallback_from"] == "http"
+
+
 def test_browser_is_launched_once_for_many_pages(monkeypatch) -> None:
     """Chromium was launched (and closed) for every page."""
     _page, browser, chromium = install_fake_playwright(monkeypatch)
