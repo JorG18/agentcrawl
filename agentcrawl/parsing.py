@@ -51,8 +51,10 @@ _CONTENT_HINTS = re.compile(
     re.IGNORECASE,
 )
 # Whole class/id tokens only: "index-column_main" or "page--index" are layout
-# names, and matching them inside a token emptied real pages.
-_INDEX_TOKENS = {"index", "toc", "genindex"}
+# names, and matching them inside a token emptied real pages. A bare "index"
+# is the homepage wrapper on many sites (<div class="main index">); a real
+# generated index is caught by its "Index" heading below.
+_INDEX_TOKENS = {"toc", "genindex"}
 # Generated back-of-document indexes (RFCs put theirs in "appendix-D") are
 # recognised by their heading, not by the appendix id: the other appendices
 # (acknowledgements, changes, authors) are content.

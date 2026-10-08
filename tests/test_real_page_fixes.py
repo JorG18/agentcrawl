@@ -118,6 +118,21 @@ def test_layout_class_containing_index_is_not_a_generated_index() -> None:
     assert "Shop number 19" in _md(html)
 
 
+def test_index_class_on_the_page_wrapper_is_not_a_generated_index() -> None:
+    # biyiyd.cc, henglin.com: <div class="main index"> held the whole homepage.
+    items = "".join(
+        f"<p>Novel number {i} with a short summary of the story.</p>" for i in range(12)
+    )
+    assert "Novel number 11" in _md(_page(f'<div class="main index"><h2>New</h2>{items}</div>'))
+
+
+def test_generated_index_is_still_dropped() -> None:
+    article = "".join(f"<p>Section {i} of the reference explains a feature.</p>" for i in range(8))
+    terms = "".join(f"<li>term{i}, 1</li>" for i in range(30))
+    markdown = _md(_page(f"<main>{article}<div><h2>Index</h2><ul>{terms}</ul></div></main>"))
+    assert "Section 7" in markdown and "term29" not in markdown
+
+
 def test_a_modal_is_never_selected_as_main_content() -> None:
     offers = "".join(f"<p>Used car offer {i} with price, mileage and year.</p>" for i in range(12))
     html = _page(
