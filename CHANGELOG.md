@@ -4,6 +4,16 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## 0.5.4 - 2026-10-08
+
+Homepages wrapped in an `index` container are no longer returned nearly empty, and the browser fallback covers more refusals.
+
+### Fixed
+
+- **Pages wrapped in `class="index"` came back nearly empty.** Main-content extraction took a container whose class is the bare word `index` (`<div class="main index">`, `<div class="index">`, common on homepages) for a generated back-of-document index and dropped it with everything inside. A bare `index` class no longer counts; a real generated index is still recognised by its "Index" heading, and `toc` / `genindex` still count. On the 400-page web benchmark this took two homepages from about 200 characters to 750 and 3,200.
+- **Browser fallback on more refusals.** A site that answers the HTTP client `401 Unauthorized` or `402 Payment Required`, or closes the connection without a response, often serves the page to a browser; those now go to the local browser like a 403 does (`browser_fallback_statuses` gains 401 and 402). The HTTP error is still reported when the browser gets an error page too.
+- **Web benchmark fairness.** Tools that run on the runner (AgentCrawl, crawl4ai, Scrapling) now run in one job at the same time, so they share the runner's IP, and every one of them gets the same 60 s per page in the report: Scrapling's own 60 s timeout applies per step, and some of its pages took up to four minutes. Pages with an HTTP error status (404, 410) are no longer counted as content for any tool, and a "protected by reCAPTCHA" footer no longer marks a real page as a block page. With these rules the 400-page sample reads 254 pages with content for AgentCrawl and 259 for Scrapling 0.4.15 in the same run.
+
 ## 0.5.3 - 2026-10-06
 
 The Patchright retry actually runs, a Turnstile checkbox is ticked in your own browser, per-attempt challenge diagnostics, and a redirect header leak fixed.
