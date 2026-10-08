@@ -57,7 +57,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
-      tools: ${{ steps.tools.outputs.list }}
+      local: ${{ steps.tools.outputs.local }}
+      hosted: ${{ steps.tools.outputs.hosted }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -74,20 +75,93 @@ jobs:
         if: env.SAMPLE_FROM_RUN == ''
         run: python -m benchmarks.web.sample --size "$SIZE" --hard "$HARD" --seed "$SEED" --out sample.json
       - id: tools
-        run: echo "list=$(python -c "import json,os; print(json.dumps([t for t in os.environ['TOOLS'].split(',') if t]))")" >> "$GITHUB_OUTPUT"
+        run: |
+          python - >> "$GITHUB_OUTPUT" <<'PY'
+          import json, os
+          tools = [t for t in os.environ["TOOLS"].split(",") if t]
+          local = {"agentcrawl", "crawl4ai", "scrapling"}
+          print("local=" + " ".join(t for t in tools if t in local))
+          print("hosted=" + json.dumps([t for t in tools if t not in local]))
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: web-sample
           path: sample.json
 
+  # The tools that run on the runner share one job, at the same time: from
+  # separate jobs each got its own runner IP, and anti-bot verdicts follow
+  # the IP, so a page could be let through for one tool and refused for the
+  # other on the same day.
+  run-local:
+    needs: sample
+    if: needs.sample.outputs.local != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-sample
+      - name: Install
+        env:
+          LOCAL: ${{ needs.sample.outputs.local }}
+        run: |
+          # One virtualenv per tool: their Playwright pins differ.
+          for tool in $LOCAL; do
+            python -m venv ".venv-$tool"
+            pip=".venv-$tool/bin/python -m pip"
+            $pip install --upgrade pip
+            case "$tool" in
+              crawl4ai) $pip install -e . crawl4ai ;;
+              scrapling) $pip install -e . "scrapling[fetchers,ai]"; ".venv-$tool/bin/scrapling" install ;;
+              agentcrawl)
+                $pip install -e ".[browser]"
+                if [ -n "${{ inputs.stealth }}" ]; then
+                  $pip install -e ".[stealth]"
+                  ".venv-$tool/bin/python" -m patchright install --with-deps chromium
+                fi ;;
+            esac
+            if [ "$tool" != "scrapling" ]; then
+              ".venv-$tool/bin/python" -m playwright install --with-deps chromium
+            fi
+          done
+      - name: Scrape the sample
+        env:
+          LOCAL: ${{ needs.sample.outputs.local }}
+        run: |
+          keep=""
+          if [ "$KEEP_HTML" = "1" ]; then keep="--keep-html"; fi
+          set -- $LOCAL
+          # The runner's 8 page slots split between the tools running at once.
+          concurrency=$(( 8 / $# )); [ "$concurrency" -ge 1 ] || concurrency=1
+          pids=""
+          for tool in $LOCAL; do
+            ".venv-$tool/bin/python" -m benchmarks.web.run --tool "$tool" --sample sample.json \
+              --concurrency "$concurrency" $keep --out "$tool.jsonl.gz" &
+            pids="$pids $!"
+          done
+          status=0
+          for pid in $pids; do wait "$pid" || status=1; done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-local
+          retention-days: 14
+          path: "*.jsonl.gz"
+
   run:
     needs: sample
+    if: needs.sample.outputs.hosted != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        tool: ${{ fromJSON(needs.sample.outputs.tools) }}
+        tool: ${{ fromJSON(needs.sample.outputs.hosted) }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -100,21 +174,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          if [ "${{ matrix.tool }}" = "crawl4ai" ]; then
-            python -m pip install -e . crawl4ai
-          elif [ "${{ matrix.tool }}" = "scrapling" ]; then
-            python -m pip install -e . "scrapling[fetchers,ai]"
-            scrapling install
-          else
-            python -m pip install -e ".[browser]"
-          fi
-          if [ "${{ matrix.tool }}" = "agentcrawl" ] && [ -n "${{ inputs.stealth }}" ]; then
-            python -m pip install -e ".[stealth]"
-            python -m patchright install --with-deps chromium
-          fi
-          if [ "${{ matrix.tool }}" = "agentcrawl" ] || [ "${{ matrix.tool }}" = "crawl4ai" ]; then
-            python -m playwright install --with-deps chromium
-          fi
+          python -m pip install -e .
       - name: Scrape the sample
         env:
           # Only the step that needs a key sees it; the runner never prints it.
@@ -123,15 +183,10 @@ jobs:
           TAVILY_API_KEY: ${{ matrix.tool == 'tavily' && secrets.TAVILY_API_KEY || '' }}
         run: |
           limit=0
-          concurrency=8
-          case "${{ matrix.tool }}" in
-            firecrawl|scrapegraph|tavily) concurrency=3 ;;  # stay under free-plan rate limits
-          esac
           if [ "${{ matrix.tool }}" = "scrapegraph" ]; then limit="$SCRAPEGRAPH_PAGES"; fi
-          keep=""
-          if [ "$KEEP_HTML" = "1" ]; then keep="--keep-html"; fi
+          # Stay under free-plan rate limits.
           python -m benchmarks.web.run --tool "${{ matrix.tool }}" --sample sample.json \
-            --limit "$limit" --concurrency "$concurrency" $keep --out "${{ matrix.tool }}.jsonl.gz"
+            --limit "$limit" --concurrency 3 --out "${{ matrix.tool }}.jsonl.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: web-${{ matrix.tool }}
@@ -139,7 +194,7 @@ jobs:
           path: ${{ matrix.tool }}.jsonl.gz
 
   report:
-    needs: run
+    needs: [run-local, run]
     if: always()
     runs-on: ubuntu-latest
     steps:

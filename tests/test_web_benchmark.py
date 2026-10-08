@@ -104,6 +104,15 @@ def test_error_status_page_is_not_content() -> None:
     assert classify({"markdown": ARTICLE, "status_code": 200}) == "content"
 
 
+def test_local_tools_share_one_wall_clock() -> None:
+    slow = {"markdown": ARTICLE, "seconds": 61}
+    assert classify({**slow, "tool": "scrapling"}) == "failed"
+    assert classify({**slow, "tool": "agentcrawl"}) == "failed"
+    assert classify({**slow, "tool": "agentcrawl", "seconds": 59}) == "content"
+    # A hosted API's time includes our rate-limit waits.
+    assert classify({**slow, "tool": "firecrawl"}) == "content"
+
+
 def test_tool_limited_to_part_of_the_sample_is_judged_on_what_it_ran() -> None:
     sample = {
         "seed": 1,
