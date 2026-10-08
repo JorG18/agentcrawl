@@ -383,6 +383,7 @@ def _fetch_source(
                     _should_browser_fallback(str(exc), config)
                     or _is_tls_failure(exc)
                     or _is_timeout_failure(exc)
+                    or _is_dropped_connection(exc)
                 )
             ):
                 raise
@@ -593,6 +594,12 @@ def _is_timeout_failure(exc: FetchError) -> bool:
     from .errors import classify_exception
 
     return classify_exception(exc) == "timeout"
+
+
+def _is_dropped_connection(exc: FetchError) -> bool:
+    """The server hung up on the HTTP client; a browser is often let in."""
+    text = str(exc).casefold()
+    return "remote end closed connection" in text or "connection reset" in text
 
 
 def _http_timeout_seconds(config: CrawlConfig) -> float:

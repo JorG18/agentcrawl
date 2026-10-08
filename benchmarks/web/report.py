@@ -54,6 +54,8 @@ _JUNK_RE = re.compile(
     r"service (?:temporarily )?unavailable",
     re.I,
 )
+# The reCAPTCHA notice in a form footer is on real pages, not block pages.
+_RECAPTCHA_NOTICE_RE = re.compile(r"protected by recaptcha", re.I)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+|\n+")
 
 
@@ -68,8 +70,11 @@ def classify(result: dict[str, Any]) -> str:
             return "content"
         return "failed" if result.get("error") else "thin"
     # Challenge wording on a short page is a challenge; a long article may quote it.
-    if len(readable) < 3000 and _JUNK_RE.search(readable):
+    if len(readable) < 3000 and _JUNK_RE.search(_RECAPTCHA_NOTICE_RE.sub(" ", readable)):
         return "junk"
+    # An error page (404, 410…) is not the page, whatever its length.
+    if (result.get("status_code") or 0) >= 400:
+        return "failed"
     # Text returned next to an error the tool itself reported (a block page,
     # an error body) is not content.
     if result.get("error") and len(readable) < 3000:

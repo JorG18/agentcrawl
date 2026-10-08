@@ -93,6 +93,17 @@ def test_robot_block_notice_is_junk() -> None:
     assert classify({"markdown": nyt * 3}) == "junk"
 
 
+def test_recaptcha_footer_is_not_a_block_page() -> None:
+    page = ARTICLE + " This site is protected by reCAPTCHA and the Google Privacy Policy apply."
+    assert classify({"markdown": page}) == "content"
+    assert classify({"markdown": "Please solve the CAPTCHA to continue. " * 3}) == "junk"
+
+
+def test_error_status_page_is_not_content() -> None:
+    assert classify({"markdown": ARTICLE, "status_code": 404}) == "failed"
+    assert classify({"markdown": ARTICLE, "status_code": 200}) == "content"
+
+
 def test_tool_limited_to_part_of_the_sample_is_judged_on_what_it_ran() -> None:
     sample = {
         "seed": 1,
