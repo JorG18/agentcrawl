@@ -805,6 +805,9 @@ class AgentCrawl:
         next_retry_at: float | None = None
         run_pages = 0
         concurrency = self.config.crawl_concurrency
+        if resume_state:
+            # A rate-limited run stays slowed down across resumes (job quanta).
+            concurrency = min(concurrency, int(resume_state.get("concurrency", concurrency)))
         in_flight: deque[tuple[dict[str, Any], Future[Any]]] = deque()
         discovery_trail = None
         robots = None
@@ -845,6 +848,7 @@ class AgentCrawl:
                         "terminal_failures": terminal_failures,
                         "retry_attempts": retry_attempts,
                         "irrelevant_streak": irrelevant_streak,
+                        "concurrency": concurrency,
                     },
                     progress,
                     document,

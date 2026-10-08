@@ -192,7 +192,7 @@ Minimum production checks:
 - Local-file and private-network access disabled unless explicitly needed.
 - Persistent database storage and tested backups available.
 - Worker, browser, and per-domain concurrency sized for memory and target sites.
-- Crawl concurrency (`crawl_concurrency`, default 2 pages per crawl) multiplies with the number of job workers; `AGENTCRAWL_DOMAIN_MAX_CONCURRENCY` still caps the requests to one domain across all jobs.
+- Each crawl job fetches 2 pages at a time (fixed on the server; `crawl_concurrency` is a library setting), so page fetches in flight are up to twice the number of job workers; `AGENTCRAWL_DOMAIN_MAX_CONCURRENCY` still caps the requests to one domain across all jobs.
 - Logs, health checks, database integrity, and disk usage monitored.
 - Restore and rollback procedure tested before public launch.
 

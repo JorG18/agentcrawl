@@ -159,3 +159,50 @@ def test_crawl_drops_to_one_fetch_after_rate_limit(monkeypatch) -> None:
 def test_crawl_concurrency_config_is_bounded() -> None:
     with pytest.raises(ValueError):
         AgentCrawl({"crawl_concurrency": 0})
+
+
+def test_crawl_rate_limit_slowdown_survives_resume(monkeypatch) -> None:
+    from dataclasses import asdict
+
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+    limited: list[str] = []
+    checkpoints: list[dict] = []
+
+    def fake_scrape(self, source, formats=None, only_main_content=None):
+        nonlocal active, peak
+        if source == A and not limited:
+            limited.append(source)
+            return ScrapeDocument(
+                url=A,
+                markdown="",
+                text="",
+                metadata={"error_type": "rate_limited"},
+                errors=["429 Too Many Requests"],
+            )
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        links = {ROOT: [A, B, C], B: [D, E], C: [F]}.get(source, [])
+        return _doc(source, links)
+
+    monkeypatch.setattr(AgentCrawl, "scrape", fake_scrape)
+    crawler = _crawler(3, crawl_depth=2, crawl_retry_delay=0.0)
+    first = crawler.crawl(
+        ROOT,
+        max_pages=10,
+        max_run_pages=3,  # a server job quantum: yields after root, /b, /c
+        checkpoint_callback=lambda state, _progress, _document: checkpoints.append(state),
+    )
+    assert first.metadata["fairness_yielded"] is True
+
+    peak = 0
+    resume_state = {**checkpoints[-1], "documents": [asdict(d) for d in first.documents]}
+    resumed = crawler.crawl(ROOT, max_pages=10, resume_state=resume_state)
+
+    assert {A, D, E, F} <= set(resumed.visited_urls)
+    assert peak == 1
