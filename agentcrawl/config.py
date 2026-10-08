@@ -162,6 +162,7 @@ class CrawlConfig:
 
     crawl_depth: int = 1
     crawl_max_pages: int = 25
+    crawl_concurrency: int = 2
     crawl_same_domain: bool = True
     crawl_url_retries: int = 2
     crawl_retry_delay: float = 2.0
@@ -339,6 +340,7 @@ _INT_RANGES: dict[str, tuple[int, int]] = {
     "search_limit": (1, 100),
     "crawl_depth": (0, 1_000),
     "crawl_max_pages": (1, 1_000_000),
+    "crawl_concurrency": (1, 64),
     "crawl_url_retries": (0, 20),
     "browser_wait_ms": (0, 3_600_000),
     "http_timeout_ms": (1, 3_600_000),

@@ -14,6 +14,7 @@ import urllib.robotparser
 import time
 import xml.etree.ElementTree as ET
 from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import Any, Callable
 
@@ -749,6 +750,13 @@ class AgentCrawl:
         each page then reports ``change`` (``new``, ``changed`` or
         ``unchanged``) and the run metadata counts them, so a re-crawl says
         what moved instead of handing back the whole site again.
+
+        Up to ``config.crawl_concurrency`` pages are fetched at the same time
+        (one at a time after the site answers ``rate_limited``); results keep
+        the order the pages were dispatched in. With more than one in flight,
+        an adaptive crawl picks the next page before the current one's links
+        are scored, and a cancel or an early stop puts the in-flight pages
+        back in the checkpoint queue.
         """
         from .relevance import tokenize
 
@@ -796,6 +804,11 @@ class AgentCrawl:
         fairness_yielded = False
         next_retry_at: float | None = None
         run_pages = 0
+        concurrency = self.config.crawl_concurrency
+        if resume_state:
+            # A rate-limited run stays slowed down across resumes (job quanta).
+            concurrency = min(concurrency, int(resume_state.get("concurrency", concurrency)))
+        in_flight: deque[tuple[dict[str, Any], Future[Any]]] = deque()
         discovery_trail = None
         robots = None
         if self.config.respect_robots_txt:
@@ -810,7 +823,7 @@ class AgentCrawl:
         ) -> None:
             progress: dict[str, Any] = {
                 "visited": len(visited),
-                "pending": len(queue),
+                "pending": len(queue) + len(in_flight),
                 "failed": len(failed_urls),
                 "discovered": len(discovered),
                 "cancelled": cancelled,
@@ -826,7 +839,7 @@ class AgentCrawl:
                     {
                         "version": 2,
                         "root": root,
-                        "queue": list(queue),
+                        "queue": [item for item, _ in in_flight] + list(queue),
                         "queued": sorted(queued),
                         "visited": sorted(visited),
                         "discovered": sorted(discovered),
@@ -835,147 +848,187 @@ class AgentCrawl:
                         "terminal_failures": terminal_failures,
                         "retry_attempts": retry_attempts,
                         "irrelevant_streak": irrelevant_streak,
+                        "concurrency": concurrency,
                     },
                     progress,
                     document,
                 )
 
-        report(checkpoint=True)
-        while queue and len(visited) < page_limit:
-            if should_cancel and should_cancel():
-                cancelled = True
-                report(checkpoint=True)
-                break
-
-            item, earliest = _pop_ready_item(queue, time.time())
-            if item is None:
-                next_retry_at = earliest
-                if defer_retries:
-                    retry_scheduled = True
-                    report(checkpoint=True)
-                    break
-                time.sleep(max(0.0, (earliest or time.time()) - time.time()))
-                continue
-
-            next_retry_at = None
-            url = item["url"]
-            depth = item["depth"]
-            attempt = item["attempt"]
-            if url in visited:
-                continue
-            if not url_allowed(url, include_patterns, exclude_patterns):
-                report(checkpoint=True)
-                continue
-            if robots is not None and not robots.can_fetch(_robots_user_agent(self.config), url):
-                visited.add(url)
-                failed_urls.append(url)
-                message = "blocked by robots.txt"
-                errors.append(f"{url}: {message}")
-                terminal_failures.append(
-                    _terminal_failure(
-                        url,
-                        attempt=attempt,
-                        error_type="blocked",
-                        message=message,
-                        retryable=False,
-                    )
-                )
-                report(checkpoint=True)
-                continue
-
+        def fetch(url: str) -> Any:
             if before_fetch:
                 with before_fetch(url):
-                    doc = self.scrape(url)
-            else:
-                doc = self.scrape(url)
-            if not isinstance(doc, ScrapeDocument):
-                continue
-            if doc.errors:
-                # The engine already classified this failure (from the
-                # exception type, status or challenge detection); re-reading
-                # the message text turned ``client_challenge`` into a
-                # retryable ``fetch_error``.
-                error_type = (
-                    doc.metadata.get("error_type") or classify_error(doc.errors[0]) or "fetch_error"
-                )
-                can_retry = (
-                    attempt < self.config.crawl_url_retries
-                    and error_type in self.config.crawl_retry_error_types
-                )
-                if can_retry:
-                    delay = min(
-                        self.config.crawl_retry_delay * (2**attempt),
-                        self.config.crawl_retry_max_delay,
-                    )
-                    ready_at = time.time() + max(0.0, delay)
-                    queue.append(_queue_item(url, depth, attempt + 1, ready_at))
-                    retry_attempts[url] = attempt + 1
-                    next_retry_at = ready_at
+                    return self.scrape(url)
+            return self.scrape(url)
+
+        report(checkpoint=True)
+        # Only the fetch runs in worker threads; every piece of bookkeeping
+        # below stays on this thread, so it needs no locks.
+        # ponytail: results are drained oldest-first (head-of-line blocking),
+        # which keeps documents and checkpoints deterministic; switch to
+        # FIRST_COMPLETED if slow pages are shown to stall crawls.
+        executor = ThreadPoolExecutor(max_workers=concurrency)
+        try:
+            while queue or in_flight:
+                if should_cancel and should_cancel():
+                    cancelled = True
                     report(checkpoint=True)
+                    break
+
+                earliest: float | None = None
+                while (
+                    len(in_flight) < concurrency
+                    and len(visited) + len(in_flight) < page_limit
+                    and not (max_run_pages and run_pages + len(in_flight) >= max_run_pages)
+                ):
+                    item, earliest = _pop_ready_item(queue, time.time())
+                    if item is None:
+                        break
+                    url = item["url"]
+                    if url in visited:
+                        continue
+                    if not url_allowed(url, include_patterns, exclude_patterns):
+                        report(checkpoint=True)
+                        continue
+                    if robots is not None and not robots.can_fetch(
+                        _robots_user_agent(self.config), url
+                    ):
+                        visited.add(url)
+                        failed_urls.append(url)
+                        message = "blocked by robots.txt"
+                        errors.append(f"{url}: {message}")
+                        terminal_failures.append(
+                            _terminal_failure(
+                                url,
+                                attempt=item["attempt"],
+                                error_type="blocked",
+                                message=message,
+                                retryable=False,
+                            )
+                        )
+                        report(checkpoint=True)
+                        continue
+                    in_flight.append((item, executor.submit(fetch, url)))
+
+                if not in_flight:
+                    if not queue or len(visited) >= page_limit:
+                        break
+                    if max_run_pages and run_pages >= max_run_pages:
+                        fairness_yielded = True
+                        report(checkpoint=True)
+                        break
+                    # Nothing ready yet: every queued item waits for a retry delay.
+                    next_retry_at = earliest
+                    if defer_retries:
+                        retry_scheduled = True
+                        report(checkpoint=True)
+                        break
+                    time.sleep(max(0.0, (earliest or time.time()) - time.time()))
                     continue
-                terminal_failures.append(
-                    _terminal_failure(
-                        url,
-                        attempt=attempt,
-                        error_type=error_type,
-                        message=str(doc.errors[0]),
-                        retryable=error_type in self.config.crawl_retry_error_types,
+
+                item, future = in_flight.popleft()
+                next_retry_at = None
+                url = item["url"]
+                depth = item["depth"]
+                attempt = item["attempt"]
+                doc = future.result()
+                if not isinstance(doc, ScrapeDocument):
+                    continue
+                if doc.errors:
+                    # The engine already classified this failure (from the
+                    # exception type, status or challenge detection); re-reading
+                    # the message text turned ``client_challenge`` into a
+                    # retryable ``fetch_error``.
+                    error_type = (
+                        doc.metadata.get("error_type")
+                        or classify_error(doc.errors[0])
+                        or "fetch_error"
                     )
-                )
+                    if error_type == "rate_limited":
+                        concurrency = 1  # the site asked us to slow down
+                    can_retry = (
+                        attempt < self.config.crawl_url_retries
+                        and error_type in self.config.crawl_retry_error_types
+                    )
+                    if can_retry:
+                        delay = min(
+                            self.config.crawl_retry_delay * (2**attempt),
+                            self.config.crawl_retry_max_delay,
+                        )
+                        ready_at = time.time() + max(0.0, delay)
+                        queue.append(_queue_item(url, depth, attempt + 1, ready_at))
+                        retry_attempts[url] = attempt + 1
+                        next_retry_at = ready_at
+                        report(checkpoint=True)
+                        continue
+                    terminal_failures.append(
+                        _terminal_failure(
+                            url,
+                            attempt=attempt,
+                            error_type=error_type,
+                            message=str(doc.errors[0]),
+                            retryable=error_type in self.config.crawl_retry_error_types,
+                        )
+                    )
 
-            page_relevance = 0.0
-            if query_terms and not doc.errors:
-                page_relevance = _term_coverage(query_terms, doc.markdown)
-                doc.metadata["query_relevance"] = round(page_relevance, 3)
-                irrelevant_streak = 0 if page_relevance >= 1 / 3 else irrelevant_streak + 1
-            if previous_hashes is not None and not doc.errors:
-                before = previous_hashes.get(url)
-                doc.metadata["change"] = (
-                    "new"
-                    if before is None
-                    else "unchanged"
-                    if before == doc.metadata.get("markdown_sha256")
-                    else "changed"
-                )
-            documents.append(doc)
-            visited.add(url)
-            run_pages += 1
-            errors.extend(f"{url}: {error}" for error in doc.errors)
-            if doc.errors:
-                failed_urls.append(url)
-            if query_terms and stop_after_irrelevant and irrelevant_streak >= stop_after_irrelevant:
-                stopped_early = True
-                report(checkpoint=True, document=doc)
-                break
+                page_relevance = 0.0
+                if query_terms and not doc.errors:
+                    page_relevance = _term_coverage(query_terms, doc.markdown)
+                    doc.metadata["query_relevance"] = round(page_relevance, 3)
+                    irrelevant_streak = 0 if page_relevance >= 1 / 3 else irrelevant_streak + 1
+                if previous_hashes is not None and not doc.errors:
+                    before = previous_hashes.get(url)
+                    doc.metadata["change"] = (
+                        "new"
+                        if before is None
+                        else "unchanged"
+                        if before == doc.metadata.get("markdown_sha256")
+                        else "changed"
+                    )
+                documents.append(doc)
+                visited.add(url)
+                run_pages += 1
+                errors.extend(f"{url}: {error}" for error in doc.errors)
+                if doc.errors:
+                    failed_urls.append(url)
+                if (
+                    query_terms
+                    and stop_after_irrelevant
+                    and irrelevant_streak >= stop_after_irrelevant
+                ):
+                    stopped_early = True
+                    report(checkpoint=True, document=doc)
+                    break
 
-            if depth >= depth_limit:
+                if depth >= depth_limit:
+                    report(checkpoint=True, document=doc)
+                    if max_run_pages and run_pages >= max_run_pages and queue:
+                        fairness_yielded = True
+                        report(checkpoint=True)
+                        break
+                    continue
+                for link in doc.links:
+                    normalized = normalize_url(link, url)
+                    if self.config.crawl_same_domain and not same_domain(normalized, root):
+                        continue
+                    if normalized in queued or normalized in visited:
+                        continue
+                    if not url_allowed(normalized, include_patterns, exclude_patterns):
+                        continue
+                    discovered.add(normalized)
+                    queued.add(normalized)
+                    score = (
+                        _term_coverage(query_terms, _url_words(normalized)) + 0.5 * page_relevance
+                        if query_terms
+                        else 0.0
+                    )
+                    queue.append(_queue_item(normalized, depth + 1, score=score))
                 report(checkpoint=True, document=doc)
                 if max_run_pages and run_pages >= max_run_pages and queue:
                     fairness_yielded = True
                     report(checkpoint=True)
                     break
-                continue
-            for link in doc.links:
-                normalized = normalize_url(link, url)
-                if self.config.crawl_same_domain and not same_domain(normalized, root):
-                    continue
-                if normalized in queued or normalized in visited:
-                    continue
-                if not url_allowed(normalized, include_patterns, exclude_patterns):
-                    continue
-                discovered.add(normalized)
-                queued.add(normalized)
-                score = (
-                    _term_coverage(query_terms, _url_words(normalized)) + 0.5 * page_relevance
-                    if query_terms
-                    else 0.0
-                )
-                queue.append(_queue_item(normalized, depth + 1, score=score))
-            report(checkpoint=True, document=doc)
-            if max_run_pages and run_pages >= max_run_pages and queue:
-                fairness_yielded = True
-                report(checkpoint=True)
-                break
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)
 
         report()
         return CrawlRun(
@@ -988,7 +1041,7 @@ class AgentCrawl:
                 "max_pages": page_limit,
                 "max_depth": depth_limit,
                 "visited": len(visited),
-                "pending": len(queue),
+                "pending": len(queue) + len(in_flight),
                 "failed": len(failed_urls),
                 "discovered": len(discovered),
                 "retries": sum(retry_attempts.values()),
