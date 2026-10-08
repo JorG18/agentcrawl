@@ -6,6 +6,8 @@ import threading
 import time
 import urllib.parse
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -68,11 +70,18 @@ class SQLiteStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        # ``with sqlite3.connect(...)`` only commits or rolls back; it never
+        # closes. This commits on success, rolls back on error, and closes.
         conn = sqlite3.connect(self.path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("pragma busy_timeout = 30000")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("pragma busy_timeout = 30000")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init(self) -> None:
         path_key = str(self.path)

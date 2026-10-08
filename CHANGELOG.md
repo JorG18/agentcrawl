@@ -12,6 +12,10 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 - **Concurrent crawl.** `crawl` now fetches up to `crawl_concurrency` pages at the same time (default 2, the same per-host limit `scrape_many` uses) and drops to one at a time for the rest of the run once the site answers `rate_limited`, also across the resumes of a server job. Results keep the order the pages were dispatched in, pages in flight count against `max_pages` and the job page quantum, and a cancelled or early-stopped run puts them back in the checkpoint queue, so resuming loses nothing. In Python, `AgentCrawl({"crawl_concurrency": 1})` restores one page at a time. 20 pages of docs.python.org: 7-11 s one at a time, under 6 s with the default, about 5 s with 4; past that the time goes to parsing, not to the network.
 
+### Fixed
+
+- **SQLite connections are closed after use.** The job/cache store and `agentcrawl backup` / `restore` opened a connection per operation and left closing it to the garbage collector (`with sqlite3.connect(...)` commits or rolls back, it does not close). A long-running API server now holds no stray connections or file handles, and Python 3.13 no longer warns about unclosed databases. Commit-on-success and rollback-on-error are unchanged.
+
 ## 0.5.4 - 2026-10-08
 
 Homepages wrapped in an `index` container are no longer returned nearly empty, and the browser fallback covers more refusals.
