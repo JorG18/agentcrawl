@@ -547,12 +547,16 @@ def test_crawl_page_quantum_yields_and_resumes(monkeypatch) -> None:
     child = "https://example.com/child"
     checkpoints: list[dict] = []
 
+    calls: list[str] = []
+
     def fake_scrape(self, source, formats=None, only_main_content=None):
+        calls.append(source)
         links = [child] if source == root else []
         return ScrapeDocument(url=source, markdown=f"# {source}", text=source, links=links)
 
     monkeypatch.setattr(AgentCrawl, "scrape", fake_scrape)
-    crawler = AgentCrawl({"respect_robots_txt": False, "crawl_depth": 1})
+    # Concurrency above the quantum must not fetch a page only to drop it at the yield.
+    crawler = AgentCrawl({"respect_robots_txt": False, "crawl_depth": 1, "crawl_concurrency": 4})
     first = crawler.crawl(
         root,
         max_pages=2,
@@ -562,6 +566,7 @@ def test_crawl_page_quantum_yields_and_resumes(monkeypatch) -> None:
 
     assert first.metadata["fairness_yielded"] is True
     assert first.visited_urls == [root]
+    assert calls == [root]
     resume_state = {**checkpoints[-1], "documents": [asdict(first.documents[0])]}
     resumed = crawler.crawl(root, max_pages=2, resume_state=resume_state, max_run_pages=1)
 
