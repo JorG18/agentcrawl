@@ -86,7 +86,8 @@ HTML_CAP = 3_000_000
 def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
     from agentcrawl import AgentCrawl
 
-    crawler = AgentCrawl({"timeout_ms": 30_000})
+    # The page budget is the wall clock the report allows every local tool.
+    crawler = AgentCrawl({"timeout_ms": 30_000, "page_budget_ms": PAGE_TIMEOUT_S * 1000})
 
     def one(page: dict[str, Any]) -> Result:
         started = time.perf_counter()

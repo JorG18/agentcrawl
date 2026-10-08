@@ -36,6 +36,13 @@ from typing import Any
 from agentcrawl.utils import estimate_tokens
 
 from ..compare import _plain
+from .run import PAGE_TIMEOUT_S
+
+# Tools that run on the benchmark runner. Each stops a page its own way
+# (AgentCrawl's page budget, Scrapling's per-step timeout that let a page run
+# for minutes), so the same wall clock is applied to all of them here. Hosted
+# APIs are left out: their time includes our rate-limit waits.
+LOCAL_TOOLS = frozenset({"agentcrawl", "crawl4ai", "scrapling"})
 
 MIN_CONTENT_CHARS = 300
 MIN_SENTENCE_CHARS = 50
@@ -62,6 +69,8 @@ _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+|\n+")
 def classify(result: dict[str, Any]) -> str:
     if result.get("skipped"):
         return "skipped"
+    if result.get("tool") in LOCAL_TOOLS and (result.get("seconds") or 0) > PAGE_TIMEOUT_S:
+        return "failed"
     text = _plain(result.get("markdown") or "")
     readable = re.sub(r"\s+", " ", re.sub(r"https?://\S+|[#|>\-*_=\[\]()]", " ", text)).strip()
     if not readable:
