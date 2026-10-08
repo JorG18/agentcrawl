@@ -8,6 +8,10 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 `crawl` fetches two pages at a time instead of one.
 
+### Added
+
+- **Agent skill.** `npx skills add JorG18/agentcrawl` installs `skills/agentcrawl/SKILL.md`, which tells an agent when to reach for AgentCrawl and how: MCP or CLI, outline then one section for long pages, `map` before a crawl, CSS extraction without an LLM, and following `next_step` on errors. A test checks that every command and flag the skill cites exists in the CLI.
+
 ### Changed
 
 - **Concurrent crawl.** `crawl` now fetches up to `crawl_concurrency` pages at the same time (default 2, the same per-host limit `scrape_many` uses) and drops to one at a time for the rest of the run once the site answers `rate_limited`, also across the resumes of a server job. Results keep the order the pages were dispatched in, pages in flight count against `max_pages` and the job page quantum, and a cancelled or early-stopped run puts them back in the checkpoint queue, so resuming loses nothing. In Python, `AgentCrawl({"crawl_concurrency": 1})` restores one page at a time. 20 pages of docs.python.org: 7-11 s one at a time, under 6 s with the default, about 5 s with 4; past that the time goes to parsing, not to the network.
