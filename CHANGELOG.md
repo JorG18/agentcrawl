@@ -4,9 +4,9 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
-## Unreleased
+## 0.5.5 - 2026-10-08
 
-`crawl` fetches two pages at a time instead of one.
+`crawl` fetches two pages at a time, an agent skill installs with one command, SQLite connections are closed, and a blocked DuckDuckGo search is reported as an error.
 
 ### Added
 
@@ -18,6 +18,7 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ### Fixed
 
+- **DuckDuckGo search no longer reports zero results when it is blocked.** DuckDuckGo answers automated clients (any User-Agent) with its bot check page, served as HTTP 202; the result parser read it as a page with no results. It is now an error that says so and points to `serper`, which the docs now list first.
 - **SQLite connections are closed after use.** The job/cache store and `agentcrawl backup` / `restore` opened a connection per operation and left closing it to the garbage collector (`with sqlite3.connect(...)` commits or rolls back, it does not close). A long-running API server now holds no stray connections or file handles, and Python 3.13 no longer warns about unclosed databases. Commit-on-success and rollback-on-error are unchanged.
 
 ## 0.5.4 - 2026-10-08
