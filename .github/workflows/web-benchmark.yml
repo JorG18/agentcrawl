@@ -157,11 +157,15 @@ jobs:
           status=0
           for pid in $pids; do wait "$pid" || status=1; done
           exit $status
+      # Always: a slow or cancelled run still leaves the pages it finished.
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: web-local
           retention-days: 14
-          path: "*.jsonl.gz"
+          path: |
+            *.jsonl.gz
+            camofox.log
 
   run:
     needs: sample
