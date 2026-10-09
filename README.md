@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/JorG18/agentcrawl/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![ClawHub](https://img.shields.io/badge/ClawHub-agentcrawl-darkred)](https://clawhub.ai/JorG18/agentcrawl)
 
 ![AgentCrawl README hero](assets/readme-hero.png)
 
@@ -51,7 +52,7 @@ An agent skill (Claude Code, Codex, Cursor, OpenClaw and other clients that read
 npx skills add JorG18/agentcrawl
 ```
 
-The skill lives in [skills/agentcrawl/SKILL.md](skills/agentcrawl/SKILL.md).
+The skill lives in [skills/agentcrawl/SKILL.md](skills/agentcrawl/SKILL.md) and is also on [ClawHub](https://clawhub.ai/JorG18/agentcrawl) for OpenClaw. ClawHub publishes every skill under MIT-0; that covers the skill text only, the code stays Apache-2.0.
 
 ### Developers: Python + CLI 🧪
 
