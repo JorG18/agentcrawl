@@ -590,7 +590,7 @@ class AgentCrawl:
         if self.config.search_engine not in {"duckduckgo", "serper"}:
             raise ValueError(
                 "Web search is disabled (search_engine='none'). Set search_engine "
-                "(AGENTCRAWL_SEARCH_ENGINE) to 'duckduckgo' or 'serper' to enable it."
+                "(AGENTCRAWL_SEARCH_ENGINE) to 'serper' (with SERPER_API_KEY) or 'duckduckgo' to enable it."
             )
         config = self.config
         if limit is not None:

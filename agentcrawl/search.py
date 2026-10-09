@@ -9,6 +9,7 @@ from html import unescape
 from typing import Any
 
 from .config import DEFAULT_USER_AGENT, CrawlConfig
+from .exceptions import FetchError
 from .fetchers import _read_bounded, _safe_urlopen, read_deadline_seconds
 from .models import SearchResult
 
@@ -145,6 +146,13 @@ def _search_duckduckgo(
         url, headers={"user-agent": config.user_agent or DEFAULT_USER_AGENT}
     )
     html = _fetch_search_body(request, config, audit_trail).decode("utf-8", errors="replace")
+    if "anomaly-modal" in html:
+        # DuckDuckGo's bot check ("bots use DuckDuckGo too"), served with 202
+        # and no results. Read as a result page it looked like "no results".
+        raise FetchError(
+            "DuckDuckGo answered with its bot check instead of results; it refuses "
+            "automated clients. Use AGENTCRAWL_SEARCH_ENGINE=serper with SERPER_API_KEY."
+        )
 
     results: list[SearchResult] = []
     pattern = re.compile(

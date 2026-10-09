@@ -164,3 +164,28 @@ def test_cli_search_exits_non_zero_when_disabled(fake_search, monkeypatch, capsy
     assert output["data"]["results"] == [
         {"title": "A", "url": "https://example.com/a", "snippet": "first"}
     ]
+
+
+def _duckduckgo_answers(monkeypatch, html: str) -> None:
+    monkeypatch.setattr(
+        "agentcrawl.search._fetch_search_body", lambda *_args, **_kwargs: html.encode()
+    )
+
+
+def test_duckduckgo_bot_check_is_an_error_not_zero_results(monkeypatch) -> None:
+    from agentcrawl.exceptions import FetchError
+    from agentcrawl.search import search_web
+
+    _duckduckgo_answers(
+        monkeypatch,
+        '<div class="anomaly-modal__title">Unfortunately, bots use DuckDuckGo too.</div>',
+    )
+    with pytest.raises(FetchError, match="serper"):
+        search_web("python json", AgentCrawl({"search_engine": "duckduckgo"}).config)
+
+
+def test_duckduckgo_page_without_results_is_still_zero_results(monkeypatch) -> None:
+    from agentcrawl.search import search_web
+
+    _duckduckgo_answers(monkeypatch, '<div class="no-results">No results.</div>')
+    assert search_web("zzqx", AgentCrawl({"search_engine": "duckduckgo"}).config) == []

@@ -158,7 +158,7 @@ AGENTCRAWL_BASE_URL=https://agentcrawl.internal.example AGENTCRAWL_API_KEY=<clie
 | `AGENTCRAWL_RATE_LIMIT_PER_MINUTE` | `60` | Units per key per minute. A request costs 1; `/v1/scrape_many` costs 1 per URL, `/v1/search` 1 plus 1 per result page when it scrapes, and a `wait=true` crawl 1 per page (capped at the window). Owner keys are exempt. |
 | `AGENTCRAWL_SYNC_CRAWL_MAX_PAGES` | `25` | Largest `wait=true` crawl; bigger crawls must run as durable jobs. |
 | `AGENTCRAWL_SCRAPE_MANY_CONCURRENCY` | `8` | Parallel pages per `/v1/scrape_many` call; per-domain limits still apply. |
-| `AGENTCRAWL_SEARCH_ENGINE` | `none` | Enables `/v1/search`, MCP `search_web` and CLI `search`: `duckduckgo`, or `serper` with `SERPER_API_KEY`. Queries leave the host for that engine, so it is off by default and a request cannot choose it. |
+| `AGENTCRAWL_SEARCH_ENGINE` | `none` | Enables `/v1/search`, MCP `search_web` and CLI `search`: `serper` with `SERPER_API_KEY`, or `duckduckgo` (no key, but it often answers automated clients with a bot check, reported as an error). Queries leave the host for that engine, so it is off by default and a request cannot choose it. |
 | `AGENTCRAWL_TIMEOUT_MS` | `30000` | Per socket operation. A whole body must also arrive within 3 × this value. |
 
 `usage_events` rows (`GET /v1/usage`, `GET /v1/stats` → `usage_by_endpoint`) are the metering record:
