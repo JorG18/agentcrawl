@@ -44,6 +44,7 @@ permissions:
   actions: read  # to reuse an earlier run's sample
 
 env:
+  CLOAKBROWSER_AUTO_UPDATE: "false"
   SIZE: ${{ inputs.size || '20' }}
   SEED: ${{ inputs.seed || '2026' }}
   HARD: ${{ inputs.hard || '5' }}
@@ -79,7 +80,7 @@ jobs:
           python - >> "$GITHUB_OUTPUT" <<'PY'
           import json, os
           tools = [t for t in os.environ["TOOLS"].split(",") if t]
-          local = {"agentcrawl", "agentcrawl-camofox", "crawl4ai", "scrapling"}
+          local = {"agentcrawl", "agentcrawl-camofox", "agentcrawl-cloak", "agentcrawl-headful", "crawl4ai", "scrapling"}
           print("local=" + " ".join(t for t in tools if t in local))
           print("hosted=" + json.dumps([t for t in tools if t not in local]))
           PY
@@ -124,6 +125,15 @@ jobs:
                   $pip install -e ".[stealth]"
                   ".venv-$tool/bin/python" -m patchright install --with-deps chromium
                 fi ;;
+              agentcrawl-headful)
+                $pip install -e ".[browser]"
+                sudo apt-get install -y -qq xvfb ;;
+              agentcrawl-cloak)
+                # CloakBrowser's patched Chromium (free v146 build, no key);
+                # end users download the binary themselves, as here.
+                $pip install -e ".[browser]" cloakbrowser
+                ".venv-$tool/bin/python" -m playwright install-deps chromium
+                ".venv-$tool/bin/python" -c "from cloakbrowser.download import ensure_binary; print(ensure_binary())" ;;
               agentcrawl-camofox)
                 # The Camofox server downloads its Firefox build (~1.3 GB) on
                 # first run; it stays up for the scrape step.
@@ -135,7 +145,7 @@ jobs:
                 done
                 curl -sf -m 2 http://127.0.0.1:9377/health || { tail -50 camofox.log; exit 1; } ;;
             esac
-            if [ "$tool" = "agentcrawl" ] || [ "$tool" = "crawl4ai" ]; then
+            if [ "$tool" = "agentcrawl" ] || [ "$tool" = "agentcrawl-headful" ] || [ "$tool" = "crawl4ai" ]; then
               ".venv-$tool/bin/python" -m playwright install --with-deps chromium
             fi
           done
@@ -150,7 +160,9 @@ jobs:
           concurrency=$(( 8 / $# )); [ "$concurrency" -ge 1 ] || concurrency=1
           pids=""
           for tool in $LOCAL; do
-            ".venv-$tool/bin/python" -m benchmarks.web.run --tool "$tool" --sample sample.json \
+            # The headful variant needs a display: a virtual one.
+            wrap=""; [ "$tool" = "agentcrawl-headful" ] && wrap="xvfb-run -a"
+            $wrap ".venv-$tool/bin/python" -m benchmarks.web.run --tool "$tool" --sample sample.json \
               --concurrency "$concurrency" $keep --out "$tool.jsonl.gz" &
             pids="$pids $!"
           done

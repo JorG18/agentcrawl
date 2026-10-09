@@ -328,10 +328,49 @@ def run_scrapling(pages: list[dict[str, Any]], concurrency: int) -> list[Result]
     return _run_threaded(pages, "scrapling", concurrency, call)
 
 
+def run_agentcrawl_cloak(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
+    """AgentCrawl with CloakBrowser's patched Chromium as the browser.
+
+    Spike only: the launcher is swapped here, not in the engine. The context
+    keeps the binary's own user agent, which matches its (Windows) fingerprint;
+    AgentCrawl's Linux one would contradict it.
+    """
+    from cloakbrowser.browser import build_args
+    from cloakbrowser.config import IGNORE_DEFAULT_ARGS
+    from cloakbrowser.download import ensure_binary
+
+    from agentcrawl import fetchers
+
+    binary = ensure_binary()
+
+    def launch(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
+        launch_kwargs = {k: v for k, v in launch_kwargs.items() if k != "engine"}
+        headless = launch_kwargs.pop("headless", True)
+        return playwright.chromium.launch(
+            executable_path=binary,
+            headless=headless,
+            args=build_args(True, launch_kwargs.pop("args", None), headless=headless),
+            ignore_default_args=IGNORE_DEFAULT_ARGS,
+            **launch_kwargs,
+        )
+
+    fetchers._launch_chromium = launch
+    fetchers._browser_user_agent = lambda config, browser: None
+    return run_agentcrawl(pages, concurrency, "agentcrawl-cloak")
+
+
 TOOLS = {
     "agentcrawl": (None, run_agentcrawl),
     # Same engine, Camofox (hardened Firefox) as the browser fallback; needs a
     # Camofox server (AGENTCRAWL_CAMOFOX_URL, default http://127.0.0.1:9377).
+    # Same engine, the browser launched with a window (run it under xvfb-run).
+    "agentcrawl-headful": (
+        None,
+        lambda pages, concurrency: run_agentcrawl(
+            pages, concurrency, "agentcrawl-headful", {"headless": False}
+        ),
+    ),
+    "agentcrawl-cloak": (None, run_agentcrawl_cloak),
     "agentcrawl-camofox": (
         None,
         lambda pages, concurrency: run_agentcrawl(
