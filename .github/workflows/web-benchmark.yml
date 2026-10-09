@@ -79,7 +79,7 @@ jobs:
           python - >> "$GITHUB_OUTPUT" <<'PY'
           import json, os
           tools = [t for t in os.environ["TOOLS"].split(",") if t]
-          local = {"agentcrawl", "crawl4ai", "scrapling"}
+          local = {"agentcrawl", "agentcrawl-camofox", "crawl4ai", "scrapling"}
           print("local=" + " ".join(t for t in tools if t in local))
           print("hosted=" + json.dumps([t for t in tools if t not in local]))
           PY
@@ -124,8 +124,18 @@ jobs:
                   $pip install -e ".[stealth]"
                   ".venv-$tool/bin/python" -m patchright install --with-deps chromium
                 fi ;;
+              agentcrawl-camofox)
+                # The Camofox server downloads its Firefox build (~1.3 GB) on
+                # first run; it stays up for the scrape step.
+                $pip install -e .
+                CAMOFOX_BIND_HOST=127.0.0.1 nohup npx -y @askjo/camofox-browser > camofox.log 2>&1 &
+                for i in $(seq 1 120); do
+                  curl -sf -m 2 http://127.0.0.1:9377/health && break
+                  sleep 5
+                done
+                curl -sf -m 2 http://127.0.0.1:9377/health || { tail -50 camofox.log; exit 1; } ;;
             esac
-            if [ "$tool" != "scrapling" ]; then
+            if [ "$tool" = "agentcrawl" ] || [ "$tool" = "crawl4ai" ]; then
               ".venv-$tool/bin/python" -m playwright install --with-deps chromium
             fi
           done

@@ -260,6 +260,7 @@ def test_camofox_fetch_creates_evaluates_and_closes_tab(monkeypatch) -> None:
     responses = iter(
         [
             {"tabId": "tab-1", "url": "https://example.com"},
+            {"ok": True, "ready": True},
             {"ok": True, "result": "<html><h1>Stealth page</h1></html>"},
             {"ok": True},
         ]
@@ -285,10 +286,12 @@ def test_camofox_fetch_creates_evaluates_and_closes_tab(monkeypatch) -> None:
         "final_url": "https://example.com",
         "dns_pinned": False,
     }
-    assert [request.method for request in requests] == ["POST", "POST", "DELETE"]
+    assert [request.method for request in requests] == ["POST", "POST", "POST", "DELETE"]
     assert requests[0].headers["Authorization"] == "Bearer secret"
-    assert requests[1].full_url.endswith("/tabs/tab-1/evaluate")
-    assert requests[2].full_url.endswith("/tabs/tab-1?userId=test-user")
+    # The tab is created at DOMContentLoaded; /wait lets scripts render first.
+    assert requests[1].full_url.endswith("/tabs/tab-1/wait")
+    assert requests[2].full_url.endswith("/tabs/tab-1/evaluate")
+    assert requests[3].full_url.endswith("/tabs/tab-1?userId=test-user")
 
 
 def test_camofox_closes_tab_after_evaluate_failure(monkeypatch) -> None:
@@ -367,6 +370,7 @@ def test_camofox_normal_flow_still_works(monkeypatch) -> None:
     responses = iter(
         [
             {"tabId": "tab-9"},
+            {"ok": True, "ready": True},
             {"ok": True, "result": "<html><h1>Camofox page</h1></html>"},
             {"ok": True},
         ]
@@ -381,7 +385,7 @@ def test_camofox_normal_flow_still_works(monkeypatch) -> None:
     html, metadata = fetch_source("https://example.com", config)
     assert "Camofox page" in html
     assert metadata["fetcher"] == "camofox"
-    assert [request.method for request in requests] == ["POST", "POST", "DELETE"]
+    assert [request.method for request in requests] == ["POST", "POST", "POST", "DELETE"]
 
 
 def test_http_block_falls_back_to_camofox(monkeypatch) -> None:
@@ -990,3 +994,32 @@ def test_pool_wait_is_bounded_when_the_job_overruns(monkeypatch) -> None:
         assert time.monotonic() - started < 1.0
     finally:
         pool.close()
+
+
+def test_camofox_waits_out_a_self_clearing_challenge(monkeypatch) -> None:
+    """Camofox's tab is created at the load event, which for Cloudflare is the
+    "Just a moment..." page; the real page arrives a few seconds later."""
+    evaluations = iter(
+        [
+            "<html><head><title>Just a moment...</title></head></html>",
+            "<html><head><title>Just a moment...</title></head></html>",
+            "<html><head><title>Docs</title></head><body>real page</body></html>",
+        ]
+    )
+    requests = []
+
+    def fake_urlopen(request, timeout, **_kwargs):
+        requests.append(request)
+        if request.full_url.endswith("/tabs"):
+            return _Response({"tabId": "tab-3"})
+        if request.full_url.endswith("/evaluate"):
+            return _Response({"result": next(evaluations)})
+        return _Response({"ok": True})
+
+    monkeypatch.setattr(fetchers, "_safe_urlopen", fake_urlopen)
+    monkeypatch.setattr(fetchers, "_INTERSTITIAL_POLL_MS", 1)
+
+    html = _fetch_camofox("https://example.com", CrawlConfig(fetcher="camofox"))
+
+    assert "real page" in html
+    assert sum(r.full_url.endswith("/evaluate") for r in requests) == 3

@@ -27,6 +27,7 @@ import uuid
 import zlib
 from typing import Any
 
+from .challenge import page_title
 from .config import DEFAULT_USER_AGENT, CrawlConfig
 from .documents import (
     CSV_CONTENT_TYPES,
@@ -1049,6 +1050,9 @@ def _retry_delay(config: CrawlConfig, attempt: int, retry_after: str | None) -> 
     return min(config.http_retry_delay * (2**attempt), 10.0)
 
 
+_CAMOFOX_WAIT_MS = 10_000
+
+
 def _fetch_camofox(url: str, config: CrawlConfig) -> str:
     base_url = config.camofox_base_url.rstrip("/")
     user_id = config.camofox_user_id
@@ -1064,13 +1068,39 @@ def _fetch_camofox(url: str, config: CrawlConfig) -> str:
         tab_id = str(created.get("tabId") or "")
         if not tab_id:
             raise FetchError("Camofox did not return a tabId.")
-        evaluated = _camofox_request(
-            base_url + f"/tabs/{urllib.parse.quote(tab_id, safe='')}/evaluate",
-            config,
-            method="POST",
-            payload={"userId": user_id, "expression": "document.documentElement.outerHTML"},
-        )
-        html = evaluated.get("result")
+        # The tab comes back at DOMContentLoaded: let the network settle and
+        # the page's scripts render (up to 10 s, keeping 1 s of the page budget
+        # for the read), as the Playwright path waits for network idle.
+        wait_ms = _budget_ms(_CAMOFOX_WAIT_MS + 1_000) - 1_000
+        if wait_ms > 0:
+            _camofox_request(
+                base_url + f"/tabs/{urllib.parse.quote(tab_id, safe='')}/wait",
+                config,
+                method="POST",
+                payload={"userId": user_id, "timeout": wait_ms},
+            )
+
+        def outer_html() -> Any:
+            return _camofox_request(
+                base_url + f"/tabs/{urllib.parse.quote(tab_id, safe='')}/evaluate",
+                config,
+                method="POST",
+                payload={"userId": user_id, "expression": "document.documentElement.outerHTML"},
+            ).get("result")
+
+        html = outer_html()
+        # The tab is handed back at the load event, which for a self-clearing
+        # interstitial ("Just a moment...") is the challenge page itself; the
+        # browser clears it on its own a few seconds later, as on Chromium.
+        poll_s = _INTERSTITIAL_POLL_MS / 1000
+        deadline = time.monotonic() + _budget_ms(config.browser_challenge_wait_ms) / 1000
+        while (
+            isinstance(html, str)
+            and _SELF_CLEARING_TITLE_RE.match(page_title(html))
+            and time.monotonic() + poll_s < deadline
+        ):
+            time.sleep(poll_s)
+            html = outer_html()
         if not isinstance(html, str) or not html.strip():
             raise FetchError("Camofox returned an empty document.")
         return html

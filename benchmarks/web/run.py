@@ -83,11 +83,18 @@ KEEP_HTML = False
 HTML_CAP = 3_000_000
 
 
-def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
+def run_agentcrawl(
+    pages: list[dict[str, Any]],
+    concurrency: int,
+    tool: str = "agentcrawl",
+    extra: dict[str, Any] | None = None,
+) -> list[Result]:
     from agentcrawl import AgentCrawl
 
     # The page budget is the wall clock the report allows every local tool.
-    crawler = AgentCrawl({"timeout_ms": 30_000, "page_budget_ms": PAGE_TIMEOUT_S * 1000})
+    crawler = AgentCrawl(
+        {"timeout_ms": 30_000, "page_budget_ms": PAGE_TIMEOUT_S * 1000, **(extra or {})}
+    )
 
     def one(page: dict[str, Any]) -> Result:
         started = time.perf_counter()
@@ -96,7 +103,7 @@ def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result
         except Exception as exc:  # the library should not raise; record it if it does
             return _result(
                 page,
-                "agentcrawl",
+                tool,
                 error=f"{type(exc).__name__}: {exc}"[:300],
                 seconds=time.perf_counter() - started,
             )
@@ -109,6 +116,7 @@ def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result
                 "raw_html_bytes",
                 "javascript_required",
                 "browser_render_error",
+                "browser_render_no_gain",
                 "browser_fallback_error",
                 "fallback_reason",
                 "network_idle_timeout",
@@ -126,7 +134,7 @@ def run_agentcrawl(pages: list[dict[str, Any]], concurrency: int) -> list[Result
             diagnostics["html"] = (doc.get("html") or "")[:HTML_CAP]
         return _result(
             page,
-            "agentcrawl",
+            tool,
             markdown=markdown,
             error=(errors[0][:300] if errors else None),
             error_type=metadata.get("error_type"),
@@ -322,6 +330,22 @@ def run_scrapling(pages: list[dict[str, Any]], concurrency: int) -> list[Result]
 
 TOOLS = {
     "agentcrawl": (None, run_agentcrawl),
+    # Same engine, Camofox (hardened Firefox) as the browser fallback; needs a
+    # Camofox server (AGENTCRAWL_CAMOFOX_URL, default http://127.0.0.1:9377).
+    "agentcrawl-camofox": (
+        None,
+        lambda pages, concurrency: run_agentcrawl(
+            pages,
+            concurrency,
+            "agentcrawl-camofox",
+            {
+                "browser_backend": "camofox",
+                "camofox_base_url": os.environ.get(
+                    "AGENTCRAWL_CAMOFOX_URL", "http://127.0.0.1:9377"
+                ),
+            },
+        ),
+    ),
     "crawl4ai": (None, run_crawl4ai),
     "scrapling": (None, run_scrapling),
     "firecrawl": ("FIRECRAWL_API_KEY", run_firecrawl),

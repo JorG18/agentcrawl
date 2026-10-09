@@ -42,7 +42,7 @@ from .run import PAGE_TIMEOUT_S
 # (AgentCrawl's page budget, Scrapling's per-step timeout that let a page run
 # for minutes), so the same wall clock is applied to all of them here. Hosted
 # APIs are left out: their time includes our rate-limit waits.
-LOCAL_TOOLS = frozenset({"agentcrawl", "crawl4ai", "scrapling"})
+LOCAL_TOOLS = frozenset({"agentcrawl", "agentcrawl-camofox", "crawl4ai", "scrapling"})
 
 MIN_CONTENT_CHARS = 300
 MIN_SENTENCE_CHARS = 50
