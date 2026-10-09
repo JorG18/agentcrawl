@@ -4,9 +4,9 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
-## Unreleased
+## 0.5.5 - 2026-10-08
 
-`crawl` fetches two pages at a time instead of one.
+`crawl` fetches two pages at a time, an agent skill installs with one command, SQLite connections are closed, and a blocked DuckDuckGo search is reported as an error.
 
 ### Added
 

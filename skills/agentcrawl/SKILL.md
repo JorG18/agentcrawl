@@ -1,7 +1,7 @@
 ---
 name: agentcrawl
 description: Read web pages and documentation as clean Markdown with AgentCrawl, locally. Use when you need the content of a URL, several URLs, or a whole docs site; when your built-in web fetch fails, returns raw HTML, or the page needs JavaScript; when a page is too long and you only need one section or the parts about a question; or when you want structured data from a page with CSS selectors and no LLM.
-version: "0.5.4"
+version: "0.5.5"
 metadata:
   homepage: "https://github.com/JorG18/agentcrawl"
   openclaw:
