@@ -80,7 +80,7 @@ jobs:
           python - >> "$GITHUB_OUTPUT" <<'PY'
           import json, os
           tools = [t for t in os.environ["TOOLS"].split(",") if t]
-          local = {"agentcrawl", "agentcrawl-camofox", "agentcrawl-cloak", "agentcrawl-headful", "crawl4ai", "scrapling"}
+          local = {"agentcrawl", "agentcrawl-camofox", "agentcrawl-chrometls", "agentcrawl-cloak", "agentcrawl-headful", "crawl4ai", "scrapling"}
           print("local=" + " ".join(t for t in tools if t in local))
           print("hosted=" + json.dumps([t for t in tools if t not in local]))
           PY
@@ -125,6 +125,9 @@ jobs:
                   $pip install -e ".[stealth]"
                   ".venv-$tool/bin/python" -m patchright install --with-deps chromium
                 fi ;;
+              agentcrawl-chrometls)
+                # The HTTP tier through curl_cffi with Chrome's TLS and headers.
+                $pip install -e ".[browser]" curl_cffi ;;
               agentcrawl-headful)
                 $pip install -e ".[browser]"
                 sudo apt-get install -y -qq xvfb ;;
@@ -145,7 +148,7 @@ jobs:
                 done
                 curl -sf -m 2 http://127.0.0.1:9377/health || { tail -50 camofox.log; exit 1; } ;;
             esac
-            if [ "$tool" = "agentcrawl" ] || [ "$tool" = "agentcrawl-headful" ] || [ "$tool" = "crawl4ai" ]; then
+            if [ "$tool" = "agentcrawl" ] || [ "$tool" = "agentcrawl-headful" ] || [ "$tool" = "agentcrawl-chrometls" ] || [ "$tool" = "crawl4ai" ]; then
               ".venv-$tool/bin/python" -m playwright install --with-deps chromium
             fi
           done

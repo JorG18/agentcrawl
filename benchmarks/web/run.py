@@ -359,6 +359,62 @@ def run_agentcrawl_cloak(pages: list[dict[str, Any]], concurrency: int) -> list[
     return run_agentcrawl(pages, concurrency, "agentcrawl-cloak")
 
 
+def run_agentcrawl_chrometls(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
+    """AgentCrawl whose HTTP tier speaks Chrome's TLS and headers (curl_cffi).
+
+    Spike only: ``_safe_urlopen`` is swapped for curl_cffi with
+    ``impersonate="chrome"`` behind a urllib-shaped adapter, so the rest of the
+    HTTP path (bounded read, decoding, browser fallback) is unchanged. The
+    target is still checked by the SSRF guard; redirect hops are not (the
+    final URL is, by ``_fetch_http``).
+    """
+    import email.message
+    import io
+    import urllib.error
+
+    from curl_cffi import requests as curl_requests
+
+    from agentcrawl import fetchers
+    from agentcrawl.security import validate_remote_url
+
+    class Response(io.BytesIO):
+        def __init__(self, reply: Any) -> None:
+            super().__init__(reply.content)
+            self.status = reply.status_code
+            self._url = str(reply.url)
+            self.headers = email.message.Message()
+            for name, value in reply.headers.items():
+                # curl_cffi already inflated the body.
+                if name.lower() not in {"content-encoding", "content-length"}:
+                    self.headers[name] = value
+
+        def geturl(self) -> str:
+            return self._url
+
+    def urlopen(request: Any, timeout: float, **kwargs: Any) -> Response:
+        validate_remote_url(
+            request.full_url, allow_private_network=kwargs.get("allow_private_network", False)
+        )
+        conditional = {k: v for k, v in request.header_items() if k.lower().startswith("if-")}
+        reply = curl_requests.get(
+            request.full_url,
+            impersonate="chrome",
+            headers=conditional,
+            timeout=timeout,
+            allow_redirects=True,
+            max_redirects=10,
+        )
+        response = Response(reply)
+        if reply.status_code >= 400:
+            raise urllib.error.HTTPError(
+                response.geturl(), reply.status_code, reply.reason or "", response.headers, response
+            )
+        return response
+
+    fetchers._safe_urlopen = urlopen
+    return run_agentcrawl(pages, concurrency, "agentcrawl-chrometls")
+
+
 TOOLS = {
     "agentcrawl": (None, run_agentcrawl),
     # Same engine, Camofox (hardened Firefox) as the browser fallback; needs a
@@ -371,6 +427,7 @@ TOOLS = {
         ),
     ),
     "agentcrawl-cloak": (None, run_agentcrawl_cloak),
+    "agentcrawl-chrometls": (None, run_agentcrawl_chrometls),
     "agentcrawl-camofox": (
         None,
         lambda pages, concurrency: run_agentcrawl(
