@@ -341,38 +341,24 @@ def run_scrapling(pages: list[dict[str, Any]], concurrency: int) -> list[Result]
 
 
 def run_agentcrawl_cloak(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
-    """AgentCrawl with CloakBrowser's patched Chromium as the browser.
-
-    Spike only: the launcher is swapped here, not in the engine. The context
-    keeps the binary's own user agent, which matches its (Windows) fingerprint;
-    AgentCrawl's Linux one would contradict it.
-    """
-    from cloakbrowser.browser import build_args
-    from cloakbrowser.config import IGNORE_DEFAULT_ARGS
-    from cloakbrowser.download import ensure_binary
-
-    from agentcrawl import fetchers
-
-    binary = ensure_binary()
-
-    def launch(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
-        launch_kwargs = {k: v for k, v in launch_kwargs.items() if k != "engine"}
-        headless = launch_kwargs.pop("headless", True)
-        return playwright.chromium.launch(
-            executable_path=binary,
-            headless=headless,
-            args=build_args(True, launch_kwargs.pop("args", None), headless=headless),
-            ignore_default_args=IGNORE_DEFAULT_ARGS,
-            **launch_kwargs,
-        )
-
-    fetchers._launch_chromium = launch
-    fetchers._browser_user_agent = lambda config, browser: None
-    return run_agentcrawl(pages, concurrency, "agentcrawl-cloak")
+    """AgentCrawl with the opt-in CloakBrowser engine (``[cloak]`` extra)."""
+    return run_agentcrawl(pages, concurrency, "agentcrawl-cloak", {"browser_engine": "cloak"})
 
 
 def run_agentcrawl_chrometls(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
-    """AgentCrawl whose HTTP tier speaks Chrome's TLS and headers (curl_cffi).
+    """AgentCrawl whose HTTP tier speaks Chrome's TLS and headers (curl_cffi)."""
+    _install_chrome_tls()
+    return run_agentcrawl(pages, concurrency, "agentcrawl-chrometls")
+
+
+def run_agentcrawl_cloaktls(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
+    """Both: Chrome TLS for the HTTP tier, CloakBrowser for the browser."""
+    _install_chrome_tls()
+    return run_agentcrawl(pages, concurrency, "agentcrawl-cloaktls", {"browser_engine": "cloak"})
+
+
+def _install_chrome_tls() -> None:
+    """Swap the HTTP tier for curl_cffi speaking Chrome's TLS and headers.
 
     Spike only: ``_safe_urlopen`` is swapped for curl_cffi with
     ``impersonate="chrome"`` behind a urllib-shaped adapter, so the rest of the
@@ -424,7 +410,6 @@ def run_agentcrawl_chrometls(pages: list[dict[str, Any]], concurrency: int) -> l
         return response
 
     fetchers._safe_urlopen = urlopen
-    return run_agentcrawl(pages, concurrency, "agentcrawl-chrometls")
 
 
 TOOLS = {
@@ -440,6 +425,7 @@ TOOLS = {
     ),
     "agentcrawl-cloak": (None, run_agentcrawl_cloak),
     "agentcrawl-chrometls": (None, run_agentcrawl_chrometls),
+    "agentcrawl-cloaktls": (None, run_agentcrawl_cloaktls),
     "agentcrawl-camofox": (
         None,
         lambda pages, concurrency: run_agentcrawl(

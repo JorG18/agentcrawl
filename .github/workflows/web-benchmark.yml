@@ -80,7 +80,7 @@ jobs:
           python - >> "$GITHUB_OUTPUT" <<'PY'
           import json, os
           tools = [t for t in os.environ["TOOLS"].split(",") if t]
-          local = {"agentcrawl", "agentcrawl-camofox", "agentcrawl-chrometls", "agentcrawl-cloak", "agentcrawl-headful", "crawl4ai", "scrapling"}
+          local = {"agentcrawl", "agentcrawl-camofox", "agentcrawl-chrometls", "agentcrawl-cloak", "agentcrawl-cloaktls", "agentcrawl-headful", "crawl4ai", "scrapling"}
           print("local=" + " ".join(t for t in tools if t in local))
           print("hosted=" + json.dumps([t for t in tools if t not in local]))
           PY
@@ -131,12 +131,12 @@ jobs:
               agentcrawl-headful)
                 $pip install -e ".[browser]"
                 sudo apt-get install -y -qq xvfb ;;
-              agentcrawl-cloak)
-                # CloakBrowser's patched Chromium (free v146 build, no key);
-                # end users download the binary themselves, as here.
-                $pip install -e ".[browser]" cloakbrowser
+              agentcrawl-cloak|agentcrawl-cloaktls)
+                # The opt-in [cloak] engine; the user downloads the binary, as here.
+                $pip install -e ".[cloak]"
+                [ "$tool" = "agentcrawl-cloaktls" ] && $pip install curl_cffi
                 ".venv-$tool/bin/python" -m playwright install-deps chromium
-                ".venv-$tool/bin/python" -c "from cloakbrowser.download import ensure_binary; print(ensure_binary())" ;;
+                ".venv-$tool/bin/python" -m cloakbrowser install ;;
               agentcrawl-camofox)
                 # The Camofox server downloads its Firefox build (~1.3 GB) on
                 # first run; it stays up for the scrape step.
