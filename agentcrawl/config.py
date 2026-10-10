@@ -43,7 +43,9 @@ class CrawlConfig:
     browser_backend: str = "playwright"
     # "patchright" (the ``stealth`` extra) is Playwright patched against
     # automation detection. With it installed, a page the normal browser
-    # gets as a challenge or a 403/429 is retried once with it.
+    # gets as a challenge or a 403/429 is retried once with it. "cloak" (the
+    # ``cloak`` extra) is CloakBrowser's patched Chromium, whose binary the
+    # user downloads; opt-in only, never used as a retry.
     browser_engine: str = "playwright"
     camofox_base_url: str = "http://127.0.0.1:9377"
     camofox_access_key: str | None = None
@@ -237,7 +239,7 @@ class CrawlConfig:
 
 
 BROWSER_BACKENDS = ("playwright", "camofox")
-BROWSER_ENGINES = ("playwright", "patchright")
+BROWSER_ENGINES = ("playwright", "patchright", "cloak")
 FETCHERS = ("http", *BROWSER_BACKENDS)
 # "browser" is what people type; the engine name is "playwright". An unknown
 # name used to reach the fetcher and come back as "Unknown fetcher: browser",

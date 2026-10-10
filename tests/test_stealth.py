@@ -87,3 +87,126 @@ def test_a_challenge_document_carries_the_next_step(monkeypatch) -> None:
     doc = AgentCrawl({"browser_fallback": False}).scrape("https://example.com/")
     assert doc.metadata["error_type"] == "client_challenge"
     assert "Enhanced" in doc.metadata["next_step"]
+
+
+@pytest.fixture
+def cloak(monkeypatch):
+    """A fake CloakBrowser install whose binary is present."""
+    state = {"installed": True, "ensured": 0}
+
+    def ensure_binary():
+        # May validate a license key or download a binary: never in a scrape.
+        state["ensured"] += 1
+        return "/opt/cloak/chrome"
+
+    def binary_info():
+        if isinstance(state["installed"], Exception):
+            raise state["installed"]
+        return {"installed": state["installed"], "binary_path": "/opt/cloak/chrome"}
+
+    modules = {
+        "cloakbrowser": types.SimpleNamespace(),
+        "cloakbrowser.download": types.SimpleNamespace(
+            ensure_binary=ensure_binary, binary_info=binary_info
+        ),
+        "cloakbrowser.browser": types.SimpleNamespace(
+            build_args=lambda stealth, extra, headless=True: ["--cloak-arg"]
+        ),
+        "cloakbrowser.config": types.SimpleNamespace(
+            IGNORE_DEFAULT_ARGS=["--enable-automation", "--enable-unsafe-swiftshader"]
+        ),
+        "cloakbrowser.license": types.SimpleNamespace(
+            license_error_message=lambda text: "seat limit reached" if "=76" in text else None
+        ),
+    }
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    real_find_spec = fetchers.importlib.util.find_spec
+    monkeypatch.setattr(
+        fetchers.importlib.util,
+        "find_spec",
+        lambda name, *a: object() if name == "cloakbrowser" else real_find_spec(name, *a),
+    )
+    monkeypatch.delenv("CLOAKBROWSER_BINARY_PATH", raising=False)
+    state["chromium"] = _engine(monkeypatch, "playwright", REAL)
+    return state
+
+
+def test_cloak_engine_launches_the_cloak_binary(cloak) -> None:
+    config = CrawlConfig(browser_engine="cloak", network_idle=False, proxy="http://p1:8080")
+
+    assert fetchers._fetch_playwright("https://example.com/", config) == REAL
+
+    chromium = cloak["chromium"]
+    launch = chromium.launch_kwargs
+    assert launch["executable_path"] == "/opt/cloak/chrome"
+    assert launch["args"] == ["--cloak-arg"]
+    assert launch["ignore_default_args"] == ["--enable-automation", "--enable-unsafe-swiftshader"]
+    assert "channel" not in launch
+    assert cloak["ensured"] == 0  # no license check or download inside a page
+    assert launch["proxy"]["server"] == "http://p1:8080"
+    # The binary's own (Chrome on Windows) identity; ours would contradict it.
+    assert chromium.browser.context_kwargs["user_agent"] is None
+
+
+def test_cloak_keeps_a_custom_user_agent(cloak) -> None:
+    config = CrawlConfig(browser_engine="cloak", network_idle=False, user_agent="MyBot/1")
+    fetchers._fetch_playwright("https://example.com/", config)
+    assert cloak["chromium"].browser.context_kwargs["user_agent"] == "MyBot/1"
+
+
+def test_cloak_without_the_extra_is_a_config_error(cloak, monkeypatch) -> None:
+    monkeypatch.setattr(fetchers.importlib.util, "find_spec", lambda name, *a: None)
+    with pytest.raises(FetchError, match=r"agentcrawl-ai\[cloak\]") as raised:
+        fetchers._fetch_playwright("https://example.com/", CrawlConfig(browser_engine="cloak"))
+    assert raised.value.error_type == "config_error"
+
+
+def test_cloak_without_the_binary_is_a_config_error(cloak) -> None:
+    cloak["installed"] = False
+    with pytest.raises(FetchError, match="python -m cloakbrowser install") as raised:
+        fetchers._fetch_playwright("https://example.com/", CrawlConfig(browser_engine="cloak"))
+    assert raised.value.error_type == "config_error"
+    assert cloak["ensured"] == 0  # never downloaded inside a page's budget
+
+
+def test_cloak_binary_path_override_skips_the_install_check(cloak, monkeypatch, tmp_path) -> None:
+    cloak["installed"] = False
+    binary = tmp_path / "chrome"
+    binary.write_text("")
+    monkeypatch.setenv("CLOAKBROWSER_BINARY_PATH", str(binary))
+    config = CrawlConfig(browser_engine="cloak", network_idle=False)
+    assert fetchers._fetch_playwright("https://example.com/", config) == REAL
+    assert cloak["chromium"].launch_kwargs["executable_path"] == str(binary)
+
+
+def test_cloak_binary_path_override_to_a_missing_file_is_a_config_error(
+    cloak, monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("CLOAKBROWSER_BINARY_PATH", str(tmp_path / "nope"))
+    with pytest.raises(FetchError, match="CLOAKBROWSER_BINARY_PATH") as raised:
+        fetchers._fetch_playwright("https://example.com/", CrawlConfig(browser_engine="cloak"))
+    assert raised.value.error_type == "config_error"
+
+
+def test_a_refused_cloak_launch_names_the_engine_and_the_cure(cloak) -> None:
+    def refuse(**_kwargs):
+        raise RuntimeError("BrowserType.launch: process did exit: exitCode=76")
+
+    cloak["chromium"].launch = refuse
+    with pytest.raises(FetchError) as raised:
+        fetchers._fetch_playwright("https://example.com/", CrawlConfig(browser_engine="cloak"))
+    message = str(raised.value)
+    assert "CloakBrowser refused to launch: seat limit reached" in message
+    assert "AGENTCRAWL_BROWSER_CONCURRENCY=1" in message
+
+
+def test_cloak_on_an_unsupported_platform_is_a_config_error(cloak) -> None:
+    cloak["installed"] = RuntimeError("no build for linux-riscv64")
+    with pytest.raises(FetchError, match="linux-riscv64") as raised:
+        fetchers._fetch_playwright("https://example.com/", CrawlConfig(browser_engine="cloak"))
+    assert raised.value.error_type == "config_error"
+
+
+def test_cloak_is_a_valid_engine() -> None:
+    assert CrawlConfig.from_dict({"browser_engine": "cloak"}).browser_engine == "cloak"

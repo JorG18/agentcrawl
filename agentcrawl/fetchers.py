@@ -116,10 +116,12 @@ class _BrowserPool:
                         _close_quietly(browser)
                         browser = None
                         engine = launch_kwargs.get("engine", "playwright")
-                        if engine not in drivers:
-                            module = importlib.import_module(f"{engine}.sync_api")
-                            drivers[engine] = module.sync_playwright().start()
-                        browser = _launch_chromium(drivers[engine], launch_kwargs)
+                        # CloakBrowser is a Chromium binary driven by Playwright.
+                        driver = "playwright" if engine == "cloak" else engine
+                        if driver not in drivers:
+                            module = importlib.import_module(f"{driver}.sync_api")
+                            drivers[driver] = module.sync_playwright().start()
+                        browser = _launch_chromium(drivers[driver], launch_kwargs)
                         launched_with = launch_kwargs
                     future.set_result(context.run(job, browser))
                 except BaseException as exc:
@@ -134,6 +136,8 @@ class _BrowserPool:
 
 
 def _launch_chromium(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
+    if launch_kwargs.get("engine") == "cloak":
+        return _launch_cloak(playwright, launch_kwargs)
     launch_kwargs = {k: v for k, v in launch_kwargs.items() if k != "engine"}
     try:
         # Headless mode otherwise runs chromium-headless-shell, which sends
@@ -145,6 +149,76 @@ def _launch_chromium(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
         # shell announces itself as HeadlessChrome, which bot managers refuse.
         logger.warning("full Chromium failed to launch, using the headless shell: %s", exc)
         return playwright.chromium.launch(**launch_kwargs)
+
+
+def _launch_cloak(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
+    """CloakBrowser's patched Chromium, with its own stealth arguments."""
+    from cloakbrowser.browser import build_args
+    from cloakbrowser.config import IGNORE_DEFAULT_ARGS
+    from cloakbrowser.license import license_error_message
+
+    launch_kwargs = {k: v for k, v in launch_kwargs.items() if k != "engine"}
+    headless = launch_kwargs.pop("headless", True)
+    try:
+        return playwright.chromium.launch(
+            executable_path=_cloak_binary(),
+            headless=headless,
+            args=build_args(True, launch_kwargs.pop("args", None), headless=headless),
+            ignore_default_args=IGNORE_DEFAULT_ARGS,
+            **launch_kwargs,
+        )
+    except Exception as exc:
+        reason = license_error_message(str(exc))
+        if reason is None:
+            raise FetchError(f"CloakBrowser launch failed: {exc}") from exc
+        raise FetchError(
+            f"CloakBrowser refused to launch: {reason}; set "
+            "AGENTCRAWL_BROWSER_CONCURRENCY=1 if your build allows one session"
+        ) from exc
+
+
+def _cloak_binary() -> str:
+    """The binary on disk. Never ``ensure_binary()``: with a license key it
+    validates online and can download a new build inside a page's budget."""
+    from cloakbrowser.download import binary_info
+
+    return os.environ.get("CLOAKBROWSER_BINARY_PATH") or binary_info()["binary_path"]
+
+
+def _require_cloak() -> None:
+    """Fail before rendering when the cloak engine cannot launch.
+
+    Checked on the caller's thread: inside the browser pool the error would
+    lose its ``config_error`` type, and a missing binary must never be
+    downloaded within a page's budget.
+    """
+    install = "pip install 'agentcrawl-ai[cloak]' && python -m cloakbrowser install"
+    if importlib.util.find_spec("cloakbrowser") is None:
+        raise FetchError(
+            f"browser_engine='cloak' needs the cloak extra: {install}",
+            error_type="config_error",
+        )
+    override = os.environ.get("CLOAKBROWSER_BINARY_PATH")
+    if override:
+        if not os.path.isfile(override):
+            raise FetchError(
+                f"CLOAKBROWSER_BINARY_PATH is not a file: {override}",
+                error_type="config_error",
+            )
+        return
+    from cloakbrowser.download import binary_info
+
+    try:
+        installed = binary_info()["installed"]
+    except Exception as exc:
+        raise FetchError(
+            f"CloakBrowser is not available here: {exc}", error_type="config_error"
+        ) from exc
+    if not installed:
+        raise FetchError(
+            f"The CloakBrowser binary is not downloaded yet: {install}",
+            error_type="config_error",
+        )
 
 
 def _close_quietly(resource: Any) -> None:
@@ -1073,12 +1147,18 @@ def _fetch_camofox(url: str, config: CrawlConfig) -> str:
         # for the read), as the Playwright path waits for network idle.
         wait_ms = _budget_ms(_CAMOFOX_WAIT_MS + 1_000) - 1_000
         if wait_ms > 0:
-            _camofox_request(
-                base_url + f"/tabs/{urllib.parse.quote(tab_id, safe='')}/wait",
-                config,
-                method="POST",
-                payload={"userId": user_id, "timeout": wait_ms},
-            )
+            try:
+                _camofox_request(
+                    base_url + f"/tabs/{urllib.parse.quote(tab_id, safe='')}/wait",
+                    config,
+                    method="POST",
+                    payload={"userId": user_id, "timeout": wait_ms},
+                )
+            except FetchError as exc:
+                # Best effort: an older server without /wait, or a page whose
+                # network never goes idle, still has a document to read.
+                if exc.error_type == "timeout":
+                    raise
 
         def outer_html() -> Any:
             return _camofox_request(
@@ -1232,6 +1312,8 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
             "pip install 'agentcrawl-ai[stealth]' && python -m patchright install chromium",
             error_type="config_error",
         )
+    if engine == "cloak":
+        _require_cloak()
     try:
         html = render(engine)
         capture = _CAPTURE.get()
@@ -1428,16 +1510,19 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
         _close_quietly(context)
 
 
-def _browser_user_agent(config: CrawlConfig, browser: Any) -> str:
+def _browser_user_agent(config: CrawlConfig, browser: Any) -> str | None:
     """The browser's own identity unless the caller set a user agent.
 
     The crawler's bot identity (and headless Chromium's "HeadlessChrome")
     is what Cloudflare and CDNs answer with a challenge or a 403 from
     datacenter networks: the browser fallback then got the same refusal the
     HTTP fetch did. The browser says it is the Chrome version it really is.
+    CloakBrowser keeps its own (``None``): it matches its fingerprint.
     """
     if config.user_agent and config.user_agent != DEFAULT_USER_AGENT:
         return config.user_agent
+    if config.browser_engine == "cloak":
+        return None
     major = str(getattr(browser, "version", "") or "").split(".")[0]
     if not major.isdigit():
         return config.user_agent or DEFAULT_USER_AGENT

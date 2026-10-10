@@ -301,7 +301,7 @@ def test_camofox_closes_tab_after_evaluate_failure(monkeypatch) -> None:
         requests.append(request)
         if len(requests) == 1:
             return _Response({"tabId": "tab-2"})
-        if len(requests) == 2:
+        if request.full_url.endswith("/evaluate"):
             raise urllib.error.HTTPError(request.full_url, 500, "failed", {}, None)
         return _Response({"ok": True})
 
@@ -1023,3 +1023,21 @@ def test_camofox_waits_out_a_self_clearing_challenge(monkeypatch) -> None:
 
     assert "real page" in html
     assert sum(r.full_url.endswith("/evaluate") for r in requests) == 3
+
+
+def test_camofox_without_wait_endpoint_still_reads_the_page(monkeypatch) -> None:
+    """An older Camofox server answers 404 to /wait; the page is still there."""
+    import io
+
+    def fake_urlopen(request, timeout, **_kwargs):
+        if request.full_url.endswith("/wait"):
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, io.BytesIO(b""))
+        if request.full_url.endswith("/tabs"):
+            return _Response({"tabId": "tab-4"})
+        if request.full_url.endswith("/evaluate"):
+            return _Response({"result": "<html><h1>old server</h1></html>"})
+        return _Response({"ok": True})
+
+    monkeypatch.setattr(fetchers, "_safe_urlopen", fake_urlopen)
+
+    assert "old server" in _fetch_camofox("https://example.com", CrawlConfig(fetcher="camofox"))

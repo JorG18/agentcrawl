@@ -4,6 +4,16 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## Unreleased
+
+### Added
+
+- **Opt-in CloakBrowser engine.** `browser_engine="cloak"` (or `AGENTCRAWL_BROWSER_ENGINE=cloak`) renders with CloakBrowser's patched Chromium: `pip install 'agentcrawl-ai[cloak]' && python -m cloakbrowser install`. It runs through the Playwright driver and the kept-open browser pool, launches with CloakBrowser's own stealth arguments, and keeps the binary's own user agent unless you set one. A missing extra, binary or platform build is a `config_error` raised before rendering, and the launch uses the binary already on disk, so no license check or download happens inside a page's budget. A refused launch (seat limit) names CloakBrowser and suggests `AGENTCRAWL_BROWSER_CONCURRENCY=1`. The binary is yours to download under CloakBrowser's license; AgentCrawl does not ship it. In the 400-page benchmark (run 38084094683) it reached 257 pages with content against 246 for Chromium and 256 for Scrapling, with challenge failures down from 18 to 7.
+
+### Fixed
+
+- **Camofox reads the rendered page, not the first paint.** `_fetch_camofox` read the HTML at DOMContentLoaded, so script-built pages came back empty, and a Cloudflare "Just a moment..." page was returned as the result. It now calls the server's `POST /tabs/:id/wait` (network idle, up to 10 s of the page budget) and re-reads every 0.5 s while the title is a self-clearing interstitial, within `browser_challenge_wait_ms`. A server without `/wait` (404) or a page that never goes idle still gets read; only a timeout of the page budget is raised. With the fix, Camofox reached 257 content pages in the 400-page benchmark (run 37871322998), against 252 for Chromium on the same job.
+
 ## 0.5.5 - 2026-10-08
 
 `crawl` fetches two pages at a time, an agent skill installs with one command, SQLite connections are closed, and a blocked DuckDuckGo search is reported as an error.
