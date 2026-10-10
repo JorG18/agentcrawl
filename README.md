@@ -405,9 +405,11 @@ export AGENTCRAWL_BROWSER_ENGINE=cloak
   at one you already have.
 - It presents its own identity (Chrome on Windows), so AgentCrawl does not set
   a user agent; setting `user_agent` yourself contradicts that fingerprint.
+- AgentCrawl launches the binary already on disk and makes no CloakBrowser
+  network call (no license check, no update); `python -m cloakbrowser update`
+  is yours to run.
 - Some CloakBrowser builds allow one browser at a time: set
-  `AGENTCRAWL_BROWSER_CONCURRENCY=1` if launches are refused.
-  `CLOAKBROWSER_AUTO_UPDATE=false` stops its update checks.
+  `AGENTCRAWL_BROWSER_CONCURRENCY=1` if launches are refused (the error says so).
 
 ```python
 AgentCrawl({"proxy": "http://user:pass@p1:8080, http://user:pass@p2:8080"})

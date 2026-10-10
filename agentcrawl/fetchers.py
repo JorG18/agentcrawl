@@ -155,17 +155,34 @@ def _launch_cloak(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
     """CloakBrowser's patched Chromium, with its own stealth arguments."""
     from cloakbrowser.browser import build_args
     from cloakbrowser.config import IGNORE_DEFAULT_ARGS
-    from cloakbrowser.download import ensure_binary
+    from cloakbrowser.license import license_error_message
 
     launch_kwargs = {k: v for k, v in launch_kwargs.items() if k != "engine"}
     headless = launch_kwargs.pop("headless", True)
-    return playwright.chromium.launch(
-        executable_path=ensure_binary(),
-        headless=headless,
-        args=build_args(True, launch_kwargs.pop("args", None), headless=headless),
-        ignore_default_args=IGNORE_DEFAULT_ARGS,
-        **launch_kwargs,
-    )
+    try:
+        return playwright.chromium.launch(
+            executable_path=_cloak_binary(),
+            headless=headless,
+            args=build_args(True, launch_kwargs.pop("args", None), headless=headless),
+            ignore_default_args=IGNORE_DEFAULT_ARGS,
+            **launch_kwargs,
+        )
+    except Exception as exc:
+        reason = license_error_message(str(exc))
+        if reason is None:
+            raise FetchError(f"CloakBrowser launch failed: {exc}") from exc
+        raise FetchError(
+            f"CloakBrowser refused to launch: {reason}; set "
+            "AGENTCRAWL_BROWSER_CONCURRENCY=1 if your build allows one session"
+        ) from exc
+
+
+def _cloak_binary() -> str:
+    """The binary on disk. Never ``ensure_binary()``: with a license key it
+    validates online and can download a new build inside a page's budget."""
+    from cloakbrowser.download import binary_info
+
+    return os.environ.get("CLOAKBROWSER_BINARY_PATH") or binary_info()["binary_path"]
 
 
 def _require_cloak() -> None:
@@ -178,9 +195,16 @@ def _require_cloak() -> None:
     install = "pip install 'agentcrawl-ai[cloak]' && python -m cloakbrowser install"
     if importlib.util.find_spec("cloakbrowser") is None:
         raise FetchError(
-            f"browser_engine='cloak' needs the cloak extra: {install}", error_type="config_error"
+            f"browser_engine='cloak' needs the cloak extra: {install}",
+            error_type="config_error",
         )
-    if os.environ.get("CLOAKBROWSER_BINARY_PATH"):
+    override = os.environ.get("CLOAKBROWSER_BINARY_PATH")
+    if override:
+        if not os.path.isfile(override):
+            raise FetchError(
+                f"CLOAKBROWSER_BINARY_PATH is not a file: {override}",
+                error_type="config_error",
+            )
         return
     from cloakbrowser.download import binary_info
 
@@ -192,7 +216,8 @@ def _require_cloak() -> None:
         ) from exc
     if not installed:
         raise FetchError(
-            f"The CloakBrowser binary is not downloaded yet: {install}", error_type="config_error"
+            f"The CloakBrowser binary is not downloaded yet: {install}",
+            error_type="config_error",
         )
 
 
