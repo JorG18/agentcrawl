@@ -19,6 +19,7 @@ import gzip
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -30,8 +31,14 @@ PAGE_TIMEOUT_S = 60
 Result = dict[str, Any]
 
 
+# Set by main(): every result is written the moment it is built, so a run
+# cancelled halfway still leaves the pages it finished.
+SINK: Any = None
+_SINK_LOCK = threading.Lock()
+
+
 def _result(page: dict[str, Any], tool: str, **fields: Any) -> Result:
-    return {
+    result = {
         "id": page["id"],
         "url": page["url"],
         "tool": tool,
@@ -39,6 +46,11 @@ def _result(page: dict[str, Any], tool: str, **fields: Any) -> Result:
         "error": None,
         **fields,
     }
+    if SINK is not None:
+        with _SINK_LOCK:
+            SINK.write(json.dumps(result, ensure_ascii=False) + "\n")
+            SINK.flush()  # gzip sync flush: readable up to here if killed
+    return result
 
 
 def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float) -> Any:
@@ -461,7 +473,7 @@ def main(argv: list[str] | None = None) -> int:
         "--keep-html", action="store_true", help="AgentCrawl: store the HTML of every page."
     )
     args = parser.parse_args(argv)
-    global KEEP_HTML
+    global KEEP_HTML, SINK
     KEEP_HTML = args.keep_html
 
     pages = json.loads(Path(args.sample).read_text("utf-8"))["pages"]
@@ -470,17 +482,16 @@ def main(argv: list[str] | None = None) -> int:
         pages, left_out = pages[: args.limit], pages[args.limit :]
     env_key, runner = TOOLS[args.tool]
     started = time.time()
-    if env_key is None:
-        results = runner(pages, args.concurrency)
-    elif not os.environ.get(env_key):
-        results = [_result(page, args.tool, skipped=f"{env_key} not set") for page in pages]
-    else:
-        results = runner(pages, args.concurrency, os.environ[env_key])
-    # Pages beyond --limit are recorded as not run, not as failures.
-    results += [_result(page, args.tool, skipped="beyond --limit") for page in left_out]
-    with gzip.open(args.out, "wt", encoding="utf-8") as handle:
-        for result in results:
-            handle.write(json.dumps(result, ensure_ascii=False) + "\n")
+    with gzip.open(args.out, "wt", encoding="utf-8") as SINK:
+        if env_key is None:
+            results = runner(pages, args.concurrency)
+        elif not os.environ.get(env_key):
+            results = [_result(page, args.tool, skipped=f"{env_key} not set") for page in pages]
+        else:
+            results = runner(pages, args.concurrency, os.environ[env_key])
+        # Pages beyond --limit are recorded as not run, not as failures.
+        results += [_result(page, args.tool, skipped="beyond --limit") for page in left_out]
+    SINK = None
     got = sum(1 for result in results if result.get("markdown"))
     print(
         f"{args.tool}: {got}/{len(results)} pages with output in {time.time() - started:.0f}s",

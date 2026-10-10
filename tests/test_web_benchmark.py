@@ -260,3 +260,30 @@ def test_a_sitemap_url_list_is_content_not_thin() -> None:
     urls = "\n".join(f"- https://example.com/page/{n}" for n in range(6))
     assert classify({"markdown": urls}) == "content"
     assert classify({"markdown": "- https://example.com/a"}) == "thin"
+
+
+def test_a_run_killed_halfway_leaves_the_pages_it_finished(tmp_path, monkeypatch) -> None:
+    import json as _json
+
+    from benchmarks.web import report as rep
+    from benchmarks.web import run
+
+    pages = [{"id": str(i), "url": f"https://example.com/{i}"} for i in range(3)]
+    sample_file = tmp_path / "sample.json"
+    sample_file.write_text(_json.dumps({"pages": pages}))
+    out = tmp_path / "x.jsonl.gz"
+
+    def runner(pages, concurrency):
+        run._result(pages[0], "scrapling", markdown="done")
+        raw = out.read_bytes()  # what is on disk if the process dies right now
+        (tmp_path / "killed.jsonl.gz").write_bytes(raw)
+        raise KeyboardInterrupt
+
+    monkeypatch.setitem(run.TOOLS, "scrapling", (None, runner))
+    try:
+        run.main(["--tool", "scrapling", "--sample", str(sample_file), "--out", str(out)])
+    except KeyboardInterrupt:
+        pass
+    by_tool = rep.load([str(tmp_path / "killed.jsonl.gz")])
+    assert list(by_tool["scrapling"]) == ["0"]
+    assert run.SINK is None or run.SINK.closed

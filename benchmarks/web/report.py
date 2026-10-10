@@ -113,14 +113,24 @@ def sentences(markdown: str) -> set[str]:
     return out
 
 
+def _read_results(path: str) -> list[dict[str, Any]]:
+    """The results in a file, including one a cancelled run left truncated."""
+    results: list[dict[str, Any]] = []
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        try:
+            for line in handle:
+                results.append(json.loads(line))
+        except (EOFError, json.JSONDecodeError):  # killed mid-write: keep what is whole
+            pass
+    return results
+
+
 def load(paths: list[str]) -> dict[str, dict[str, dict[str, Any]]]:
     """``{tool: {page_id: result}}``."""
     by_tool: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
     for path in paths:
-        with gzip.open(path, "rt", encoding="utf-8") as handle:
-            for line in handle:
-                result = json.loads(line)
-                by_tool[result["tool"]][result["id"]] = result
+        for result in _read_results(path):
+            by_tool[result["tool"]][result["id"]] = result
     return dict(by_tool)
 
 
