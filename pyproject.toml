@@ -43,6 +43,9 @@ Documentation = "https://github.com/JorG18/agentcrawl#readme"
 browser = ["playwright>=1.60.0,<2.0.0"]
 # Playwright patched against automation detection (browser_engine="patchright").
 stealth = ["playwright>=1.60.0,<2.0.0", "patchright>=1.58.0,<2.0.0"]
+# CloakBrowser's patched Chromium (browser_engine="cloak"); the binary is
+# downloaded by the user under its own license: python -m cloakbrowser install.
+cloak = ["playwright>=1.60.0,<2.0.0", "cloakbrowser>=0.6.0,<0.7.0"]
 docs = ["PyMuPDF>=1.26.0,<2.0.0"]
 llm = [
   "langchain>=1.3.2,<2.0.0",

@@ -138,7 +138,7 @@ AgentCrawl Community is the self-hosted trust layer:
 | Structured extraction without an LLM | CSS schemas (`extract-css`, `/v1/extract_css`, MCP `extract_structured`): deterministic, zero tokens. `generate_css_schema(url, "what to extract")` (MCP `describe=`) has your LLM write the schema once; reuse it for free. |
 | Reading long pages in parts | `formats=["outline"]` lists sections with the tokens each returns; `section="s4"` (or heading text) returns one; `max_tokens` caps the output. The MCP keeps a page for 10 minutes, so outline then sections is one download. |
 | Firecrawl-compatible API | `/v2/scrape`, `/v2/map`, `/v2/search`, `/v2/crawl` and `/v2/batch/scrape` answer Firecrawl's v2 SDKs: point `api_url` at your server. Options AgentCrawl cannot honour are refused with the reason. |
-| Local stealth and proxies | Real Chrome identity, native browser TLS, the `[stealth]` extra (Patchright retry), and `proxy` as a comma-separated list rotated per page. |
+| Local stealth and proxies | Real Chrome identity, native browser TLS, the `[stealth]` extra (Patchright retry), the opt-in `[cloak]` engine (CloakBrowser), and `proxy` as a comma-separated list rotated per page. |
 | Summaries | `formats=["summary"]` with your own LLM (`AGENTCRAWL_LLM_MODEL`); a failure never fails the page. |
 | Query-aware budgets | `query=` keeps the passages that matter (BM25) when a page is larger than the output budget. |
 | Browser fallback | Optional local browser (kept open between pages, four at a time) or Camofox, not required for the default image. One time budget per page (`page_budget_ms`, 45 s) covers every step. |
@@ -388,6 +388,26 @@ python -m pip install "agentcrawl-ai[stealth]"
 python -m patchright install chromium
 export AGENTCRAWL_BROWSER_ENGINE=patchright   # optional: use it for every page
 ```
+
+For the hardest Cloudflare pages there is an opt-in engine: CloakBrowser's
+patched Chromium. In a 400-page sample it left 7 pages on a challenge where
+Chromium left 18 (257 pages with content against 246).
+
+```bash
+python -m pip install "agentcrawl-ai[cloak]"
+python -m cloakbrowser install                # downloads the browser binary
+export AGENTCRAWL_BROWSER_ENGINE=cloak
+```
+
+- The binary is downloaded by you, from CloakBrowser, under its own license.
+  AgentCrawl does not ship it and never downloads it during a scrape: a missing
+  binary is reported with the command above. `CLOAKBROWSER_BINARY_PATH` points
+  at one you already have.
+- It presents its own identity (Chrome on Windows), so AgentCrawl does not set
+  a user agent; setting `user_agent` yourself contradicts that fingerprint.
+- Some CloakBrowser builds allow one browser at a time: set
+  `AGENTCRAWL_BROWSER_CONCURRENCY=1` if launches are refused.
+  `CLOAKBROWSER_AUTO_UPDATE=false` stops its update checks.
 
 ```python
 AgentCrawl({"proxy": "http://user:pass@p1:8080, http://user:pass@p2:8080"})

@@ -153,7 +153,8 @@ AGENTCRAWL_BASE_URL=https://agentcrawl.internal.example AGENTCRAWL_API_KEY=<clie
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `AGENTCRAWL_BROWSER_CONCURRENCY` | `4` | Browsers kept open per engine (each serves one page at a time). With the `[stealth]` extra, Patchright retries have their own pool, so up to twice this many can be open; size memory for that. |
+| `AGENTCRAWL_BROWSER_CONCURRENCY` | `4` | Browsers kept open per engine (each serves one page at a time). With the `[stealth]` extra, Patchright retries have their own pool, so up to twice this many can be open; size memory for that. With `cloak`, lower it to 1 if your CloakBrowser build allows one session at a time. |
+| `AGENTCRAWL_BROWSER_ENGINE` | `playwright` | `patchright` (`[stealth]` extra) or `cloak` (`[cloak]` extra plus `python -m cloakbrowser install`) for every browser page. |
 | `AGENTCRAWL_LLM_MAX_PAGES` | `20` | Most pages one call may send to the operator's LLM for `formats=["json"]` (`/v1/scrape_many`, `/v2/batch/scrape`, MCP `scrape_many`); a bigger batch is refused before any call. The model is `AGENTCRAWL_LLM_MODEL`; a request never chooses it. |
 | `AGENTCRAWL_RATE_LIMIT_PER_MINUTE` | `60` | Units per key per minute. A request costs 1; `/v1/scrape_many` costs 1 per URL, `/v1/search` 1 plus 1 per result page when it scrapes, and a `wait=true` crawl 1 per page (capped at the window). Owner keys are exempt. |
 | `AGENTCRAWL_SYNC_CRAWL_MAX_PAGES` | `25` | Largest `wait=true` crawl; bigger crawls must run as durable jobs. |
