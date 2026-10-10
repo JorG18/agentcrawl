@@ -87,3 +87,97 @@ def test_a_challenge_document_carries_the_next_step(monkeypatch) -> None:
     doc = AgentCrawl({"browser_fallback": False}).scrape("https://example.com/")
     assert doc.metadata["error_type"] == "client_challenge"
     assert "Enhanced" in doc.metadata["next_step"]
+
+
+@pytest.fixture
+def cloak(monkeypatch):
+    """A fake CloakBrowser install whose binary is present."""
+    state = {"installed": True, "ensured": 0}
+
+    def ensure_binary():
+        state["ensured"] += 1
+        return "/opt/cloak/chrome"
+
+    def binary_info():
+        if isinstance(state["installed"], Exception):
+            raise state["installed"]
+        return {"installed": state["installed"]}
+
+    modules = {
+        "cloakbrowser": types.SimpleNamespace(),
+        "cloakbrowser.download": types.SimpleNamespace(
+            ensure_binary=ensure_binary, binary_info=binary_info
+        ),
+        "cloakbrowser.browser": types.SimpleNamespace(
+            build_args=lambda stealth, extra, headless=True: ["--cloak-arg"]
+        ),
+        "cloakbrowser.config": types.SimpleNamespace(
+            IGNORE_DEFAULT_ARGS=["--enable-automation", "--enable-unsafe-swiftshader"]
+        ),
+    }
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    real_find_spec = fetchers.importlib.util.find_spec
+    monkeypatch.setattr(
+        fetchers.importlib.util,
+        "find_spec",
+        lambda name, *a: object() if name == "cloakbrowser" else real_find_spec(name, *a),
+    )
+    monkeypatch.delenv("CLOAKBROWSER_BINARY_PATH", raising=False)
+    state["chromium"] = _engine(monkeypatch, "playwright", REAL)
+    return state
+
+
+def test_cloak_engine_launches_the_cloak_binary(cloak) -> None:
+    config = CrawlConfig(browser_engine="cloak", network_idle=False, proxy="http://p1:8080")
+
+    assert fetchers._fetch_playwright("https://example.com/", config) == REAL
+
+    chromium = cloak["chromium"]
+    launch = chromium.launch_kwargs
+    assert launch["executable_path"] == "/opt/cloak/chrome"
+    assert launch["args"] == ["--cloak-arg"]
+    assert launch["ignore_default_args"] == ["--enable-automation", "--enable-unsafe-swiftshader"]
+    assert "channel" not in launch
+    assert launch["proxy"]["server"] == "http://p1:8080"
+    # The binary's own (Chrome on Windows) identity; ours would contradict it.
+    assert chromium.browser.context_kwargs["user_agent"] is None
+
+
+def test_cloak_keeps_a_custom_user_agent(cloak) -> None:
+    config = CrawlConfig(browser_engine="cloak", network_idle=False, user_agent="MyBot/1")
+    fetchers._fetch_playwright("https://example.com/", config)
+    assert cloak["chromium"].browser.context_kwargs["user_agent"] == "MyBot/1"
+
+
+def test_cloak_without_the_extra_is_a_config_error(cloak, monkeypatch) -> None:
+    monkeypatch.setattr(fetchers.importlib.util, "find_spec", lambda name, *a: None)
+    with pytest.raises(FetchError, match=r"agentcrawl-ai\[cloak\]") as raised:
+        fetchers._fetch_playwright("https://example.com/", CrawlConfig(browser_engine="cloak"))
+    assert raised.value.error_type == "config_error"
+
+
+def test_cloak_without_the_binary_is_a_config_error(cloak) -> None:
+    cloak["installed"] = False
+    with pytest.raises(FetchError, match="python -m cloakbrowser install") as raised:
+        fetchers._fetch_playwright("https://example.com/", CrawlConfig(browser_engine="cloak"))
+    assert raised.value.error_type == "config_error"
+    assert cloak["ensured"] == 0  # never downloaded inside a page's budget
+
+
+def test_cloak_binary_path_override_skips_the_install_check(cloak, monkeypatch) -> None:
+    cloak["installed"] = False
+    monkeypatch.setenv("CLOAKBROWSER_BINARY_PATH", "/x/chrome")
+    config = CrawlConfig(browser_engine="cloak", network_idle=False)
+    assert fetchers._fetch_playwright("https://example.com/", config) == REAL
+
+
+def test_cloak_on_an_unsupported_platform_is_a_config_error(cloak) -> None:
+    cloak["installed"] = RuntimeError("no build for linux-riscv64")
+    with pytest.raises(FetchError, match="linux-riscv64") as raised:
+        fetchers._fetch_playwright("https://example.com/", CrawlConfig(browser_engine="cloak"))
+    assert raised.value.error_type == "config_error"
+
+
+def test_cloak_is_a_valid_engine() -> None:
+    assert CrawlConfig.from_dict({"browser_engine": "cloak"}).browser_engine == "cloak"
