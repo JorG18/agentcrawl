@@ -345,6 +345,77 @@ def run_agentcrawl_cloak(pages: list[dict[str, Any]], concurrency: int) -> list[
     return run_agentcrawl(pages, concurrency, "agentcrawl-cloak", {"browser_engine": "cloak"})
 
 
+def run_agentcrawl_scraplike(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
+    """AgentCrawl's browser with the three differences REA showed against
+    Scrapling's (briefs/REA_VS_SCRAPLING_2026-10-10.md), spike only:
+
+    - a persistent profile per page, not ``browser.new_context()`` (an
+      incognito-like context whose small storage quota gives it away);
+    - ``Referer: https://www.google.com/`` on the first navigation;
+    - Chrome's own ``Accept-Language`` (``LANGUAGE=en-US:en`` -> "en-US,en;q=0.9")
+      instead of the context ``locale``, which sends a bare "en-US".
+    """
+    import shutil
+    import tempfile
+
+    from agentcrawl import fetchers
+
+    class PersistentBrowser:
+        def __init__(self, playwright: Any, launch_kwargs: dict[str, Any]) -> None:
+            self.playwright = playwright
+            self.launch_kwargs = {k: v for k, v in launch_kwargs.items() if k != "engine"}
+            # Linux Chrome takes its languages from the environment, not --lang.
+            self.launch_kwargs["env"] = {
+                **os.environ,
+                "LANGUAGE": "en-US:en",
+                "LANG": "en_US.UTF-8",
+            }
+            probe = playwright.chromium.launch(channel="chromium", headless=True)
+            self.version = probe.version
+            probe.close()
+
+        def is_connected(self) -> bool:
+            return True
+
+        def close(self) -> None:
+            pass
+
+        def new_context(self, **context_kwargs: Any) -> Any:
+            context_kwargs.pop("locale", None)
+            profile = tempfile.mkdtemp(prefix="ac-profile-")
+            context = self.playwright.chromium.launch_persistent_context(
+                profile, channel="chromium", **self.launch_kwargs, **context_kwargs
+            )
+            new_page, close = context.new_page, context.close
+            first = {"done": False}
+
+            def page_with_referer() -> Any:
+                page = new_page()
+                goto = page.goto
+
+                def goto_from_google(url: str, **kwargs: Any) -> Any:
+                    if not first["done"]:
+                        first["done"] = True
+                        kwargs.setdefault("referer", "https://www.google.com/")
+                    return goto(url, **kwargs)
+
+                page.goto = goto_from_google
+                return page
+
+            def close_and_clean() -> None:
+                try:
+                    close()
+                finally:
+                    shutil.rmtree(profile, ignore_errors=True)
+
+            context.new_page = page_with_referer
+            context.close = close_and_clean
+            return context
+
+    fetchers._launch_chromium = PersistentBrowser
+    return run_agentcrawl(pages, concurrency, "agentcrawl-scraplike")
+
+
 def run_agentcrawl_chrometls(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
     """AgentCrawl whose HTTP tier speaks Chrome's TLS and headers (curl_cffi)."""
     _install_chrome_tls()
@@ -426,6 +497,7 @@ TOOLS = {
     "agentcrawl-cloak": (None, run_agentcrawl_cloak),
     "agentcrawl-chrometls": (None, run_agentcrawl_chrometls),
     "agentcrawl-cloaktls": (None, run_agentcrawl_cloaktls),
+    "agentcrawl-scraplike": (None, run_agentcrawl_scraplike),
     "agentcrawl-camofox": (
         None,
         lambda pages, concurrency: run_agentcrawl(

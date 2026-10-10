@@ -48,6 +48,7 @@ LOCAL_TOOLS = frozenset(
         "agentcrawl-camofox",
         "agentcrawl-chrometls",
         "agentcrawl-cloaktls",
+        "agentcrawl-scraplike",
         "agentcrawl-cloak",
         "agentcrawl-headful",
         "crawl4ai",
