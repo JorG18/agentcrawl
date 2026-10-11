@@ -360,16 +360,23 @@ def run_agentcrawl_scraplike(pages: list[dict[str, Any]], concurrency: int) -> l
 
     from agentcrawl import fetchers
 
+    # Ablation: SCRAPLIKE_OFF="persist,referer,lang" turns differences off.
+    off = set(os.environ.get("SCRAPLIKE_OFF", "").split(","))
+
     class PersistentBrowser:
         def __init__(self, playwright: Any, launch_kwargs: dict[str, Any]) -> None:
             self.playwright = playwright
             self.launch_kwargs = {k: v for k, v in launch_kwargs.items() if k != "engine"}
-            # Linux Chrome takes its languages from the environment, not --lang.
-            self.launch_kwargs["env"] = {
-                **os.environ,
-                "LANGUAGE": "en-US:en",
-                "LANG": "en_US.UTF-8",
-            }
+            if "lang" not in off:
+                # Linux Chrome takes its languages from the environment, not --lang.
+                self.launch_kwargs["env"] = {
+                    **os.environ,
+                    "LANGUAGE": "en-US:en",
+                    "LANG": "en_US.UTF-8",
+                }
+            self.shared = None
+            if "persist" in off:
+                self.shared = playwright.chromium.launch(channel="chromium", **self.launch_kwargs)
             probe = playwright.chromium.launch(channel="chromium", headless=True)
             self.version = probe.version
             probe.close()
@@ -381,11 +388,15 @@ def run_agentcrawl_scraplike(pages: list[dict[str, Any]], concurrency: int) -> l
             pass
 
         def new_context(self, **context_kwargs: Any) -> Any:
-            context_kwargs.pop("locale", None)
+            if "lang" not in off:
+                context_kwargs.pop("locale", None)
             profile = tempfile.mkdtemp(prefix="ac-profile-")
-            context = self.playwright.chromium.launch_persistent_context(
-                profile, channel="chromium", **self.launch_kwargs, **context_kwargs
-            )
+            if self.shared is not None:
+                context = self.shared.new_context(**context_kwargs)
+            else:
+                context = self.playwright.chromium.launch_persistent_context(
+                    profile, channel="chromium", **self.launch_kwargs, **context_kwargs
+                )
             new_page, close = context.new_page, context.close
             first = {"done": False}
 
@@ -394,7 +405,7 @@ def run_agentcrawl_scraplike(pages: list[dict[str, Any]], concurrency: int) -> l
                 goto = page.goto
 
                 def goto_from_google(url: str, **kwargs: Any) -> Any:
-                    if not first["done"]:
+                    if not first["done"] and "referer" not in off:
                         first["done"] = True
                         kwargs.setdefault("referer", "https://www.google.com/")
                     return goto(url, **kwargs)
