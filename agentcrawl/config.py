@@ -204,15 +204,6 @@ class CrawlConfig:
             return config
         if config is None:
             return cls()
-        deprecated = _DEPRECATED_KEYS & set(config)
-        if deprecated:
-            warnings.warn(
-                f"Config keys {', '.join(sorted(deprecated))} have no effect and will be "
-                "removed in 0.6; drop them from your config.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            config = {key: value for key, value in config.items() if key not in deprecated}
         allowed = {field.name for field in cls.__dataclass_fields__.values()}
         unknown = sorted(set(config) - allowed)
         if unknown:
@@ -268,10 +259,6 @@ def _validate_fetcher(value: str) -> str:
 #
 # The table lives here so the library, the CLI and the API all share one
 # contract, and the API can turn the ``ValueError`` into a 400.
-# Accepted and ignored until 0.6 so existing configs keep loading: geoip and
-# humanize never did anything, and the reattempt rule is fixed to
-# "empty answer or validation error" (it was an expression nobody set).
-_DEPRECATED_KEYS = frozenset({"geoip", "humanize", "reattempt_condition"})
 
 _BOOL_FIELDS = frozenset(
     {

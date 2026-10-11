@@ -4,6 +4,13 @@ All notable changes to AgentCrawl Community are documented here. The format foll
 
 Each entry gives a one-line "what changed" up front, then the engineering detail for anyone who wants to verify the fix landed.
 
+## Unreleased
+
+### Removed
+
+- **`ExtractionGraph`, `MultiExtractionGraph` and `SearchGraph`** (`agentcrawl.graphs`), deprecated since 0.5.3. Use `AgentCrawl(...).extract` and `AgentCrawl(...).search`. `agentcrawl/config_adapter.py` and `examples/graph_extraction.py` went with them.
+- **Config keys `geoip`, `humanize` and `reattempt_condition`**, accepted with a `DeprecationWarning` since 0.5 and never used. A config that still sets them now fails with `Unknown config keys: <key>`; delete the key.
+
 ## 0.5.6 - 2026-10-10
 
 Cloudflare no longer spots the browser by its language, which also makes the `[stealth]` retry work: within 3 pages of Scrapling on the 400-page benchmark. Camofox reads rendered pages, and CloakBrowser is available as an opt-in engine.

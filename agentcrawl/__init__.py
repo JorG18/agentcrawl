@@ -6,7 +6,6 @@ from pathlib import Path
 
 from .client import AgentCrawler
 from .config import CrawlConfig
-from .graphs import ExtractionGraph, MultiExtractionGraph, SearchGraph
 from .crawler import AgentCrawl
 from .models import CrawlResult, CrawlRun, MapResult, ScrapeDocument, SearchResult
 from .remote_client import AgentCrawlClient
@@ -43,8 +42,5 @@ __all__ = [
     "AgentCrawl",
     "MapResult",
     "ScrapeDocument",
-    "SearchGraph",
     "SearchResult",
-    "ExtractionGraph",
-    "MultiExtractionGraph",
 ]

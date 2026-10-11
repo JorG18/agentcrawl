@@ -129,9 +129,7 @@ def test_every_allowed_override_is_a_real_config_field() -> None:
     "key, value",
     [("geoip", True), ("humanize", True), ("reattempt_condition", "attempt < 1")],
 )
-def test_deprecated_keys_still_load_with_a_warning(key: str, value: object) -> None:
-    """Removed in 0.6; until then an existing config must keep loading."""
-    with pytest.warns(DeprecationWarning, match=key):
-        config = CrawlConfig.from_dict({key: value, "timeout_ms": 5000})
-    assert config.timeout_ms == 5000
-    assert not hasattr(config, key)
+def test_keys_removed_in_0_6_are_refused(key: str, value: object) -> None:
+    """Deprecated in 0.5, removed in 0.6: the old key is named in the error."""
+    with pytest.raises(ValueError, match=f"Unknown config keys: {key}"):
+        CrawlConfig.from_dict({key: value, "timeout_ms": 5000})
