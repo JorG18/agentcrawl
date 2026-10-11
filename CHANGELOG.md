@@ -6,6 +6,14 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ## Unreleased
 
+### Added
+
+- **`cdp` engine: read pages with your own Chrome.** `browser_engine="cdp"` (or `AGENTCRAWL_BROWSER_ENGINE=cdp`) attaches over the DevTools protocol to a Chrome you started with `--remote-debugging-port`, at `cdp_url` / `AGENTCRAWL_CDP_URL` (default `http://127.0.0.1:9222`). Each page gets a fresh isolated context (no profile cookies), the network guard, page budget and actions apply as usual, and closing the pool only disconnects: your Chrome keeps running. Only loopback URLs are accepted; `proxy` is refused because the attached Chrome uses its own network. No Chrome listening is a `config_error` with the command to start one.
+
+### Fixed
+
+- **Browser errors keep their type.** The `Playwright fetch failed for <url>` wrapper dropped the `error_type` and `status_code` of the error inside it, so a configuration problem (missing extra, CloakBrowser binary) was classified from the message text instead.
+
 ### Removed
 
 - **`ExtractionGraph`, `MultiExtractionGraph` and `SearchGraph`** (`agentcrawl.graphs`), deprecated since 0.5.3. Use `AgentCrawl(...).extract` and `AgentCrawl(...).search`. `agentcrawl/config_adapter.py` and `examples/graph_extraction.py` went with them.

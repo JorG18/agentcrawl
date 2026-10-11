@@ -45,8 +45,11 @@ class CrawlConfig:
     # automation detection. With it installed, a page the normal browser
     # gets as a challenge or a 403/429 is retried once with it. "cloak" (the
     # ``cloak`` extra) is CloakBrowser's patched Chromium, whose binary the
-    # user downloads; opt-in only, never used as a retry.
+    # user downloads; opt-in only, never used as a retry. "cdp" attaches to a
+    # Chrome the user started with --remote-debugging-port (``cdp_url``,
+    # loopback only): real browser, home IP, a fresh context per page.
     browser_engine: str = "playwright"
+    cdp_url: str = "http://127.0.0.1:9222"
     camofox_base_url: str = "http://127.0.0.1:9377"
     camofox_access_key: str | None = None
     camofox_user_id: str = "agentcrawl"
@@ -230,7 +233,7 @@ class CrawlConfig:
 
 
 BROWSER_BACKENDS = ("playwright", "camofox")
-BROWSER_ENGINES = ("playwright", "patchright", "cloak")
+BROWSER_ENGINES = ("playwright", "patchright", "cloak", "cdp")
 FETCHERS = ("http", *BROWSER_BACKENDS)
 # "browser" is what people type; the engine name is "playwright". An unknown
 # name used to reach the fetcher and come back as "Unknown fetcher: browser",
@@ -293,6 +296,7 @@ _STR_FIELDS = frozenset(
         "browser_engine",
         "camofox_base_url",
         "camofox_user_id",
+        "cdp_url",
         "output_format",
         "search_engine",
     }
@@ -515,6 +519,9 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
     engine = os.getenv("AGENTCRAWL_BROWSER_ENGINE", "").strip()
     if engine:
         config["browser_engine"] = engine
+    cdp_url = os.getenv("AGENTCRAWL_CDP_URL", "").strip()
+    if cdp_url:
+        config["cdp_url"] = cdp_url
     backend = os.getenv("AGENTCRAWL_BROWSER_BACKEND", "").strip()
     if backend:
         config["browser_backend"] = backend

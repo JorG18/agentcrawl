@@ -415,6 +415,23 @@ export AGENTCRAWL_BROWSER_ENGINE=cloak
 - Some CloakBrowser builds allow one browser at a time: set
   `AGENTCRAWL_BROWSER_CONCURRENCY=1` if launches are refused (the error says so).
 
+The `cdp` engine attaches to a Chrome you started yourself, so pages are read by
+a real Chrome on your own connection. Start it with a dedicated profile (Chrome
+refuses remote debugging on your default profile):
+
+```bash
+google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.agentcrawl-chrome"
+export AGENTCRAWL_BROWSER_ENGINE=cdp
+export AGENTCRAWL_CDP_URL=http://127.0.0.1:9222   # the default
+```
+
+- Every page gets a new, isolated context: it does not see that profile's
+  cookies or logins, and AgentCrawl never closes your Chrome or its tabs.
+- Only a loopback `cdp_url` is accepted. The network guard, page budget and
+  actions apply as with the other engines.
+- Chrome's own user agent and language are kept; `proxy` is refused (start
+  Chrome with `--proxy-server` instead).
+
 ```python
 AgentCrawl({"proxy": "http://user:pass@p1:8080, http://user:pass@p2:8080"})
 ```

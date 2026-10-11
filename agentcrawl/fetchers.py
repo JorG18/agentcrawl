@@ -116,8 +116,8 @@ class _BrowserPool:
                         _close_quietly(browser)
                         browser = None
                         engine = launch_kwargs.get("engine", "playwright")
-                        # CloakBrowser is a Chromium binary driven by Playwright.
-                        driver = "playwright" if engine == "cloak" else engine
+                        # CloakBrowser and an attached Chrome are driven by Playwright.
+                        driver = "playwright" if engine in ("cloak", "cdp") else engine
                         if driver not in drivers:
                             module = importlib.import_module(f"{driver}.sync_api")
                             drivers[driver] = module.sync_playwright().start()
@@ -138,6 +138,8 @@ class _BrowserPool:
 def _launch_chromium(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
     if launch_kwargs.get("engine") == "cloak":
         return _launch_cloak(playwright, launch_kwargs)
+    if launch_kwargs.get("engine") == "cdp":
+        return _connect_cdp(playwright, launch_kwargs["cdp_url"])
     launch_kwargs = {k: v for k, v in launch_kwargs.items() if k != "engine"}
     try:
         # Headless mode otherwise runs chromium-headless-shell, which sends
@@ -175,6 +177,35 @@ def _launch_cloak(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
             f"CloakBrowser refused to launch: {reason}; set "
             "AGENTCRAWL_BROWSER_CONCURRENCY=1 if your build allows one session"
         ) from exc
+
+
+def _connect_cdp(playwright: Any, cdp_url: str) -> Any:
+    """The user's own Chrome; closing the connection later leaves it running."""
+    try:
+        return playwright.chromium.connect_over_cdp(cdp_url)
+    except Exception as exc:
+        raise FetchError(
+            f"No Chrome to attach to at {cdp_url} ({exc}). Start one with "
+            "google-chrome --remote-debugging-port=9222 --user-data-dir=<a dedicated profile dir>",
+            error_type="config_error",
+        ) from exc
+
+
+def _require_cdp(config: CrawlConfig) -> None:
+    """Fail before rendering when the cdp engine is misconfigured."""
+    host = urllib.parse.urlsplit(config.cdp_url).hostname
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        # A remote browser sees every page and cookie: not a local default.
+        raise FetchError(
+            f"cdp_url must be a loopback address (127.0.0.1, localhost or ::1), got {config.cdp_url}",
+            error_type="config_error",
+        )
+    if config.proxy:
+        raise FetchError(
+            "browser_engine='cdp' uses the attached Chrome's own network; "
+            "start that Chrome with --proxy-server instead of setting proxy",
+            error_type="config_error",
+        )
 
 
 def _cloak_binary() -> str:
@@ -1280,6 +1311,8 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
             )
             + _LANGUAGE_ARGS,
         }
+        if engine == "cdp":
+            launch_kwargs = {"engine": engine, "cdp_url": config.cdp_url}
         # Wait as long as one browser run may take (load, interstitial, network
         # idle): a shorter wait failed pages that were simply queued behind others.
         wait_ms = _require_budget(
@@ -1315,6 +1348,8 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
         )
     if engine == "cloak":
         _require_cloak()
+    if engine == "cdp":
+        _require_cdp(config)
     try:
         html = render(engine)
         capture = _CAPTURE.get()
@@ -1330,7 +1365,11 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
                 capture["stealth_retry"] = "patchright"
         return html
     except FetchError as exc:
-        raise FetchError(f"Playwright fetch failed for {url}: {exc}") from exc
+        raise FetchError(
+            f"Playwright fetch failed for {url}: {exc}",
+            error_type=exc.error_type,
+            status_code=exc.status_code,
+        ) from exc
     except Exception as exc:
         reason = _main_navigation_block_reason(guard, url)
         raise FetchError(f"Playwright fetch failed for {url}: {reason or exc}") from exc
@@ -1521,11 +1560,11 @@ def _browser_user_agent(config: CrawlConfig, browser: Any) -> str | None:
     is what Cloudflare and CDNs answer with a challenge or a 403 from
     datacenter networks: the browser fallback then got the same refusal the
     HTTP fetch did. The browser says it is the Chrome version it really is.
-    CloakBrowser keeps its own (``None``): it matches its fingerprint.
+    CloakBrowser and an attached Chrome keep their own (``None``).
     """
     if config.user_agent and config.user_agent != DEFAULT_USER_AGENT:
         return config.user_agent
-    if config.browser_engine == "cloak":
+    if config.browser_engine in ("cloak", "cdp"):
         return None
     major = str(getattr(browser, "version", "") or "").split(".")[0]
     if not major.isdigit():

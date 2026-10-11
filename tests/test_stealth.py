@@ -211,3 +211,68 @@ def test_cloak_on_an_unsupported_platform_is_a_config_error(cloak) -> None:
 
 def test_cloak_is_a_valid_engine() -> None:
     assert CrawlConfig.from_dict({"browser_engine": "cloak"}).browser_engine == "cloak"
+
+
+@pytest.fixture
+def cdp(monkeypatch):
+    """A Playwright whose Chromium can only attach over CDP."""
+    chromium = _engine(monkeypatch, "playwright", REAL)
+    chromium.cdp_urls = []
+
+    def connect_over_cdp(url):
+        chromium.cdp_urls.append(url)
+        return chromium.browser
+
+    def launch(**kwargs):
+        raise AssertionError("the cdp engine must never launch a browser")
+
+    chromium.connect_over_cdp = connect_over_cdp
+    chromium.launch = launch
+    return chromium
+
+
+def test_cdp_engine_attaches_to_the_users_chrome(cdp) -> None:
+    config = CrawlConfig(browser_engine="cdp", cdp_url="http://localhost:9333", network_idle=False)
+
+    assert fetchers._fetch_playwright("https://example.com/", config) == REAL
+
+    assert cdp.cdp_urls == ["http://localhost:9333"]
+    # A fresh context per page (no user cookies), with Chrome's own identity.
+    assert cdp.browser.context_kwargs["user_agent"] is None
+    assert cdp.browser.context.closed
+
+
+@pytest.mark.parametrize("url", ["http://10.0.0.5:9222", "http://browser.example.com:9222"])
+def test_cdp_engine_refuses_a_remote_browser(cdp, url) -> None:
+    with pytest.raises(FetchError, match="loopback") as raised:
+        fetchers._fetch_playwright(
+            "https://example.com/", CrawlConfig(browser_engine="cdp", cdp_url=url)
+        )
+    assert raised.value.error_type == "config_error"
+    assert cdp.cdp_urls == []
+
+
+def test_cdp_engine_refuses_a_proxy(cdp) -> None:
+    config = CrawlConfig(browser_engine="cdp", proxy="http://p1:8080")
+    with pytest.raises(FetchError, match="--proxy-server") as raised:
+        fetchers._fetch_playwright("https://example.com/", config)
+    assert raised.value.error_type == "config_error"
+
+
+def test_no_chrome_to_attach_to_says_how_to_start_one(cdp) -> None:
+    def refuse(url):
+        raise RuntimeError("connect ECONNREFUSED 127.0.0.1:9222")
+
+    cdp.connect_over_cdp = refuse
+    with pytest.raises(FetchError, match="--remote-debugging-port=9222") as raised:
+        fetchers._fetch_playwright("https://example.com/", CrawlConfig(browser_engine="cdp"))
+    assert raised.value.error_type == "config_error"
+
+
+def test_cdp_engine_and_url_come_from_the_environment(monkeypatch) -> None:
+    from agentcrawl.config import config_from_env
+
+    monkeypatch.setenv("AGENTCRAWL_BROWSER_ENGINE", "cdp")
+    monkeypatch.setenv("AGENTCRAWL_CDP_URL", "http://127.0.0.1:9333")
+    config = CrawlConfig.from_dict(config_from_env())
+    assert (config.browser_engine, config.cdp_url) == ("cdp", "http://127.0.0.1:9333")
