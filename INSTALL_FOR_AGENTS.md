@@ -28,6 +28,9 @@ Add capabilities only when needed:
 # JavaScript-rendered pages, browser_actions and screenshots
 python -m pip install "agentcrawl-ai[mcp,browser]"
 python -m playwright install chromium
+# sites behind Cloudflare: Patchright retry for challenged pages
+python -m pip install "agentcrawl-ai[stealth]"
+python -m patchright install chromium
 # local PDF ingestion
 python -m pip install "agentcrawl-ai[docs]"
 ```

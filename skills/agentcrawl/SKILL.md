@@ -1,7 +1,7 @@
 ---
 name: agentcrawl
 description: Read web pages and documentation as clean Markdown with AgentCrawl, locally. Use when you need the content of a URL, several URLs, or a whole docs site; when your built-in web fetch fails, returns raw HTML, or the page needs JavaScript; when a page is too long and you only need one section or the parts about a question; or when you want structured data from a page with CSS selectors and no LLM.
-version: "0.5.5"
+version: "0.5.6"
 metadata:
   homepage: "https://github.com/JorG18/agentcrawl"
   openclaw:
@@ -37,6 +37,13 @@ Plain HTTP pages need nothing else. For pages that only render with JavaScript, 
 ```bash
 pipx inject agentcrawl-ai playwright && python3 -m playwright install chromium
 # with pip: python3 -m pip install "agentcrawl-ai[browser]" && python3 -m playwright install chromium
+```
+
+Sites behind Cloudflare ("Just a moment…", `error_type: "client_challenge"`): add the stealth retry (Patchright):
+
+```bash
+pipx inject agentcrawl-ai patchright && python3 -m patchright install chromium
+# with pip: python3 -m pip install "agentcrawl-ai[stealth]" && python3 -m patchright install chromium
 ```
 
 ### MCP (preferred when the client supports it)
