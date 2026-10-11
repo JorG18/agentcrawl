@@ -427,6 +427,39 @@ def run_agentcrawl_scraplike(pages: list[dict[str, Any]], concurrency: int) -> l
     return run_agentcrawl(pages, concurrency, "agentcrawl-scraplike")
 
 
+def run_agentcrawl_viewport(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
+    """AgentCrawl with Scrapling's page geometry (``StealthySessionMixin``):
+    1920x1080 screen and viewport, device scale 2, dark scheme, no touch,
+    geolocation/notifications granted. P3 measured this as noise while the
+    context locale still gave the browser away; this re-measures it.
+    """
+    from agentcrawl import fetchers
+
+    launch = fetchers._launch_chromium
+
+    def launch_with_geometry(playwright: Any, launch_kwargs: dict[str, Any]) -> Any:
+        browser = launch(playwright, launch_kwargs)
+        new_context = browser.new_context
+
+        def context_with_geometry(**context_kwargs: Any) -> Any:
+            return new_context(
+                **context_kwargs,
+                screen={"width": 1920, "height": 1080},
+                viewport={"width": 1920, "height": 1080},
+                device_scale_factor=2,
+                color_scheme="dark",
+                is_mobile=False,
+                has_touch=False,
+                permissions=["geolocation", "notifications"],
+            )
+
+        browser.new_context = context_with_geometry
+        return browser
+
+    fetchers._launch_chromium = launch_with_geometry
+    return run_agentcrawl(pages, concurrency, "agentcrawl-viewport")
+
+
 def run_agentcrawl_chrometls(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
     """AgentCrawl whose HTTP tier speaks Chrome's TLS and headers (curl_cffi)."""
     _install_chrome_tls()
@@ -509,6 +542,7 @@ TOOLS = {
     "agentcrawl-chrometls": (None, run_agentcrawl_chrometls),
     "agentcrawl-cloaktls": (None, run_agentcrawl_cloaktls),
     "agentcrawl-scraplike": (None, run_agentcrawl_scraplike),
+    "agentcrawl-viewport": (None, run_agentcrawl_viewport),
     "agentcrawl-camofox": (
         None,
         lambda pages, concurrency: run_agentcrawl(
