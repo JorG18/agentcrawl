@@ -12,6 +12,7 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ### Fixed
 
+- **Cloudflare no longer catches the browser's language.** The page context set `locale="en-US"`, which Playwright applies to the page's main thread only: Web Workers kept the system language and Accept-Language was a bare `en-US`, a mismatch Cloudflare answers with a challenge. The language is now set browser-wide (`--lang=en-US --accept-lang=en-US,en`), as Scrapling does, so the main thread, workers and header agree. Found by observing Scrapling's browser and ours side by side with REA; from a home connection, tandfonline and 33across went from "Just a moment..." to content, and 11 of 15 pages Scrapling won returned content (8 before).
 - **Camofox reads the rendered page, not the first paint.** `_fetch_camofox` read the HTML at DOMContentLoaded, so script-built pages came back empty, and a Cloudflare "Just a moment..." page was returned as the result. It now calls the server's `POST /tabs/:id/wait` (network idle, up to 10 s of the page budget) and re-reads every 0.5 s while the title is a self-clearing interstitial, within `browser_challenge_wait_ms`. A server without `/wait` (404) or a page that never goes idle still gets read; only a timeout of the page budget is raised. With the fix, Camofox reached 257 content pages in the 400-page benchmark (run 37871322998), against 252 for Chromium on the same job.
 
 ## 0.5.5 - 2026-10-08

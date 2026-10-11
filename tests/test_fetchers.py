@@ -531,10 +531,22 @@ def test_playwright_uses_default_user_agent_when_config_none(monkeypatch) -> Non
     # workers are blocked because they can issue requests the route never sees.
     assert browser.context_kwargs == {
         "user_agent": DEFAULT_USER_AGENT,
-        "locale": "en-US",
         "service_workers": "block",
     }
     assert page.load_states == []
+
+
+def test_the_browser_language_is_set_browser_wide(monkeypatch) -> None:
+    """A context ``locale`` patches only the page's main thread; workers keep
+    the system language and Cloudflare flags the mismatch (tandfonline and
+    33across stayed on "Just a moment..." until it was dropped)."""
+    _page, browser, chromium = install_fake_playwright(monkeypatch)
+
+    _fetch_playwright("https://example.com/", CrawlConfig(network_idle=False))
+
+    assert "locale" not in browser.context_kwargs
+    assert "--lang=en-US" in chromium.launch_kwargs["args"]
+    assert "--accept-lang=en-US,en" in chromium.launch_kwargs["args"]
 
 
 def test_playwright_presents_the_real_chrome_version(monkeypatch) -> None:
