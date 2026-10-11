@@ -49,8 +49,9 @@ def test_a_challenged_page_is_retried_once_with_patchright(engines) -> None:
 
     assert html == REAL
     first, second = playwright.launch_kwargs, patchright.launch_kwargs
-    assert first["args"] == ["--disable-blink-features=AutomationControlled"]
-    assert second["args"] == []  # Patchright hides automation itself
+    assert "--disable-blink-features=AutomationControlled" in first["args"]
+    # Patchright hides automation itself; both set the language browser-wide.
+    assert second["args"] == ["--lang=en-US", "--accept-lang=en-US,en"]
     assert {first["proxy"]["server"], second["proxy"]["server"]} == {
         "http://p1:8080",
         "http://p2:8080",

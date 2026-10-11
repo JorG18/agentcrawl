@@ -21,8 +21,9 @@ Pages that only render with JavaScript need the browser extra (`[browser]`, then
 `python -m playwright install chromium`); `agentcrawl doctor` tells you whether
 the browser can start. The browser presents itself as the Chrome it is and waits
 out self-clearing checks such as Cloudflare's "Just a moment…", ticking the
-Turnstile checkbox when one is still showing, as a person would; the optional
-`[stealth]` extra retries a refused page once with Patchright. A page that still
+Turnstile checkbox when one is still showing, as a person would; the `[stealth]`
+extra, recommended for sites behind Cloudflare, retries a refused page once with
+Patchright. A page that still
 asks for a CAPTCHA comes back as `error_type: "client_challenge"` with the
 signals seen and a `next_step`, never as content.
 
@@ -381,7 +382,9 @@ browser got as a challenge or a 403/429 once with Patchright, on the next proxy
 if you gave several. Both browsers wait out "Just a moment…" pages and tick a
 Cloudflare Turnstile checkbox that is still showing, in your own browser
 (`AGENTCRAWL_BROWSER_CHALLENGE_CLICK=false` turns that off). No solver service is
-called and no image CAPTCHA is attempted.
+called and no image CAPTCHA is attempted. In a 400-page sample the retry opened 7
+of 17 challenged pages and left 9 pages on a challenge (16 to 21 without it),
+within 3 pages of Scrapling's result on the same machine.
 
 ```bash
 python -m pip install "agentcrawl-ai[stealth]"
@@ -389,9 +392,10 @@ python -m patchright install chromium
 export AGENTCRAWL_BROWSER_ENGINE=patchright   # optional: use it for every page
 ```
 
-For the hardest Cloudflare pages there is an opt-in engine: CloakBrowser's
-patched Chromium. In a 400-page sample it left 7 pages on a challenge where
-Chromium left 18 (257 pages with content against 246).
+Another opt-in engine is CloakBrowser's patched Chromium. In two 400-page runs
+it opened 7 to 9 Cloudflare pages plain Chromium could not, but lost a few others
+(eBay, Prime Video) and is slower, so the total stayed level; try it on a site
+the `[stealth]` retry does not open.
 
 ```bash
 python -m pip install "agentcrawl-ai[cloak]"
