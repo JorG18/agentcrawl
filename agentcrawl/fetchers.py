@@ -1275,9 +1275,10 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
             # Without this Chromium sets navigator.webdriver, which bot
             # managers (Cloudflare first) answer with a challenge. Patchright
             # handles it itself.
-            "args": ["--disable-blink-features=AutomationControlled"]
-            if engine == "playwright"
-            else [],
+            "args": (
+                ["--disable-blink-features=AutomationControlled"] if engine == "playwright" else []
+            )
+            + _LANGUAGE_ARGS,
         }
         # Wait as long as one browser run may take (load, interstitial, network
         # idle): a shorter wait failed pages that were simply queued behind others.
@@ -1335,6 +1336,12 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
         raise FetchError(f"Playwright fetch failed for {url}: {reason or exc}") from exc
 
 
+# English browser-wide, not per context: interstitial titles are matched in
+# English (Cloudflare localises "Un momento…"), and a context ``locale``
+# patches only the main thread while workers keep the system language, a
+# mismatch Cloudflare answers with a challenge.
+_LANGUAGE_ARGS = ["--lang=en-US", "--accept-lang=en-US,en"]
+
 _proxy_turn = itertools.count()
 
 
@@ -1362,9 +1369,6 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
     try:
         context_kwargs: dict[str, Any] = {
             "user_agent": _browser_user_agent(config, browser),
-            # Interstitial titles are matched in English; Cloudflare
-            # localises them ("Un momento…") to the browser's locale.
-            "locale": "en-US",
         }
         if config.browser_session:
             from .sessions import require_session
