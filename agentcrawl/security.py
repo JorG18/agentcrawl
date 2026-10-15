@@ -91,7 +91,10 @@ def resolve_public_addresses(hostname: str, port: int | None) -> list[tuple]:
     """
     hostname = hostname.lower().rstrip(".")
     if hostname == "localhost" or hostname.endswith(".localhost"):
-        raise FetchError("Localhost targets are not allowed." + _PRIVATE_HINT)
+        # config_error: a refused target is the caller's setting, so retrying never helps.
+        raise FetchError(
+            "Localhost targets are not allowed." + _PRIVATE_HINT, error_type="config_error"
+        )
     try:
         ip_literal = ipaddress.ip_address(hostname)
     except ValueError:
@@ -111,7 +114,8 @@ def resolve_public_addresses(hostname: str, port: int | None) -> list[tuple]:
         ip = ipaddress.ip_address(info[4][0])
         if not ip.is_global:
             raise FetchError(
-                f"Private or non-global target address is not allowed: {ip}" + _PRIVATE_HINT
+                f"Private or non-global target address is not allowed: {ip}" + _PRIVATE_HINT,
+                error_type="config_error",
             )
     return infos
 

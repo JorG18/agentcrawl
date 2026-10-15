@@ -1374,7 +1374,9 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
         ) from exc
     except Exception as exc:
         reason = _main_navigation_block_reason(guard, url)
-        raise FetchError(f"Playwright fetch failed for {url}: {reason or exc}") from exc
+        # Playwright appends a "Call log:" of its own steps; the cause is the first part.
+        cause = str(exc).split("Call log:")[0].strip().removeprefix("Page.goto: ")
+        raise FetchError(f"Playwright fetch failed for {url}: {reason or cause}") from exc
 
 
 # English browser-wide, not per context: interstitial titles are matched in

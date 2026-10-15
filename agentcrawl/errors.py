@@ -171,7 +171,7 @@ def classify_error(message: str | None) -> str | None:
     # Transport-level classes come before the browser bucket. "browser" is a
     # broad substring, so a certificate failure or a DNS failure inside a
     # browser fetch was classified as ``browser_error`` and lost its real cause.
-    if "ssl" in text or "certificate" in text:
+    if "ssl" in text or "certificate" in text or "err_cert_" in text:
         return "tls_error"
     if "name or service not known" in text or "temporary failure" in text or "connection" in text:
         return "network_error"
