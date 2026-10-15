@@ -91,7 +91,7 @@ def test_codex_reads_through_its_cli(home, monkeypatch):
     answer = {"transport": {"type": "stdio", **EXPECTED, "env": None}}
 
     def run(cmd, **_kwargs):
-        assert cmd == ["codex", "mcp", "get", "agentcrawl", "--json"]
+        assert cmd == ["/bin/codex", "mcp", "get", "agentcrawl", "--json"]
         return subprocess.CompletedProcess(cmd, 0, json.dumps(answer), "WARNING: x")
 
     monkeypatch.setattr(agent_setup.subprocess, "run", run)
@@ -238,7 +238,7 @@ def test_cli_update_removes_then_adds_with_env(home, monkeypatch, name, remove, 
     monkeypatch.setattr(agent_setup, "_read", lambda client: _stale({"AGENTCRAWL_API_KEY": "k"}))
 
     assert apply(CLIENTS[name])["ok"] is True
-    assert calls == [remove, add]
+    assert calls == [[f"/bin/{remove[0]}", *remove[1:]], [f"/bin/{add[0]}", *add[1:]]]
 
 
 def test_aligned_client_is_left_alone(home):
@@ -348,3 +348,112 @@ def test_setup_dry_run_hides_env_values(home, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "AGENTCRAWL_API_KEY" in out
     assert "=k" not in out
+
+
+# -- final review fixes ----------------------------------------------------------
+def _cli_env(monkeypatch, which=lambda cmd: f"/bin/{cmd}"):
+    monkeypatch.setattr(agent_setup.shutil, "which", which)
+    monkeypatch.setattr(agent_setup, "_read", lambda client: _stale({"AGENTCRAWL_API_KEY": "k"}))
+
+
+def test_failed_add_after_remove_restores_the_old_entry(home, monkeypatch):
+    _cli_env(monkeypatch)
+    calls = []
+
+    def run(cmd, **_kwargs):
+        calls.append(cmd)
+        failed = len(calls) == 2  # the new add
+        return subprocess.CompletedProcess(cmd, 1 if failed else 0, "", "boom" if failed else "")
+
+    monkeypatch.setattr(agent_setup.subprocess, "run", run)
+    result = apply(CLIENTS["claude_code"])
+
+    assert result["ok"] is False
+    assert "previous registration restored" in result["detail"]
+    assert calls[2] == [
+        "/bin/claude", "mcp", "add", "-s", "user", "agentcrawl",
+        "-e", "AGENTCRAWL_API_KEY=k", "--", "agentcrawl", "mcp",
+    ]  # fmt: skip
+
+
+def test_failed_restore_names_the_key_not_its_value(home, monkeypatch):
+    _cli_env(monkeypatch)
+    replies = iter([0, 1, 1])
+    monkeypatch.setattr(
+        agent_setup.subprocess,
+        "run",
+        lambda cmd, **_k: subprocess.CompletedProcess(cmd, next(replies), "", "boom"),
+    )
+    detail = apply(CLIENTS["claude_code"])["detail"]
+    assert "AGENTCRAWL_API_KEY" in detail and "=k" not in detail
+    assert "removed" in detail
+
+
+def test_timeout_never_prints_env_values(home, monkeypatch):
+    _cli_env(monkeypatch)
+
+    def run(cmd, **_kwargs):
+        if "add" in cmd:  # the add carries the env pair; remove does not
+            raise subprocess.TimeoutExpired(cmd, 60)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(agent_setup.subprocess, "run", run)
+    detail = apply(CLIENTS["claude_code"])["detail"]
+    assert "timed out" in detail
+    assert "=k" not in detail
+
+
+def test_cli_runs_the_resolved_executable(home, monkeypatch):
+    # Windows: npm installs claude.cmd; CreateProcess does not resolve .cmd from a bare name.
+    _cli_env(monkeypatch, which=lambda cmd: f"C:\\npm\\{cmd}.cmd")
+    calls = []
+    monkeypatch.setattr(
+        agent_setup.subprocess,
+        "run",
+        lambda cmd, **_k: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""),
+    )
+    assert apply(CLIENTS["claude_code"])["ok"] is True
+    assert {call[0] for call in calls} == {"C:\\npm\\claude.cmd"}
+
+
+def test_symlinked_config_keeps_the_link_and_mode(home):
+    target = home / "dotfiles" / "cursor-mcp.json"
+    _write(target, {"mcpServers": {}})
+    target.chmod(0o644)
+    link = home / ".cursor" / "mcp.json"
+    link.parent.mkdir()
+    link.symlink_to(target)
+
+    assert apply(CLIENTS["cursor"])["ok"] is True
+
+    assert link.is_symlink()
+    assert json.loads(target.read_text())["mcpServers"]["agentcrawl"] == EXPECTED
+    assert target.stat().st_mode & 0o777 == 0o644
+
+
+def test_a_read_that_fails_after_detection_does_not_stop_setup(home, monkeypatch, capsys):
+    (home / ".cursor").mkdir()
+    monkeypatch.setattr(
+        agent_setup.shutil, "which", lambda cmd: "/bin/codex" if cmd == "codex" else None
+    )
+    reads = {"n": 0}
+    original = agent_setup._read
+
+    def flaky(client):
+        if client.name != "codex":
+            return original(client)
+        reads["n"] += 1
+        if reads["n"] == 1:
+            return _stale()
+        raise FileNotFoundError("codex vanished")
+
+    monkeypatch.setattr(agent_setup, "_read", flaky)
+    monkeypatch.setattr(
+        agent_setup.subprocess, "run", lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "", "")
+    )
+    _tty(monkeypatch)
+
+    code = main(["setup", "--client", "codex", "--client", "cursor", "--yes"])
+
+    assert code == 1
+    assert "Cursor: add -> ok" in capsys.readouterr().out

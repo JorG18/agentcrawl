@@ -71,7 +71,7 @@ def _json_entry(path: Path, key: str) -> dict | None:
 
 def _codex_entry() -> dict | None:
     result = subprocess.run(
-        ["codex", "mcp", "get", SERVER, "--json"],
+        [shutil.which("codex") or "codex", "mcp", "get", SERVER, "--json"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -144,6 +144,11 @@ def state(client: Client) -> dict[str, Any]:
 
     Env values are never returned, only their keys.
     """
+    return _inspect(client)[0]
+
+
+def _inspect(client: Client) -> tuple[dict[str, Any], dict | None]:
+    """``state`` plus the entry it read, so callers read the client once."""
     report: dict[str, Any] = {
         "client": client.name,
         "detected": client.detect(),
@@ -153,14 +158,14 @@ def state(client: Client) -> dict[str, Any]:
     }
     if not report["detected"] and client.kind == "cli":
         # Without its CLI the client's registration can neither be read nor changed.
-        return report
+        return report, None
     try:
         entry = _read(client)
     except (Unreadable, OSError, subprocess.SubprocessError) as exc:
         report.update(state="unreadable", reason=str(exc)[:300])
-        return report
+        return report, None
     if entry is None:
-        return report
+        return report, None
     report["env_keys"] = sorted(entry.get("env") or {})
     expected = expected_entry()
     command, args = entry.get("command"), list(entry.get("args") or [])
@@ -170,7 +175,7 @@ def state(client: Client) -> dict[str, Any]:
         report.update(state="stale", reason=f"registered as: {command} {' '.join(map(str, args))}")
     else:
         report["state"] = "aligned"
-    return report
+    return report, entry
 
 
 # -- writing -------------------------------------------------------------------
@@ -187,9 +192,11 @@ _FILES: dict[str, tuple[Callable[[], Path], str, dict[str, Any]]] = {
 }
 
 
-def _add_command(name: str, env: dict[str, str], *, hide: bool = False) -> list[str]:
-    expected = expected_entry()
-    command, args = expected["command"], expected["args"]
+def _add_command(
+    name: str, env: dict[str, str], *, hide: bool = False, entry: dict | None = None
+) -> list[str]:
+    entry = entry or expected_entry()
+    command, args = str(entry["command"]), [str(arg) for arg in entry.get("args") or []]
     pairs = [f"{key}={'…' if hide else value}" for key, value in sorted(env.items())]
 
     def flags(flag: str) -> list[str]:
@@ -205,12 +212,15 @@ def _add_command(name: str, env: dict[str, str], *, hide: bool = False) -> list[
 
 def plan(client: Client) -> dict[str, Any]:
     """What ``apply`` would do, as lines a person can read (env values hidden)."""
-    current = state(client)
+    return _plan(client)[0]
+
+
+def _plan(client: Client) -> tuple[dict[str, Any], dict | None]:
+    current, existing = _inspect(client)
     if current["state"] == "aligned":
-        return {"client": client.name, "action": "none", "steps": []}
+        return {"client": client.name, "action": "none", "steps": []}, existing
     if current["state"] == "unreadable":
-        return {"client": client.name, "action": "manual", "steps": [current["reason"]]}
-    existing = _read(client)
+        return {"client": client.name, "action": "manual", "steps": [current["reason"]]}, None
     env = dict((existing or {}).get("env") or {})
     action = "update" if existing else "add"
     if client.kind == "cli":
@@ -219,7 +229,7 @@ def plan(client: Client) -> dict[str, Any]:
     else:
         path = _FILES[client.name][0]()
         steps = [f"write {path} (backup {path}.bak-<time>)" if path.exists() else f"create {path}"]
-    return {"client": client.name, "action": action, "steps": steps}
+    return {"client": client.name, "action": action, "steps": steps}, existing
 
 
 def _first_line(text: str) -> str:
@@ -227,8 +237,19 @@ def _first_line(text: str) -> str:
 
 
 def _run(command: list[str]) -> str | None:
-    """None on success, else the first line the command printed."""
-    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    """None on success, else the first line the command printed.
+
+    Never the command line itself: it carries the env values (API keys).
+    """
+    # The resolved path: on Windows ``claude`` is ``claude.cmd``, which CreateProcess
+    # does not find from the bare name.
+    command = [shutil.which(command[0]) or command[0], *command[1:]]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return f"{Path(command[0]).name} timed out after 60 s"
+    except OSError as exc:
+        return f"{Path(command[0]).name} could not start ({type(exc).__name__})"
     if result.returncode == 0:
         return None
     return _first_line(result.stderr) or _first_line(result.stdout) or f"exit {result.returncode}"
@@ -240,7 +261,7 @@ def _manual_line(client: Client) -> str:
 
 
 def apply(client: Client) -> dict[str, Any]:
-    steps = plan(client)
+    steps, existing = _plan(client)
     if steps["action"] == "none":
         return {"client": client.name, "ok": True, "detail": "already set up"}
     if steps["action"] == "manual":
@@ -249,7 +270,6 @@ def apply(client: Client) -> dict[str, Any]:
             "ok": False,
             "detail": f"{steps['steps'][0]}; {_manual_line(client)}",
         }
-    existing = _read(client)
     env = dict((existing or {}).get("env") or {})
     try:
         if client.kind == "cli":
@@ -258,11 +278,21 @@ def apply(client: Client) -> dict[str, Any]:
                 if error:
                     return {"client": client.name, "ok": False, "detail": error}
             error = _run(_add_command(client.name, env))
+            if error and existing:
+                # The old entry is gone and its env existed only in memory: put it back.
+                if _run(_add_command(client.name, env, entry=existing)) is None:
+                    error += "; previous registration restored"
+                else:
+                    keys = ", ".join(sorted(env)) or "no env"
+                    error += (
+                        f"; the previous registration was removed, add it again by hand ({keys})"
+                    )
             if error:
                 return {"client": client.name, "ok": False, "detail": error}
             return {"client": client.name, "ok": True, "detail": steps["action"]}
         path, key, extra = _FILES[client.name]
-        path = path()
+        # The link's target, so a dotfile symlink stays a symlink.
+        path = path().resolve()
         document = json.loads(path.read_text(encoding="utf-8") or "{}") if path.exists() else {}
         servers = document.setdefault(key, {})
         servers[SERVER] = {**extra, **expected_entry(), **({"env": env} if env else {})}
@@ -274,7 +304,14 @@ def apply(client: Client) -> dict[str, Any]:
         ) as handle:
             json.dump(document, handle, indent=2)
             handle.write("\n")
-        os.replace(handle.name, path)
+        try:
+            if path.exists():
+                shutil.copymode(path, handle.name)
+            os.replace(handle.name, path)
+        except OSError:
+            # The temp file holds the env values: never leave it next to the config.
+            os.unlink(handle.name)
+            raise
         return {"client": client.name, "ok": True, "detail": steps["action"]}
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return {"client": client.name, "ok": False, "detail": str(exc)[:300]}
