@@ -453,6 +453,16 @@ class FakeContext:
         self.closed = 0
         self.route_calls = []
         self.websocket_routes = []
+        self.handlers = []
+        page.context = self
+
+    def on(self, event, handler):
+        self.handlers.append((event, handler))
+
+    def emit_response(self, response):
+        for event, handler in self.handlers:
+            if event == "response":
+                handler(response)
 
     def route(self, pattern, handler):
         self.route_calls.append({"pattern": pattern, "handler": handler})
@@ -1053,3 +1063,61 @@ def test_camofox_without_wait_endpoint_still_reads_the_page(monkeypatch) -> None
     monkeypatch.setattr(fetchers, "_safe_urlopen", fake_urlopen)
 
     assert "old server" in _fetch_camofox("https://example.com", CrawlConfig(fetcher="camofox"))
+
+
+def _json_xhr(url):
+    return types.SimpleNamespace(
+        url=url,
+        status=200,
+        headers={"content-type": "application/json"},
+        request=types.SimpleNamespace(method="GET", resource_type="xhr", post_data=None),
+        body=lambda: b'{"items": [1]}',
+    )
+
+
+def test_capture_api_reports_endpoints_seen_during_render(monkeypatch) -> None:
+    page, _browser, _chromium = install_fake_playwright(monkeypatch)
+    page.goto = lambda url, wait_until, timeout: page.context.emit_response(
+        _json_xhr("https://example.com/api/items")
+    )
+
+    _html, metadata = fetch_source(
+        "https://example.com/",
+        CrawlConfig(fetcher="playwright", capture_api=True, network_idle=False),
+    )
+
+    [endpoint] = metadata["api_endpoints"]
+    assert endpoint["url"] == "https://example.com/api/items"
+    assert endpoint["shape"] == {"items": ["number"]}
+    assert metadata["api_truncated"] is False
+
+
+def test_late_api_calls_before_network_idle_are_kept(monkeypatch) -> None:
+    page, _browser, _chromium = install_fake_playwright(monkeypatch)
+    page.wait_for_load_state = lambda state, timeout: page.context.emit_response(
+        _json_xhr("https://example.com/api/more")
+    )
+
+    _html, metadata = fetch_source(
+        "https://example.com/", CrawlConfig(fetcher="playwright", capture_api=True)
+    )
+
+    assert [e["url"] for e in metadata["api_endpoints"]] == ["https://example.com/api/more"]
+
+
+def test_api_discovery_needs_local_browser_not_camofox() -> None:
+    config = CrawlConfig(fetcher="camofox", capture_api=True)
+    with pytest.raises(FetchError, match="api discovery") as excinfo:
+        fetch_source("https://example.com/", config)
+    assert excinfo.value.error_type == "config_error"
+
+
+def test_without_capture_api_no_api_listener(monkeypatch) -> None:
+    _page, browser, _chromium = install_fake_playwright(monkeypatch)
+
+    _html, metadata = fetch_source(
+        "https://example.com/", CrawlConfig(fetcher="playwright", network_idle=False)
+    )
+
+    assert browser.context.handlers == []
+    assert "api_endpoints" not in metadata

@@ -400,15 +400,15 @@ def page_deadline(config: CrawlConfig):
 
 def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]:
     """Fetch ``source``; browser side outputs are added to the metadata."""
-    if (config.browser_actions or config.screenshot or config.browser_session) and is_probably_url(
-        source
-    ):
+    if (
+        config.browser_actions or config.screenshot or config.browser_session or config.capture_api
+    ) and is_probably_url(source):
         if config.fetcher == "camofox" or (
             config.fetcher != "http" and config.browser_backend == "camofox"
         ):
             raise FetchError(
-                "browser_actions, browser_session and screenshots need the local "
-                "Playwright backend, not camofox.",
+                "browser_actions, browser_session, screenshots and api discovery need "
+                "the local Playwright backend, not camofox.",
                 error_type="config_error",
             )
     capture: dict[str, Any] = {}
@@ -425,6 +425,8 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
         _CAPTURE.reset(token)
     if "screenshot" in capture:
         metadata["screenshot_png_base64"] = base64.b64encode(capture["screenshot"]).decode("ascii")
+    if "api" in capture:
+        metadata["api_endpoints"], metadata["api_truncated"] = capture["api"]
     if "actions" in capture:
         metadata["browser_actions_log"] = capture["actions"]
     if capture.get("dom"):
@@ -1417,6 +1419,13 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             # Service workers can issue requests the route never sees.
             context_kwargs["service_workers"] = "block"
         context = browser.new_context(**context_kwargs)
+        api_collector = None
+        if config.capture_api and _CAPTURE.get() is not None:
+            from .api_discovery import ApiCollector
+
+            api_collector = ApiCollector(url)
+            # Context-level so calls from iframes and popups are seen too.
+            context.on("response", api_collector.on_response)
         if hasattr(context, "set_default_timeout"):
             # Every later step (iframes, shadow DOM, content) shares the budget.
             context.set_default_timeout(max(1, _budget_ms(config.timeout_ms)))
@@ -1539,6 +1548,9 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             )
             if capture is not None:
                 capture["dom"] = {k: v for k, v in dom_report.items() if v}
+        if api_collector is not None:
+            # Bodies must be read before the context closes.
+            capture["api"] = api_collector.finish(_budget_ms(config.timeout_ms))
         html = page.content()
         if config.browser_session:
             # Keep a rolling login alive: sites refresh cookies on use.
