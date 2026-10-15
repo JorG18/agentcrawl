@@ -17,7 +17,8 @@ export type Format =
   | "chunks"
   | "json"
   | "summary"
-  | "screenshot";
+  | "screenshot"
+  | "api";
 
 export type BrowserAction =
   | { type: "wait_for"; selector: string; timeout_ms?: number }

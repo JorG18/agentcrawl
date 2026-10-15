@@ -464,11 +464,17 @@ class AgentCrawl:
         local Playwright instead of silently returning a page without them.
         """
         wants_screenshot = "screenshot" in requested
-        if not (wants_screenshot or self.config.browser_actions) or "://" not in source:
+        wants_api = "api" in requested
+        if (
+            not (wants_screenshot or wants_api or self.config.browser_actions)
+            or "://" not in source
+        ):
             return self.config
         changes: dict[str, Any] = {}
         if wants_screenshot:
             changes["screenshot"] = True
+        if wants_api:
+            changes["capture_api"] = True
         if self.config.fetcher == "http":
             changes["fetcher"] = self.config.browser_backend
         return dataclasses.replace(self.config, **changes)
@@ -1383,13 +1389,16 @@ def _format_document(
     chunk_tokens: int = 400,
 ) -> dict[str, Any]:
     metadata = document.metadata
-    if "screenshot_png_base64" in metadata:
-        # The image is its own output field, not metadata to scroll past.
-        metadata = {k: v for k, v in metadata.items() if k != "screenshot_png_base64"}
+    own_fields = ("screenshot_png_base64", "api_endpoints")
+    if any(key in metadata for key in own_fields):
+        # The image and the endpoint list are their own output fields, not metadata to scroll past.
+        metadata = {k: v for k, v in metadata.items() if k not in own_fields}
     payload: dict[str, Any] = {"url": document.url, "metadata": metadata}
     for output_format in formats:
         if output_format == "screenshot":
             payload["screenshot"] = document.metadata.get("screenshot_png_base64")
+        elif output_format == "api":
+            payload["api"] = document.metadata.get("api_endpoints", [])
         elif output_format == "chunks":
             from .chunks import chunk_markdown
 

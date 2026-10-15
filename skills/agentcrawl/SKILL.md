@@ -80,6 +80,8 @@ agentcrawl scrape https://example.com/guide --query "rate limits" --max-tokens 1
 
 With MCP: `scrape_url(url, formats=["outline"])`, then `scrape_url(url, section="s4")`. The page is downloaded once and reused for 10 minutes.
 
+When you will read the same kind of page many times (listings, search results, dashboards), ask once for `--format api`: it lists the JSON endpoints the page calls, so later reads can be plain HTTP calls to that data.
+
 ## Sites and docs
 
 ```bash

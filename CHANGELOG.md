@@ -9,6 +9,7 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 ### Added
 
 - **`cdp` engine: read pages with your own Chrome.** `browser_engine="cdp"` (or `AGENTCRAWL_BROWSER_ENGINE=cdp`) attaches over the DevTools protocol to a Chrome you started with `--remote-debugging-port`, at `cdp_url` / `AGENTCRAWL_CDP_URL` (default `http://127.0.0.1:9222`). Each page gets a fresh isolated context (no profile cookies), the network guard, page budget and actions apply as usual, and closing the pool only disconnects: your Chrome keeps running. Only loopback URLs are accepted; `proxy` is refused because the attached Chrome uses its own network. No Chrome listening is a `config_error` with the command to start one.
+- **`api` format: the JSON endpoints behind a page.** `formats=["api"]` (library, API, MCP, CLI, TypeScript client) renders the page in the browser and returns `api`: the same-site XHR/fetch calls with a JSON response, deduplicated by method, path and query keys, each with `method`, `url`, `status`, `content_type`, `bytes`, `count`, `shape` and `request_shape` (types and keys only, never values). Secret-like query values are redacted. Limits: 30 endpoints (`metadata.api_truncated`), 2 MB per body (`too_large`), shape depth 6. With the default HTTP fetcher the page is fetched with the browser; camofox is a `config_error`.
 
 ### Fixed
 

@@ -116,6 +116,34 @@ def test_screenshot_is_its_own_output_field() -> None:
     assert "screenshot" not in _format_document(document, ["markdown"])
 
 
+def test_api_format_switches_http_fetch_to_browser() -> None:
+    config = AgentCrawl()._fetch_config("https://x.test/", ["api"])
+    assert config.capture_api is True and config.fetcher == "playwright"
+
+
+def test_api_format_is_its_own_field() -> None:
+    endpoint = {"method": "GET", "url": "https://x.test/api", "count": 1}
+    document = ScrapeDocument(
+        url="https://x.test/",
+        markdown="# Hi",
+        text="Hi",
+        metadata={"api_endpoints": [endpoint], "api_truncated": False},
+    )
+
+    payload = _format_document(document, ["markdown", "api"])
+
+    assert payload["api"] == [endpoint]
+    assert "api_endpoints" not in payload["metadata"]
+    assert payload["metadata"]["api_truncated"] is False
+
+
+def test_api_format_on_a_local_file_is_empty() -> None:
+    crawler = AgentCrawl()
+    assert crawler._fetch_config("page.html", ["api"]) is crawler.config
+    document = ScrapeDocument(url="page.html", markdown="", text="", metadata={})
+    assert _format_document(document, ["api"])["api"] == []
+
+
 def test_live_playwright_click_and_screenshot() -> None:
     pytest.importorskip("playwright.sync_api")
     page_html = (
