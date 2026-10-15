@@ -4,6 +4,8 @@ fetcher validation, and the engine's error_type surviving every surface."""
 from __future__ import annotations
 
 import socket
+import sys
+import types
 import ssl
 import threading
 import urllib.error
@@ -173,6 +175,8 @@ def test_browser_errors_drop_the_playwright_call_log(monkeypatch) -> None:
             'Page.goto: Timeout 1500ms exceeded.\nCall log:\n  - navigating to "https://x.test/"'
         )
 
+    # CI's unit job has no Playwright: the import check must pass for the pool to run.
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", types.SimpleNamespace())
     monkeypatch.setattr(
         fetchers, "_get_browser_pool", lambda _engine: type("P", (), {"run": fail})()
     )
