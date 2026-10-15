@@ -14,6 +14,9 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ### Fixed
 
+- **Certificate errors in the browser are `tls_error`.** Chromium reports them as `net::ERR_CERT_*`, which was classified `browser_error` (retried, with "retry once" advice) unless the URL happened to contain "ssl".
+- **Refused private or localhost targets are `config_error`**, not the retryable `fetch_error`: a crawl no longer retries a URL the SSRF guard will always refuse.
+- **Browser error messages are one line.** Playwright's `Call log:` and `Page.goto:` prefix are dropped from `error_message`.
 - **Browser errors keep their type.** The `Playwright fetch failed for <url>` wrapper dropped the `error_type` and `status_code` of the error inside it, so a configuration problem (missing extra, CloakBrowser binary) was classified from the message text instead.
 
 ### Removed
