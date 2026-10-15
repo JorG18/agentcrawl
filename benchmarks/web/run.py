@@ -37,6 +37,7 @@ def _result(page: dict[str, Any], tool: str, **fields: Any) -> Result:
         "tool": tool,
         "markdown": "",
         "error": None,
+        "page_timeout": PAGE_TIMEOUT_S,
         **fields,
     }
 
@@ -331,6 +332,7 @@ TOOLS = {
 
 
 def main(argv: list[str] | None = None) -> int:
+    global KEEP_HTML, PAGE_TIMEOUT_S
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--tool", required=True, choices=sorted(TOOLS))
     parser.add_argument("--sample", default="sample.json")
@@ -338,11 +340,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=0, help="Only the first N pages.")
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument(
+        "--page-timeout",
+        type=int,
+        default=PAGE_TIMEOUT_S,
+        help="Seconds per page, the same for every tool (each gets it as its own timeout).",
+    )
+    parser.add_argument(
         "--keep-html", action="store_true", help="AgentCrawl: store the HTML of every page."
     )
     args = parser.parse_args(argv)
-    global KEEP_HTML
     KEEP_HTML = args.keep_html
+    PAGE_TIMEOUT_S = args.page_timeout
 
     pages = json.loads(Path(args.sample).read_text("utf-8"))["pages"]
     left_out: list[dict[str, Any]] = []

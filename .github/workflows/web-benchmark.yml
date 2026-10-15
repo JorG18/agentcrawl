@@ -38,6 +38,9 @@ on:
       scrapegraph_pages:
         description: Pages sent to ScrapeGraphAI (about 2 credits each); 0 = all
         default: "50"
+      page_timeout:
+        description: Seconds per page, the same for every tool (60 = capped, 180 = "uncapped")
+        default: "60"
 
 permissions:
   contents: read
@@ -51,6 +54,7 @@ env:
   SCRAPEGRAPH_PAGES: ${{ inputs.scrapegraph_pages || '50' }}
   SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '' }}
   KEEP_HTML: ${{ inputs.keep_html || '' }}
+  PAGE_TIMEOUT: ${{ inputs.page_timeout || '60' }}
 
 jobs:
   sample:
@@ -79,8 +83,9 @@ jobs:
           python - >> "$GITHUB_OUTPUT" <<'PY'
           import json, os
           tools = [t for t in os.environ["TOOLS"].split(",") if t]
-          local = {"agentcrawl", "crawl4ai", "scrapling"}
-          print("local=" + " ".join(t for t in tools if t in local))
+          # Same rule as benchmarks/web/report.is_local: variants run locally too.
+          local = [t for t in tools if t.split("-")[0] in {"agentcrawl", "crawl4ai", "scrapling"}]
+          print("local=" + " ".join(local))
           print("hosted=" + json.dumps([t for t in tools if t not in local]))
           PY
       - uses: actions/upload-artifact@v4
@@ -96,7 +101,8 @@ jobs:
     needs: sample
     if: needs.sample.outputs.local != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # 180 s pages on 2 slots per tool run long; 350 stays under GitHub's 360 cap.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -141,7 +147,7 @@ jobs:
           pids=""
           for tool in $LOCAL; do
             ".venv-$tool/bin/python" -m benchmarks.web.run --tool "$tool" --sample sample.json \
-              --concurrency "$concurrency" $keep --out "$tool.jsonl.gz" &
+              --concurrency "$concurrency" --page-timeout "$PAGE_TIMEOUT" $keep --out "$tool.jsonl.gz" &
             pids="$pids $!"
           done
           status=0
@@ -157,7 +163,7 @@ jobs:
     needs: sample
     if: needs.sample.outputs.hosted != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
@@ -186,7 +192,7 @@ jobs:
           if [ "${{ matrix.tool }}" = "scrapegraph" ]; then limit="$SCRAPEGRAPH_PAGES"; fi
           # Stay under free-plan rate limits.
           python -m benchmarks.web.run --tool "${{ matrix.tool }}" --sample sample.json \
-            --limit "$limit" --concurrency 3 --out "${{ matrix.tool }}.jsonl.gz"
+            --limit "$limit" --concurrency 3 --page-timeout "$PAGE_TIMEOUT" --out "${{ matrix.tool }}.jsonl.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: web-${{ matrix.tool }}

@@ -105,10 +105,10 @@ def test_error_status_page_is_not_content() -> None:
 
 
 def test_local_tools_share_one_wall_clock() -> None:
-    slow = {"markdown": ARTICLE, "seconds": 61}
+    slow = {"markdown": ARTICLE, "seconds": 76}  # past the 60 s cap + 15 s grace
     assert classify({**slow, "tool": "scrapling"}) == "failed"
     assert classify({**slow, "tool": "agentcrawl"}) == "failed"
-    assert classify({**slow, "tool": "agentcrawl", "seconds": 59}) == "content"
+    assert classify({**slow, "tool": "agentcrawl", "seconds": 74}) == "content"
     # A hosted API's time includes our rate-limit waits.
     assert classify({**slow, "tool": "firecrawl"}) == "content"
 
@@ -260,3 +260,32 @@ def test_a_sitemap_url_list_is_content_not_thin() -> None:
     urls = "\n".join(f"- https://example.com/page/{n}" for n in range(6))
     assert classify({"markdown": urls}) == "content"
     assert classify({"markdown": "- https://example.com/a"}) == "thin"
+
+
+def test_cap_applies_to_every_tool_alike() -> None:
+    for tool in ("agentcrawl", "agentcrawl-stealth", "scrapling", "crawl4ai"):
+        late = {"tool": tool, "markdown": ARTICLE, "seconds": 76, "page_timeout": 60}
+        in_time = {**late, "seconds": 74}
+        assert classify(late) == "failed", tool
+        assert classify(in_time) == "content", tool
+
+
+def test_uncapped_run_keeps_slow_pages() -> None:
+    slow = {"tool": "scrapling", "markdown": ARTICLE, "seconds": 120, "page_timeout": 180}
+    assert classify(slow) == "content"
+    # Results from before the field existed were run with a 60 s cap.
+    assert classify({"tool": "scrapling", "markdown": ARTICLE, "seconds": 120}) == "failed"
+
+
+def test_variants_are_local() -> None:
+    from benchmarks.web.report import is_local
+
+    assert is_local("agentcrawl-stealth") is True
+    assert is_local("crawl4ai") is True
+    assert is_local("firecrawl") is False
+
+
+def test_hosted_time_is_not_capped_by_the_harness() -> None:
+    # Hosted seconds include our own 429 waits; the API got the cap as its timeout.
+    hosted = {"tool": "firecrawl", "markdown": ARTICLE, "seconds": 200, "page_timeout": 60}
+    assert classify(hosted) == "content"
