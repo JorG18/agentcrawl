@@ -264,3 +264,87 @@ def test_a_json_file_that_is_not_an_object_is_refused(home):
     result = apply(CLIENTS["cursor"])
     assert result["ok"] is False
     assert path.read_text() == "[]"
+
+
+# -- Task 3: CLI -----------------------------------------------------------------
+from agentcrawl.cli import main  # noqa: E402
+
+
+def _tty(monkeypatch, answers=None):
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: answers is not None)
+    replies = iter(answers or [])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(replies))
+
+
+def test_setup_without_tty_needs_yes(home, monkeypatch, capsys):
+    (home / ".cursor").mkdir()
+    _tty(monkeypatch)
+    assert main(["setup"]) == 2
+    assert not (home / ".cursor" / "mcp.json").exists()
+    assert "mcp.json" in capsys.readouterr().out
+
+
+def test_setup_yes_applies_selected_client(home, monkeypatch):
+    (home / ".cursor").mkdir()
+    _tty(monkeypatch)
+    assert main(["setup", "--client", "cursor", "--yes"]) == 0
+    assert state(CLIENTS["cursor"])["state"] == "aligned"
+
+
+def test_setup_dry_run_writes_nothing(home, monkeypatch):
+    (home / ".cursor").mkdir()
+    _tty(monkeypatch)
+    assert main(["setup", "--client", "cursor", "--dry-run"]) == 0
+    assert not (home / ".cursor" / "mcp.json").exists()
+
+
+def test_setup_tty_defaults(home, monkeypatch):
+    (home / ".cursor").mkdir()
+    vscode = home / ".config" / "Code" / "User" / "mcp.json"
+    _write(vscode, {"servers": {"agentcrawl": _stale()}})
+    _tty(monkeypatch, ["", "", "y"])  # Cursor: default No; VS Code: default Yes; apply
+
+    assert main(["setup"]) == 0
+
+    assert not (home / ".cursor" / "mcp.json").exists()
+    assert state(CLIENTS["vscode"])["state"] == "aligned"
+
+
+def test_one_failing_cli_does_not_stop_the_rest(home, monkeypatch, capsys):
+    (home / ".cursor").mkdir()
+    monkeypatch.setattr(
+        agent_setup.shutil, "which", lambda cmd: "/bin/claude" if cmd == "claude" else None
+    )
+    monkeypatch.setattr(
+        agent_setup.subprocess,
+        "run",
+        lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1, "", "Not logged in\nmore"),
+    )
+    _tty(monkeypatch)
+
+    code = main(["setup", "--client", "claude_code", "--client", "cursor", "--yes"])
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "Claude Code: add -> failed: Not logged in" in out
+    assert "Cursor: add -> ok" in out
+    assert state(CLIENTS["cursor"])["state"] == "aligned"
+
+
+def test_doctor_client_all_reports_fix(home, monkeypatch, capsys):
+    _write(home / ".cursor" / "mcp.json", {"mcpServers": {"agentcrawl": _stale()}})
+    assert main(["doctor", "--client", "all"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    [cursor] = [entry for entry in report["clients"] if entry["client"] == "cursor"]
+    assert cursor["state"] == "stale"
+    assert cursor["fix"] == "agentcrawl setup --client cursor"
+
+
+def test_setup_dry_run_hides_env_values(home, monkeypatch, capsys):
+    monkeypatch.setattr(agent_setup.shutil, "which", lambda cmd: f"/bin/{cmd}")
+    monkeypatch.setattr(agent_setup, "_read", lambda client: _stale({"AGENTCRAWL_API_KEY": "k"}))
+    _tty(monkeypatch)
+    assert main(["setup", "--client", "claude_code", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "AGENTCRAWL_API_KEY" in out
+    assert "=k" not in out
