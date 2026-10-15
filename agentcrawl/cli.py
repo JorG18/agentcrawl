@@ -239,7 +239,16 @@ def main(argv: list[str] | None = None) -> int:
     logout = sub.add_parser("logout", help="Delete a saved browser session.")
     logout.add_argument("--session", required=True)
 
-    sub.add_parser("doctor")
+    from .agent_setup import CLIENTS
+
+    doctor = sub.add_parser("doctor")
+    doctor.add_argument(
+        "--client", choices=[*CLIENTS, "all"], help="Check the MCP registration in agent clients."
+    )
+    setup = sub.add_parser("setup", help="Register the AgentCrawl MCP server in agent clients.")
+    setup.add_argument("--client", action="append", choices=list(CLIENTS))
+    setup.add_argument("--yes", action="store_true", help="Apply without asking.")
+    setup.add_argument("--dry-run", action="store_true", help="Show the plan, change nothing.")
     sub.add_parser("mcp")
 
     cache_clear = sub.add_parser("cache-clear")
@@ -280,8 +289,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("crawl --alert-on-failure requires --cmd")
 
     if args.command == "doctor":
-        print(json.dumps(_doctor(), ensure_ascii=False, indent=2))
+        report = _doctor_clients(args.client) if args.client else _doctor()
+        print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
+    if args.command == "setup":
+        return _setup(args)
     if args.command in {"login", "sessions", "logout"}:
         return _sessions_command(args, parser)
     if args.command == "backup":
@@ -498,6 +510,70 @@ def _print_token_stats(metadata: dict[str, Any]) -> None:
         print(f"  Markdown chars           : {markdown_chars:>10,}", file=sys.stderr)
     if text_chars is not None:
         print(f"  Text chars               : {text_chars:>10,}", file=sys.stderr)
+
+
+def _doctor_clients(name: str) -> dict[str, Any]:
+    from .agent_setup import CLIENTS, state
+
+    clients = CLIENTS.values() if name == "all" else [CLIENTS[name]]
+    report = []
+    for client in clients:
+        entry = state(client)
+        if entry["state"] != "aligned":
+            entry["fix"] = f"agentcrawl setup --client {client.name}"
+        report.append(entry)
+    return {"clients": report}
+
+
+def _yes(prompt: str, default: bool) -> bool:
+    answer = input(f"{prompt} {'[Y/n]' if default else '[y/N]'} ").strip().lower()
+    return answer in ("y", "yes") or (answer == "" and default)
+
+
+def _setup(args: argparse.Namespace) -> int:
+    """Exit 0 done, 1 a client failed (or none found), 2 approval missing."""
+    from .agent_setup import CLIENTS, apply, plan, state
+
+    interactive = sys.stdin.isatty() and not args.yes and not args.dry_run
+    if args.client:
+        chosen = [CLIENTS[name] for name in dict.fromkeys(args.client)]
+    else:
+        chosen = [client for client in CLIENTS.values() if state(client)["detected"]]
+        if not chosen:
+            print(
+                "No supported agent client found (Claude Code, Codex, Gemini CLI, Cursor, VS Code)."
+            )
+            print("Name one with --client, or register by hand: see INSTALL_FOR_AGENTS.md.")
+            return 1
+        if interactive:
+            # Detection is context, not permission: only an existing registration defaults to Yes.
+            picked = []
+            for client in chosen:
+                current = state(client)["state"]
+                if current == "aligned":
+                    print(f"{client.display}: already set up")
+                elif _yes(f"Register AgentCrawl in {client.display}?", current != "missing"):
+                    picked.append(client)
+            chosen = picked
+    plans = [(client, plan(client)) for client in chosen]
+    for client, steps in plans:
+        print(f"{client.display}: {steps['action']}")
+        for step in steps["steps"]:
+            print(f"  {step}")
+    todo = [(client, steps) for client, steps in plans if steps["action"] != "none"]
+    if args.dry_run or not todo:
+        return 0
+    if not args.yes and not (sys.stdin.isatty() and _yes("Apply these changes?", False)):
+        print("Nothing changed. Run again with --yes to apply.")
+        return 2
+    failed = False
+    for client, steps in todo:
+        result = apply(client)
+        failed |= not result["ok"]
+        outcome = "ok" if result["ok"] else f"failed: {result['detail']}"
+        print(f"{client.display}: {steps['action']} -> {outcome}")
+    print("Restart the changed clients so they load AgentCrawl.")
+    return 1 if failed else 0
 
 
 def _doctor() -> dict[str, Any]:

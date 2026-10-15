@@ -37,9 +37,11 @@ Hacker News, Django docs, a JavaScript-rendered page) by the
 
 ```bash
 python -m pip install "agentcrawl-ai[mcp]"
-agentcrawl doctor
-agentcrawl mcp
+agentcrawl setup                 # registers the MCP server in Claude Code, Codex, Gemini CLI, Cursor, VS Code
+agentcrawl doctor --client all   # aligned / stale / missing per client
 ```
+
+`setup` shows the exact change for each client and asks before applying it (`--yes` to skip the question, `--dry-run` to only look). Claude Code, Codex and Gemini CLI are changed through their own `mcp add` command; Cursor and VS Code get a JSON write with a backup next to the file. Other clients: register `python -m agentcrawl mcp` by hand.
 
 By default the MCP exposes the core tools an agent needs: `scrape_url`, `scrape_many`, `map_site`, `crawl_site` and `extract_structured`, plus `search_web` when a search engine is configured. Set `AGENTCRAWL_MCP_PROFILE=full` for the operator tools (job history, cancellation, failure inspection, retries, usage, cache, change checks). Coding agents should follow [INSTALL_FOR_AGENTS.md](INSTALL_FOR_AGENTS.md).
 

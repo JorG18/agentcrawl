@@ -48,7 +48,14 @@ pipx inject agentcrawl-ai patchright && python3 -m patchright install chromium
 
 ### MCP (preferred when the client supports it)
 
-Register the stdio server in your own client config, keeping every other server as it is:
+For Claude Code, Codex, Gemini CLI, Cursor or VS Code, one command registers it (it asks first; `--yes` applies):
+
+```bash
+agentcrawl setup --client claude_code
+agentcrawl doctor --client all        # when the tools do not show up: aligned / stale / missing
+```
+
+For other clients, register the stdio server in your own client config, keeping every other server as it is:
 
 ```json
 { "mcpServers": { "agentcrawl": { "command": "agentcrawl", "args": ["mcp"] } } }

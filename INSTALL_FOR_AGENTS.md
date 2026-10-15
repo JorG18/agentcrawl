@@ -61,6 +61,15 @@ AgentCrawl returns `error_type: "client_challenge"` with the signals it saw in
 
 ## 3. Register The MCP Server
 
+For Claude Code, Codex, Gemini CLI, Cursor or VS Code, register it with one command, naming your own client (`claude_code`, `codex`, `gemini_cli`, `cursor`, `vscode`):
+
+```bash
+agentcrawl setup --client claude_code --yes
+agentcrawl doctor --client claude_code   # "state": "aligned" means done
+```
+
+It goes through the client's own `mcp add` command (Claude Code, Codex, Gemini CLI) or writes its JSON file with a backup (Cursor, VS Code); other servers and settings are kept, and an existing `agentcrawl` entry keeps its `env`. A config file with comments is refused, never overwritten: add the printed line by hand. Run without `--yes` to only print the plan. For any other client, register it by hand as below.
+
 Current stdio launcher:
 
 ```text
