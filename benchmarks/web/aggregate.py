@@ -105,11 +105,14 @@ def markdown(summary: dict[str, Any]) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
-        "--run", action="append", required=True, help="A run's folder of *.jsonl.gz results."
+        "--run",
+        action="append",
+        required=True,
+        help="A run's folder of *.jsonl.gz results (searched recursively).",
     )
     parser.add_argument("--out", help="Write the summary as JSON here.")
     args = parser.parse_args(argv)
-    runs = [load(sorted(str(p) for p in Path(folder).glob("*.jsonl.gz"))) for folder in args.run]
+    runs = [load(sorted(str(p) for p in Path(folder).rglob("*.jsonl.gz"))) for folder in args.run]
     summary = pooled(runs)
     if args.out:
         Path(args.out).write_text(json.dumps(summary, indent=2) + "\n", "utf-8")

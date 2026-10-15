@@ -334,3 +334,19 @@ def test_tie_is_written_as_a_tie() -> None:
     run = _run({"a": {"x": True, "y": False}, "b": {"x": False, "y": True}})
     text = markdown(pooled([run]))
     assert "tie within noise" in text
+
+
+def test_cli_reads_results_from_downloaded_artifact_folders(tmp_path, capsys) -> None:
+    # `gh run download -p "web-*"` writes one subfolder per artifact.
+    import gzip
+    import json
+
+    from benchmarks.web.aggregate import main
+
+    (tmp_path / "web-local").mkdir()
+    row = {"tool": "agentcrawl", "id": "x", "markdown": ARTICLE}
+    with gzip.open(tmp_path / "web-local" / "agentcrawl.jsonl.gz", "wt") as f:
+        f.write(json.dumps(row) + "\n")
+
+    assert main(["--run", str(tmp_path)]) == 0
+    assert "| agentcrawl | 1 | 1 |" in capsys.readouterr().out
