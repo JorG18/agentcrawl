@@ -109,3 +109,158 @@ def test_codex_reads_through_its_cli(home, monkeypatch):
 
 def test_not_detected_without_cli_or_dir(home):
     assert all(state(client)["detected"] is False for client in CLIENTS.values())
+
+
+# -- Task 2: apply -------------------------------------------------------------
+from agentcrawl.agent_setup import apply, plan  # noqa: E402
+
+
+def _stale(env=None):
+    entry = {"command": "agentcrawl", "args": ["mcp"]}
+    return {**entry, "env": env} if env else entry
+
+
+def test_apply_cursor_adds_and_keeps_other_servers(home):
+    path = home / ".cursor" / "mcp.json"
+    _write(path, {"mcpServers": {"other": {"command": "x"}}, "theme": 1})
+
+    result = apply(CLIENTS["cursor"])
+
+    assert result["ok"] is True
+    document = json.loads(path.read_text())
+    assert document["mcpServers"]["other"] == {"command": "x"}
+    assert document["theme"] == 1
+    assert document["mcpServers"]["agentcrawl"] == EXPECTED
+    [backup] = list(path.parent.glob("mcp.json.bak-*"))
+    assert json.loads(backup.read_text())["mcpServers"] == {"other": {"command": "x"}}
+    assert state(CLIENTS["cursor"])["state"] == "aligned"
+
+
+def test_apply_vscode_writes_type_stdio(home):
+    (home / ".config" / "Code" / "User").mkdir(parents=True)
+    assert apply(CLIENTS["vscode"])["ok"] is True
+    path = home / ".config" / "Code" / "User" / "mcp.json"
+    assert json.loads(path.read_text()) == {
+        "servers": {"agentcrawl": {"type": "stdio", **EXPECTED}}
+    }
+
+
+def test_jsonc_file_is_refused_untouched(home):
+    path = home / ".cursor" / "mcp.json"
+    _write(path, '// mine\n{"mcpServers": {}}')
+    before = path.read_bytes()
+
+    result = apply(CLIENTS["cursor"])
+
+    assert result["ok"] is False
+    assert str(path) in result["detail"] and "agentcrawl" in result["detail"]
+    assert path.read_bytes() == before
+    assert not list(path.parent.glob("mcp.json.bak-*"))
+
+
+def test_update_keeps_existing_env(home):
+    path = home / ".cursor" / "mcp.json"
+    _write(path, {"mcpServers": {"agentcrawl": _stale({"AGENTCRAWL_API_KEY": "k"})}})
+    assert apply(CLIENTS["cursor"])["ok"] is True
+    entry = json.loads(path.read_text())["mcpServers"]["agentcrawl"]
+    assert entry == {**EXPECTED, "env": {"AGENTCRAWL_API_KEY": "k"}}
+
+
+@pytest.mark.parametrize(
+    ("name", "remove", "add"),
+    [
+        (
+            "claude_code",
+            ["claude", "mcp", "remove", "-s", "user", "agentcrawl"],
+            [
+                "claude",
+                "mcp",
+                "add",
+                "-s",
+                "user",
+                "agentcrawl",
+                "-e",
+                "AGENTCRAWL_API_KEY=k",
+                "--",
+                sys.executable,
+                "-m",
+                "agentcrawl",
+                "mcp",
+            ],
+        ),
+        (
+            "gemini_cli",
+            ["gemini", "mcp", "remove", "-s", "user", "agentcrawl"],
+            [
+                "gemini",
+                "mcp",
+                "add",
+                "-s",
+                "user",
+                "-e",
+                "AGENTCRAWL_API_KEY=k",
+                "agentcrawl",
+                sys.executable,
+                "--",
+                "-m",
+                "agentcrawl",
+                "mcp",
+            ],
+        ),
+        (
+            "codex",
+            ["codex", "mcp", "remove", "agentcrawl"],
+            [
+                "codex",
+                "mcp",
+                "add",
+                "agentcrawl",
+                "--env",
+                "AGENTCRAWL_API_KEY=k",
+                "--",
+                sys.executable,
+                "-m",
+                "agentcrawl",
+                "mcp",
+            ],
+        ),
+    ],
+)
+def test_cli_update_removes_then_adds_with_env(home, monkeypatch, name, remove, add):
+    monkeypatch.setattr(agent_setup.shutil, "which", lambda cmd: f"/bin/{cmd}")
+    calls = []
+
+    def run(cmd, **_kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(agent_setup.subprocess, "run", run)
+    monkeypatch.setattr(agent_setup, "_read", lambda client: _stale({"AGENTCRAWL_API_KEY": "k"}))
+
+    assert apply(CLIENTS[name])["ok"] is True
+    assert calls == [remove, add]
+
+
+def test_aligned_client_is_left_alone(home):
+    path = home / ".cursor" / "mcp.json"
+    _write(path, {"mcpServers": {"agentcrawl": EXPECTED}})
+    mtime = path.stat().st_mtime_ns
+    assert plan(CLIENTS["cursor"])["action"] == "none"
+    assert apply(CLIENTS["cursor"])["ok"] is True
+    assert path.stat().st_mtime_ns == mtime
+
+
+def test_plan_never_shows_env_values(home, monkeypatch):
+    monkeypatch.setattr(agent_setup.shutil, "which", lambda cmd: f"/bin/{cmd}")
+    monkeypatch.setattr(agent_setup, "_read", lambda client: _stale({"AGENTCRAWL_API_KEY": "k"}))
+    steps = "\n".join(plan(CLIENTS["claude_code"])["steps"])
+    assert "AGENTCRAWL_API_KEY" in steps
+    assert "=k" not in steps
+
+
+def test_a_json_file_that_is_not_an_object_is_refused(home):
+    path = home / ".cursor" / "mcp.json"
+    _write(path, "[]")
+    result = apply(CLIENTS["cursor"])
+    assert result["ok"] is False
+    assert path.read_text() == "[]"
