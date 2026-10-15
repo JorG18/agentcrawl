@@ -77,6 +77,7 @@ def test_infrastructure_and_adult_domains_are_not_sampled() -> None:
     assert not is_candidate("d1.cloudfront.net")
     assert not is_candidate("xvideos.com")
     assert not is_candidate("javhd.today")
+    assert not is_candidate("redtube.com")  # slipped into the 2026-10-15 corpus draw
     assert is_candidate("wikipedia.org")
 
 

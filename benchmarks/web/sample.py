@@ -76,6 +76,9 @@ _NOT_A_SITE = (
 )
 _ADULT = (
     "porn",
+    "redtube",
+    "youjizz",
+    "tube8",
     "xxx",
     "xvideos",
     "xhamster",

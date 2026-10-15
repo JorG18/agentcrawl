@@ -175,3 +175,11 @@ def test_missing_tiktoken_says_na(monkeypatch) -> None:
         assert "tokens (o200k)" in table and "| n/a |" in table
     finally:
         compare._encoder.cache_clear()
+
+
+def test_draw_uses_the_sampler_domain_filter() -> None:
+    from benchmarks import draw_neutral
+
+    assert draw_neutral.why_not(
+        {"url": "https://www.redtube.com/1", "kind": "inner"}, set(), {}
+    ) == ("adult or not a site")

@@ -29,9 +29,13 @@ from pathlib import Path
 from agentcrawl.challenge import detect_challenge
 
 from .snapshot import DEFAULT_MANIFEST, USER_AGENT, fetch
+from .web.sample import is_candidate
 
 MIN_TEXT_CHARS = 1_500
 MAX_PER_DOMAIN = 3
+# Per page kind, so the hard block (news, product, forum, government) is not crowded out
+# by the inner pages the sample lists first.
+MAX_PER_KIND = 6
 
 
 class _VisibleText(HTMLParser):
@@ -81,6 +85,8 @@ def why_not(page: dict, known_urls: set[str], per_domain: dict[str, int]) -> str
     if url in known_urls:
         return "already in corpus"
     domain = urllib.parse.urlsplit(url).hostname or ""
+    if not is_candidate(domain.removeprefix("www.")):
+        return "adult or not a site"
     if per_domain.get(domain, 0) >= MAX_PER_DOMAIN:
         return "domain full"
     if not _robots_allow(url):
@@ -117,6 +123,10 @@ def main(argv: list[str] | None = None) -> int:
     for page in sample["pages"]:
         if len(added) >= args.want:
             break
+        kind = page.get("kind", "inner")
+        if sum(1 for entry in added if entry["category"] == kind) >= MAX_PER_KIND:
+            reasons["kind full"] = reasons.get("kind full", 0) + 1
+            continue
         reason = why_not(page, known, per_domain)
         if reason:
             reasons[reason.split(":")[0]] = reasons.get(reason.split(":")[0], 0) + 1

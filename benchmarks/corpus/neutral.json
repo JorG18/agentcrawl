@@ -2,17 +2,415 @@
   "version": 1,
   "description": "Neutral Community corpus: accessible public pages, no login, no anti-bot. Signals were written from each snapshot's HTML (article sentences from the start, middle and end, tables, code; site chrome as excluded), then checked so a miss is a real miss and not a formatting difference.",
   "pages": [
-    {"id": "python-json", "category": "documentation", "url": "https://docs.python.org/3/library/json.html", "expected": ["is a lightweight data interchange format inspired by JavaScript object literal syntax", "If the data being deserialized is not a valid JSON document, a JSONDecodeError will be raised.", "The json.tool submodule implements this interface.", "json.dumps(['foo', {'bar': ('baz', None, 1.0, 2)}])", "| JSON", "```"], "excluded": ["Report a bug", "Show source", "Previous topic"]},
-    {"id": "fastapi-first-steps", "category": "documentation", "url": "https://fastapi.tiangolo.com/tutorial/first-steps/", "expected": ["Here the app variable will be an \"instance\" of the class FastAPI.", "Follow your cloud provider's guides to deploy FastAPI apps with them.", "You can return a dict, list, singular values as str, int, etc.", "```"], "excluded": ["Made with Zensical", "Subscribe to the FastAPI and friends newsletter", "The FastAPI trademark is owned by"]},
-    {"id": "mdn-using-fetch", "category": "documentation", "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch", "expected": ["The Fetch API provides a JavaScript interface for making HTTP requests and processing the responses.", "The Request() constructor takes the same arguments as fetch() itself.", "The promise returned by fetch() will reject on some errors", "```js"], "excluded": ["Your blueprint for a better internet.", "Mozilla careers", "Advertise with us"]},
-    {"id": "rust-book-installation", "category": "documentation", "url": "https://doc.rust-lang.org/book/ch01-01-installation.html", "expected": ["The first step is to install Rust.", "To check whether you have Rust installed correctly, open a shell and enter this line:", "rustup self uninstall", "curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh", "```console"], "excluded": []},
-    {"id": "github-rest-repos", "category": "api_reference", "url": "https://docs.github.com/en/rest/repos/repos", "expected": ["In order to see the security_and_analysis block for a repository you must have admin permissions", "The page number of the results to fetch.", "| Status code", "| Name, Type, Description"], "excluded": ["Help us make GitHub Docs great!", "All Docs are open source.", "Expert services"]},
-    {"id": "rfc9110", "category": "reference", "url": "https://www.rfc-editor.org/rfc/rfc9110.html", "expected": ["The Hypertext Transfer Protocol (HTTP) is a stateless application-level protocol for distributed, collaborative, hypertext information systems.", "HTTP does not restrict applications to this simple challenge-response framework for access authentication.", "This is an Internet Standards Track document.", "Roy T. Fielding"], "excluded": []},
-    {"id": "pep-8", "category": "reference", "url": "https://peps.python.org/pep-0008/", "expected": ["This document gives coding conventions for the Python code comprising the standard library in the main Python distribution.", "Names that are visible to the user as public parts of the API should follow conventions that reflect usage rather than implementation.", "PEP 526 introduced variable annotations.", "# Aligned with opening delimiter.", "```"], "excluded": ["Page Source (GitHub)"]},
-    {"id": "postgres-select", "category": "reference", "url": "https://www.postgresql.org/docs/current/sql-select.html", "expected": ["SELECT retrieves rows from zero or more tables.", "If SELECT DISTINCT is specified, all duplicate rows are removed from the result set", "DISTINCT ON ( ... ) is an extension of the SQL standard.", "TABLESAMPLE sampling_method", "```"], "excluded": ["Code of Conduct", "About PostgreSQL", "Your account"]},
-    {"id": "sqlite-select", "category": "reference", "url": "https://www.sqlite.org/lang_select.html", "expected": ["The SELECT statement is used to query the database.", "This special processing for min() or max() aggregates only works for the built-in implementation of those aggregates.", "SELECT a, b, sum(c) FROM tab1 GROUP BY a;", "```"], "excluded": ["Purchase"]},
-    {"id": "wikipedia-web-crawler", "category": "article", "url": "https://en.wikipedia.org/wiki/Web_crawler", "expected": ["A web crawler, sometimes called a spider or spiderbot and often shortened to crawler, is an Internet bot that systematically browses the World Wide Web", "Freshness: This is a binary measure that indicates whether the local copy is accurate or not.", "In some cases, such as the Googlebot, web crawling is done on all text contained inside the hypertext content, tags, or text.", "The following is a list of published crawler architectures for general-purpose crawlers"], "excluded": ["Jump to content", "Privacy policy", "This page was last edited on", "Main menu"]},
-    {"id": "go-blog-errors-are-values", "category": "blog", "url": "https://go.dev/blog/errors-are-values", "expected": ["A common point of discussion among Go programmers, especially those new to the language, is how to handle errors.", "I defined an object called an errWriter", "type errWriter struct", "```"], "excluded": ["go.dev uses cookies from Google", "Terms of Service", "Golang Weekly"]},
-    {"id": "books-toscrape-product", "category": "ecommerce", "url": "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html", "expected": ["A Light in the Attic", "£51.77", "In stock (22 available)", "It's hard to imagine a world without A Light in the Attic", "| UPC", "| Price (incl. tax)"], "excluded": ["We love being scraped!"]}
+    {
+      "id": "python-json",
+      "category": "documentation",
+      "url": "https://docs.python.org/3/library/json.html",
+      "expected": [
+        "is a lightweight data interchange format inspired by JavaScript object literal syntax",
+        "If the data being deserialized is not a valid JSON document, a JSONDecodeError will be raised.",
+        "The json.tool submodule implements this interface.",
+        "json.dumps(['foo', {'bar': ('baz', None, 1.0, 2)}])",
+        "| JSON",
+        "```"
+      ],
+      "excluded": [
+        "Report a bug",
+        "Show source",
+        "Previous topic"
+      ]
+    },
+    {
+      "id": "fastapi-first-steps",
+      "category": "documentation",
+      "url": "https://fastapi.tiangolo.com/tutorial/first-steps/",
+      "expected": [
+        "Here the app variable will be an \"instance\" of the class FastAPI.",
+        "Follow your cloud provider's guides to deploy FastAPI apps with them.",
+        "You can return a dict, list, singular values as str, int, etc.",
+        "```"
+      ],
+      "excluded": [
+        "Made with Zensical",
+        "Subscribe to the FastAPI and friends newsletter",
+        "The FastAPI trademark is owned by"
+      ]
+    },
+    {
+      "id": "mdn-using-fetch",
+      "category": "documentation",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch",
+      "expected": [
+        "The Fetch API provides a JavaScript interface for making HTTP requests and processing the responses.",
+        "The Request() constructor takes the same arguments as fetch() itself.",
+        "The promise returned by fetch() will reject on some errors",
+        "```js"
+      ],
+      "excluded": [
+        "Your blueprint for a better internet.",
+        "Mozilla careers",
+        "Advertise with us"
+      ]
+    },
+    {
+      "id": "rust-book-installation",
+      "category": "documentation",
+      "url": "https://doc.rust-lang.org/book/ch01-01-installation.html",
+      "expected": [
+        "The first step is to install Rust.",
+        "To check whether you have Rust installed correctly, open a shell and enter this line:",
+        "rustup self uninstall",
+        "curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh",
+        "```console"
+      ],
+      "excluded": []
+    },
+    {
+      "id": "github-rest-repos",
+      "category": "api_reference",
+      "url": "https://docs.github.com/en/rest/repos/repos",
+      "expected": [
+        "In order to see the security_and_analysis block for a repository you must have admin permissions",
+        "The page number of the results to fetch.",
+        "| Status code",
+        "| Name, Type, Description"
+      ],
+      "excluded": [
+        "Help us make GitHub Docs great!",
+        "All Docs are open source.",
+        "Expert services"
+      ]
+    },
+    {
+      "id": "rfc9110",
+      "category": "reference",
+      "url": "https://www.rfc-editor.org/rfc/rfc9110.html",
+      "expected": [
+        "The Hypertext Transfer Protocol (HTTP) is a stateless application-level protocol for distributed, collaborative, hypertext information systems.",
+        "HTTP does not restrict applications to this simple challenge-response framework for access authentication.",
+        "This is an Internet Standards Track document.",
+        "Roy T. Fielding"
+      ],
+      "excluded": []
+    },
+    {
+      "id": "pep-8",
+      "category": "reference",
+      "url": "https://peps.python.org/pep-0008/",
+      "expected": [
+        "This document gives coding conventions for the Python code comprising the standard library in the main Python distribution.",
+        "Names that are visible to the user as public parts of the API should follow conventions that reflect usage rather than implementation.",
+        "PEP 526 introduced variable annotations.",
+        "# Aligned with opening delimiter.",
+        "```"
+      ],
+      "excluded": [
+        "Page Source (GitHub)"
+      ]
+    },
+    {
+      "id": "postgres-select",
+      "category": "reference",
+      "url": "https://www.postgresql.org/docs/current/sql-select.html",
+      "expected": [
+        "SELECT retrieves rows from zero or more tables.",
+        "If SELECT DISTINCT is specified, all duplicate rows are removed from the result set",
+        "DISTINCT ON ( ... ) is an extension of the SQL standard.",
+        "TABLESAMPLE sampling_method",
+        "```"
+      ],
+      "excluded": [
+        "Code of Conduct",
+        "About PostgreSQL",
+        "Your account"
+      ]
+    },
+    {
+      "id": "sqlite-select",
+      "category": "reference",
+      "url": "https://www.sqlite.org/lang_select.html",
+      "expected": [
+        "The SELECT statement is used to query the database.",
+        "This special processing for min() or max() aggregates only works for the built-in implementation of those aggregates.",
+        "SELECT a, b, sum(c) FROM tab1 GROUP BY a;",
+        "```"
+      ],
+      "excluded": [
+        "Purchase"
+      ]
+    },
+    {
+      "id": "wikipedia-web-crawler",
+      "category": "article",
+      "url": "https://en.wikipedia.org/wiki/Web_crawler",
+      "expected": [
+        "A web crawler, sometimes called a spider or spiderbot and often shortened to crawler, is an Internet bot that systematically browses the World Wide Web",
+        "Freshness: This is a binary measure that indicates whether the local copy is accurate or not.",
+        "In some cases, such as the Googlebot, web crawling is done on all text contained inside the hypertext content, tags, or text.",
+        "The following is a list of published crawler architectures for general-purpose crawlers"
+      ],
+      "excluded": [
+        "Jump to content",
+        "Privacy policy",
+        "This page was last edited on",
+        "Main menu"
+      ]
+    },
+    {
+      "id": "go-blog-errors-are-values",
+      "category": "blog",
+      "url": "https://go.dev/blog/errors-are-values",
+      "expected": [
+        "A common point of discussion among Go programmers, especially those new to the language, is how to handle errors.",
+        "I defined an object called an errWriter",
+        "type errWriter struct",
+        "```"
+      ],
+      "excluded": [
+        "go.dev uses cookies from Google",
+        "Terms of Service",
+        "Golang Weekly"
+      ]
+    },
+    {
+      "id": "books-toscrape-product",
+      "category": "ecommerce",
+      "url": "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
+      "expected": [
+        "A Light in the Attic",
+        "£51.77",
+        "In stock (22 available)",
+        "It's hard to imagine a world without A Light in the Attic",
+        "| UPC",
+        "| Price (incl. tax)"
+      ],
+      "excluded": [
+        "We love being scraped!"
+      ]
+    },
+    {
+      "id": "drawn-01",
+      "category": "inner",
+      "url": "https://www.corriere.it/salute/dizionario/mielofibrosi/",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-02",
+      "category": "inner",
+      "url": "https://home.pl/uslugi-dla-ecommerce/",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-03",
+      "category": "inner",
+      "url": "https://www.intentiq.com/tag/digital-identity-graph/",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-04",
+      "category": "inner",
+      "url": "https://www.priceline.com/hotel-deals/en-us/P3000010477/hotels-in-walled-lake.ssp",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-05",
+      "category": "inner",
+      "url": "https://www.hurriyet.com.tr/aile/ergenlik-doneminde-yapilan-yanlis-diyetlere-dikkat-41658879",
+      "source": "common_crawl",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-06",
+      "category": "inner",
+      "url": "https://www.meinbezirk.at/c-lokales/die-wichtigsten-nachrichten-des-tages_a4691501",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-07",
+      "category": "product",
+      "url": "https://www.opera.com/it/products/apex-football",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-08",
+      "category": "product",
+      "url": "https://www.au.com/mobile/product/plus-one/galaxy-buds3-fe/",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-09",
+      "category": "product",
+      "url": "https://www.ordnancesurvey.co.uk/products/os-open-toid",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-10",
+      "category": "product",
+      "url": "https://www.gap.com/shop/everyday-bralette-0abz06a",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-11",
+      "category": "product",
+      "url": "https://www.zales.com/previously-owned-1-ct-tw-diamond-engagement-ring-14k-white-gold/p/V-32627161",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-12",
+      "category": "product",
+      "url": "https://xtime.com/resources/product/flexpay/",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-13",
+      "category": "news",
+      "url": "https://www.panmacmillan.com/news/alpana-sajip-joins-picador-from-viking",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-14",
+      "category": "news",
+      "url": "https://www.bl.uk/stories/news/electronic-legal-deposit-material-available",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-15",
+      "category": "news",
+      "url": "https://www.vtbreg.ru/news/bank-rossii-vvel-markirovku-tsennykh-bumag-s-nedostatochnym-raskrytiem-informatsii/",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-16",
+      "category": "news",
+      "url": "https://www.gov.mo/zh-hant/news/323550/",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-17",
+      "category": "news",
+      "url": "https://www.jcat.ru/realty/news/603/",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-18",
+      "category": "forum",
+      "url": "https://www.goodreads.com/questions/1372109-i-just-finished-the-secret-book-and-scone",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-19",
+      "category": "forum",
+      "url": "https://playzen.io/t/io",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-20",
+      "category": "forum",
+      "url": "https://www.xrite.com/ko-kr/service-support/downloads/t/toolcrib_v5014",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-21",
+      "category": "government",
+      "url": "https://www.gov.si/zbirke/javne-objave/razvojno-raziskovalni-projekt-ovrednotenje-in-ocena-prehrane-na-mors-provoc-220531142004/",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-22",
+      "category": "government",
+      "url": "https://www.police.gov.sg/media-hub/news/2025/02/20250205_two_men_arrested_for_voluntarily_causing_grievous_hurt",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-23",
+      "category": "government",
+      "url": "https://www.dnp.gov.co:443/publicaciones/Planeacion/Paginas/hacia-una-colombia-que-cuida-dignidad-florezca-conpes-4143-politica-nacional-cuidado.aspx",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-24",
+      "category": "government",
+      "url": "https://www.pm.gov.au/media/backing-our-metals-manufacturers",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-25",
+      "category": "government",
+      "url": "https://gdrfad.gov.ae/ar/contracts",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    },
+    {
+      "id": "drawn-26",
+      "category": "government",
+      "url": "https://www.gov.uk/government/publications/school-music-development-plan-summary-template",
+      "source": "sitemap",
+      "expected": [],
+      "excluded": []
+    }
+  ],
+  "draws": [
+    {
+      "seed": 20261015,
+      "sample_size": 142,
+      "kept": 26,
+      "rejected": {
+        "homepage or pdf": 65,
+        "thin": 7,
+        "robots.txt": 16,
+        "adult or not a site": 3,
+        "status 200 or not html": 3,
+        "kind full": 20,
+        "fetch": 2
+      }
+    }
   ]
 }
