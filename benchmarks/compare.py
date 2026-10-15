@@ -18,8 +18,9 @@ Per fixture and tool it measures:
   code", so it is its own column instead of hiding inside structure recall;
 - **noise leakage** — share of known boilerplate strings that leaked through
   (navigation, promos, cookie banners, hidden duplicates);
-- **tokens** — ``estimate_tokens`` of the output (lower is better only when
-  recall holds);
+- **tokens** — ``estimate_tokens`` of the output (characters / 4) and, when
+  ``tiktoken`` is installed, the count of a real tokenizer (``o200k_base``);
+  lower is better only when recall holds;
 - **latency** — wall time of the extraction call (browser start-up excluded).
 
 Matching is case-sensitive substring search after collapsing whitespace. Text
@@ -53,6 +54,7 @@ import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Callable
@@ -74,9 +76,29 @@ class Row:
     leakage: float
     tokens: int
     latency_ms: float
+    real_tokens: int | None = None
     missing: list[str] = field(default_factory=list)
     leaked: list[str] = field(default_factory=list)
     error: str | None = None
+
+
+@lru_cache(maxsize=1)
+def _encoder():
+    try:
+        import tiktoken
+    except ImportError:
+        return None
+    return tiktoken.get_encoding("o200k_base")
+
+
+def count_real_tokens(text: str) -> int | None:
+    """Tokens of a real tokenizer (tiktoken ``o200k_base``); None without tiktoken.
+
+    ``estimate_tokens`` is characters / 4, which is what agents budget with but
+    not what a model counts; both are reported, named.
+    """
+    encoder = _encoder()
+    return None if encoder is None else len(encoder.encode(text, disallowed_special=()))
 
 
 def _norm(text: str) -> str:
@@ -266,6 +288,7 @@ def score(
         fence_language=fence_language,
         leakage=len(leaked) / len(excluded) if excluded else 0.0,
         tokens=estimate_tokens(markdown),
+        real_tokens=count_real_tokens(markdown),
         latency_ms=latency_ms,
         missing=missing,
         leaked=leaked,
@@ -405,6 +428,11 @@ def summarize(rows: list[Row]) -> list[dict[str, object]]:
                     and row.leakage == 0.0
                 ),
                 "total_tokens": sum(row.tokens for row in mine),
+                "total_real_tokens": (
+                    None
+                    if any(row.real_tokens is None for row in mine)
+                    else sum(row.real_tokens for row in mine)
+                ),
                 "median_latency_ms": round(statistics.median(row.latency_ms for row in mine), 1),
                 "errors": sum(1 for row in mine if row.error),
             }
@@ -420,7 +448,8 @@ def _markdown_table(summary: list[dict[str, object]]) -> str:
         "fence language",
         "noise leakage",
         "clean passes",
-        "total tokens",
+        "total tokens (chars/4)",
+        "tokens (o200k)",
         "median ms",
         "errors",
     ]
@@ -440,6 +469,9 @@ def _markdown_table(summary: list[dict[str, object]]) -> str:
                     f"{item['noise_leakage']:.1%}",
                     f"{item['clean_passes']}/{item['fixtures']}",
                     f"{item['total_tokens']:,}",
+                    "n/a"
+                    if item.get("total_real_tokens") is None
+                    else f"{item['total_real_tokens']:,}",
                     item["median_latency_ms"],
                     item["errors"],
                 )

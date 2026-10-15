@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from benchmarks.compare import ADAPTERS, main, score, summarize
 
 
@@ -139,3 +141,37 @@ def test_changed_snapshot_is_left_out(tmp_path) -> None:
 
     assert [p.name for p in pages] == ["same"]
     assert unscored["moved"] == "snapshot changed: moved"
+
+
+def test_real_tokens_use_o200k() -> None:
+    tiktoken = pytest.importorskip("tiktoken")
+    from benchmarks.compare import count_real_tokens
+
+    expected = len(tiktoken.get_encoding("o200k_base").encode("hello world"))
+    assert count_real_tokens("hello world") == expected
+
+
+def test_missing_tiktoken_says_na(monkeypatch) -> None:
+    import builtins
+
+    from benchmarks import compare
+
+    real_import = builtins.__import__
+
+    def no_tiktoken(name, *args, **kwargs):
+        if name == "tiktoken":
+            raise ImportError("no tiktoken")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_tiktoken)
+    compare._encoder.cache_clear()
+    try:
+        assert compare.count_real_tokens("hello") is None
+        row = {"tool": "t", "fixtures": 1, "text_recall": 1.0, "structure_recall": None,
+               "fence_language": None, "noise_leakage": 0.0, "clean_passes": 1,
+               "total_tokens": 2, "total_real_tokens": None, "median_latency_ms": 1.0,
+               "errors": 0}  # fmt: skip
+        table = compare._markdown_table([row])
+        assert "tokens (o200k)" in table and "| n/a |" in table
+    finally:
+        compare._encoder.cache_clear()
