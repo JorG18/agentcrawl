@@ -443,6 +443,13 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     if metadata.get("fetcher") in {"playwright", "camofox"}:
         if isinstance(capture.get("status"), int):
             metadata["browser_status"] = capture["status"]
+            if capture["status"] in (404, 410):
+                # Same answer as the HTTP path: the site's "Page not found" is not content.
+                raise FetchError(
+                    f"HTTP {capture['status']} for {source} (read in the browser)",
+                    error_type="not_found",
+                    status_code=capture["status"],
+                )
         for key in (
             "challenge_waited_ms",
             "challenge_clicks",

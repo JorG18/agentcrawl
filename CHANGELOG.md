@@ -14,6 +14,7 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ### Fixed
 
+- **A missing page read in the browser is `not_found`.** With a browser fetcher, a 404 or 410 came back as a successful page holding the site's "Page not found" text. It now fails like the HTTP path: `error_type="not_found"`, `status_code` 404/410, `coverage.status="failed"`.
 - **Certificate errors in the browser are `tls_error`.** Chromium reports them as `net::ERR_CERT_*`, which was classified `browser_error` (retried, with "retry once" advice) unless the URL happened to contain "ssl".
 - **Refused private or localhost targets are `config_error`**, not the retryable `fetch_error`: a crawl no longer retries a URL the SSRF guard will always refuse.
 - **Browser error messages are one line.** Playwright's `Call log:` and `Page.goto:` prefix are dropped from `error_message`.
