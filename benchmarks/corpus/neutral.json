@@ -18,7 +18,8 @@
         "Report a bug",
         "Show source",
         "Previous topic"
-      ]
+      ],
+      "snapshot_sha256": "8036af4c1beec25ad52bf966d19883c081e181cc6b9d58ceabb37547f06a31ef"
     },
     {
       "id": "fastapi-first-steps",
@@ -34,7 +35,8 @@
         "Made with Zensical",
         "Subscribe to the FastAPI and friends newsletter",
         "The FastAPI trademark is owned by"
-      ]
+      ],
+      "snapshot_sha256": "794c7112882e54dd8a59788c025b63a99ac3be7d6bda83beb1a1238390f79423"
     },
     {
       "id": "mdn-using-fetch",
@@ -50,7 +52,8 @@
         "Your blueprint for a better internet.",
         "Mozilla careers",
         "Advertise with us"
-      ]
+      ],
+      "snapshot_sha256": "ca87b5488a5d70398c3d1c491d708a056570b7fafe2d7bf9084d520790f0ea4a"
     },
     {
       "id": "rust-book-installation",
@@ -63,7 +66,8 @@
         "curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh",
         "```console"
       ],
-      "excluded": []
+      "excluded": [],
+      "snapshot_sha256": "ce452adfb1cda713092e8805e829d24bd87f5ce46ecf49c2a74e26b4db568904"
     },
     {
       "id": "github-rest-repos",
@@ -79,7 +83,8 @@
         "Help us make GitHub Docs great!",
         "All Docs are open source.",
         "Expert services"
-      ]
+      ],
+      "snapshot_sha256": "a6ab18da0f30a99a5c5f12a3f01464db135ee147f4d1e56aa91f9a614c229554"
     },
     {
       "id": "rfc9110",
@@ -91,7 +96,8 @@
         "This is an Internet Standards Track document.",
         "Roy T. Fielding"
       ],
-      "excluded": []
+      "excluded": [],
+      "snapshot_sha256": "d431760660ea44e130f6e919dab216df2d0b3a490567a98089267523368fe1e5"
     },
     {
       "id": "pep-8",
@@ -106,7 +112,8 @@
       ],
       "excluded": [
         "Page Source (GitHub)"
-      ]
+      ],
+      "snapshot_sha256": "9f4e669bee0fab4b1b0e60321b9ca8822b2f1e61a6ebe0243760294eaba0248e"
     },
     {
       "id": "postgres-select",
@@ -123,7 +130,8 @@
         "Code of Conduct",
         "About PostgreSQL",
         "Your account"
-      ]
+      ],
+      "snapshot_sha256": "00a76a0fd3411967edcb1380b49ad2b2f42a90711bc78bd46508cdf232802845"
     },
     {
       "id": "sqlite-select",
@@ -137,7 +145,8 @@
       ],
       "excluded": [
         "Purchase"
-      ]
+      ],
+      "snapshot_sha256": "f850d5a0e9441d348535494f9c647ea90548a03a1c7bd51cdac6c7943e6dc785"
     },
     {
       "id": "wikipedia-web-crawler",
@@ -154,7 +163,8 @@
         "Privacy policy",
         "This page was last edited on",
         "Main menu"
-      ]
+      ],
+      "snapshot_sha256": "db367db2ec7dd204208618fa433c9397d4da9d3a17bffaebc901b3ff84a1b74d"
     },
     {
       "id": "go-blog-errors-are-values",
@@ -170,7 +180,8 @@
         "go.dev uses cookies from Google",
         "Terms of Service",
         "Golang Weekly"
-      ]
+      ],
+      "snapshot_sha256": "42bfbecc97ef980092e84cddddd7a9c75eaa7d1438b8c3eec81f48fed8de75a1"
     },
     {
       "id": "books-toscrape-product",
@@ -186,23 +197,45 @@
       ],
       "excluded": [
         "We love being scraped!"
-      ]
+      ],
+      "snapshot_sha256": "a6e572bec156bf80ff3149b89b6d218cdcf8866ccc26ccf69a5431db8e142c6a"
     },
     {
       "id": "drawn-01",
       "category": "inner",
       "url": "https://www.corriere.it/salute/dizionario/mielofibrosi/",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "processo patologico caratterizzato da uno spiccato aumento delle fibrille reticolari nel midollo osseo emopoietico",
+        "È un disordine emopoietico clonale, dovuto probabilmente al rilascio di fattori di crescita.",
+        "La fibrosi è costituita da collagene di tipo III.",
+        "L’unica terapia realmente efficace è il trapianto di midollo."
+      ],
+      "excluded": [
+        "Copyright 2026 © RCS Mediagroup S.p.a. Tutti i diritti sono riservati",
+        "Iscriviti alla newsletter",
+        "Scegli la tua città preferita"
+      ],
+      "snapshot_sha256": "92debe80a86758ee8505422588af9bc63634d7277955f3aaf8773d003a5a3e44"
     },
     {
       "id": "drawn-02",
       "category": "inner",
       "url": "https://home.pl/uslugi-dla-ecommerce/",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Sprawdź nasze rozwiązania wspierające prowadzenie sprzedaży w sieci.",
+        "Indywidualny regulamin sklepu, pakiet dokumentów RODO i wiele innych dokumentów niezbędnych w e-commerce.",
+        "Wybierz zaufanego operatora płatności elektronicznych.",
+        "Pomoc w realizacji Twoich obowiązków w zakresie rozliczania opakowań, które wprowadzasz do obrotu.",
+        "Opinie w TrustMate zbierają największe sklepy internetowe."
+      ],
+      "excluded": [
+        "Back to Business – promocje do -98%. Sprawdź. >>",
+        "Polityka bezpieczeństwa ISO",
+        "Plan połączenia spółek"
+      ],
+      "snapshot_sha256": "e341afa7355a52de959952568b9d86323fb26c7e91f1ad9d1fda3406a6955a0e"
     },
     {
       "id": "drawn-03",
@@ -210,39 +243,84 @@
       "url": "https://www.intentiq.com/tag/digital-identity-graph/",
       "source": "sitemap",
       "expected": [],
-      "excluded": []
+      "excluded": [
+        "Join our professional newsletter",
+        "Reject non-essential cookies"
+      ],
+      "snapshot_sha256": "29a56f1745e45257589140210619e17f18fd2b40581c90faa6a6dbea959c0144",
+      "skip_reason": "tag archive page: only one linked post teaser with a Read More link, no article body"
     },
     {
       "id": "drawn-04",
       "category": "inner",
       "url": "https://www.priceline.com/hotel-deals/en-us/P3000010477/hotels-in-walled-lake.ssp",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Hotel Deals in Walled Lake from $59",
+        "Hampton Inn by Hilton Commerce Novi",
+        "Chain hotels in Walled Lake generally follow corporate standards: check-in is around 3:00 PM and check-out is around 11:00 AM.",
+        "You can expect a 6% Michigan state sales/use tax on most lodging charges.",
+        "Book weekday stays (Sunday through Thursday) to find hotel rates that are 15-20% lower than weekend rates"
+      ],
+      "excluded": [
+        "Priceline is part of Booking Holdings, the world leader in online travel & related services.",
+        "Hotels In Post Falls"
+      ],
+      "snapshot_sha256": "a0ba4b9bfc0064ce5d43c2a7cc594552c931702043b50e047342fce3f152c75f"
     },
     {
       "id": "drawn-05",
       "category": "inner",
       "url": "https://www.hurriyet.com.tr/aile/ergenlik-doneminde-yapilan-yanlis-diyetlere-dikkat-41658879",
       "source": "common_crawl",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Ergenlik döneminde yapılan yanlış diyetlere dikkat!",
+        "Beden algısının daha çok önem kazandığı ergenlik döneminde yapılan bilinçsiz diyetlerin birçok sağlık sorununu beraberinde getirdiğini",
+        "Demir eksikliği ve osteoporoza neden olan kalsiyum yetersizliği sık görülen beslenme sorunlarıdır",
+        "Çok düşük kalorili diyetlerden ve hızlı kilo verilmekten kaçınılmalıdır."
+      ],
+      "excluded": [
+        "Hürriyet'e Reklam VerYatırımcı İlişkileriBize UlaşınHürriyet KurumsalHata Bildirimi",
+        "Haberlerimizi Google’da Takip Edin",
+        "Gelişmelerden anında haberdar olun."
+      ],
+      "snapshot_sha256": "c85480445b1f5ae2191bc31287b3546ed39f51fcd11e7e8389bfa96f662ee504"
     },
     {
       "id": "drawn-06",
       "category": "inner",
       "url": "https://www.meinbezirk.at/c-lokales/die-wichtigsten-nachrichten-des-tages_a4691501",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Der tägliche Überblick über aktuelle Themen, die Österreich bewegt haben.",
+        "Herbert Kickl wird wie erwartet neuer FPÖ-Chef und am 19. Juni offiziell gewählt.",
+        "Die Sozialpartner und die Bundesregierung verlängern die Corona-Kurzarbeit ein weiteres Mal.",
+        "Der elektronische Grüne Pass mittels QR-Code soll Ende dieser Woche umgesetzt werden"
+      ],
+      "excluded": [
+        "MeinMed.at – Medizinwissen",
+        "Die billigsten Tankstellen in Oberösterreich",
+        "Melde dich jetzt kostenlos an, um selbst mit eigenen Inhalten beizutragen."
+      ],
+      "snapshot_sha256": "620069b239b5b904ddeb8a4e54bc2fdc7afa41c0ea10ab4ab1304281cbf28a3b"
     },
     {
       "id": "drawn-07",
       "category": "product",
       "url": "https://www.opera.com/it/products/apex-football",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Apex Football is the best way to get live scores & commentary, and stay up to date with the latest stats, matches and news!",
+        "Over 10,000 football matches and leagues, including the Premier League, Champions League and Europa League",
+        "Our industry-leading aggregator translates over 5,000 news sources",
+        "Follow transfer market updates and news, including values, negotiations and final confirmations."
+      ],
+      "excluded": [
+        "© 1995-2026 Opera Norway",
+        "Innova e ispira, scopri l'inaspettato, sostieni gli standard aperti.",
+        "Politica sui Cookie"
+      ],
+      "snapshot_sha256": "3bbb3b20f1ae37fb0648aec33f4cef16d7441aa1b048632a1be396299a47229c"
     },
     {
       "id": "drawn-08",
@@ -250,31 +328,69 @@
       "url": "https://www.au.com/mobile/product/plus-one/galaxy-buds3-fe/",
       "source": "sitemap",
       "expected": [],
-      "excluded": []
+      "excluded": [
+        "COPYRIGHT © KDDI CORPORATION, ALL RIGHTS RESERVED.",
+        "動作環境・Cookie情報の利用について"
+      ],
+      "snapshot_sha256": "0cdf4636fdfd61c67395e4075f0306b67406f8721e058b5ed2a6c8b5a8f68efe",
+      "skip_reason": "product content is images only; visible text is just the product name, two color names and buy buttons inside au login/chrome"
     },
     {
       "id": "drawn-09",
       "category": "product",
       "url": "https://www.ordnancesurvey.co.uk/products/os-open-toid",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "A TOID (Topographic Identifier) is a unique and persistent identifier for each and every feature found in OS MasterMap products.",
+        "TOIDs are the authoritative identifier assigned to and uniquely identifying real world objects",
+        "The TOIDs in OS Open TOID are allocated by Ordnance Survey.",
+        "The TOID is never re-used, once its allocated to a feature, that’s it, it will never change or be reused."
+      ],
+      "excluded": [
+        "© 2026 Ordnance Survey Limited. All Rights Reserved",
+        "Explorer House, Adanac Drive, Nursling, Southampton, Hampshire, SO16 0AS",
+        "Developer communities"
+      ],
+      "snapshot_sha256": "63ea69491730de84c3dd13345017757b0be5c7bc34c7df68a390ddc550c05ebe"
     },
     {
       "id": "drawn-10",
       "category": "product",
       "url": "https://www.gap.com/shop/everyday-bralette-0abz06a",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Everyday Bralettes",
+        "SoftMade Organic Stretch Cotton Gap Logo Bralette",
+        "Organic Stretch Cotton Lace-Trim Bandeau Bralette",
+        "Discover the ultimate comfort and support with our collection of everyday bralettes, designed for your daily wear.",
+        "Our everyday bralettes feature adjustable straps and versatile designs"
+      ],
+      "excluded": [
+        "California Transparency in Supply Chains Act",
+        "Become an Encore Member - it's free",
+        "Friends & Family 40% off everything — includes new arrivals",
+        "Related Items"
+      ],
+      "snapshot_sha256": "6a163bdfa2f19089b841381b4837e030e0c43d0f7b10ea24c4cb54b855154622"
     },
     {
       "id": "drawn-11",
       "category": "product",
       "url": "https://www.zales.com/previously-owned-1-ct-tw-diamond-engagement-ring-14k-white-gold/p/V-32627161",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Previously Owned - 1 CT. T.W. Diamond Engagement Ring in 14K White Gold",
+        "$1,224.50",
+        "this ring showcases a stunning 5/8 ct. round diamond solitaire standing tall in a traditional four-prong setting.",
+        "Returns are allowed within 30 days from the purchase (shipment) date",
+        "Previously Owned merchandise is cleaned, polished and lovingly restored to like-new condition."
+      ],
+      "excluded": [
+        "Extra 30%‡ Off select Clearance‡Exclusions apply",
+        "EXCLUSIVE OFFERS. NEW STYLES. FIRST ACCESS.",
+        "Conflict-Free Sourcing"
+      ],
+      "snapshot_sha256": "47074d0afce24c4feecd99fb08a00837e60c42a7d03fb79f9c854ab1d1671b3b"
     },
     {
       "id": "drawn-12",
@@ -282,119 +398,271 @@
       "url": "https://xtime.com/resources/product/flexpay/",
       "source": "sitemap",
       "expected": [],
-      "excluded": []
+      "excluded": [
+        "© 2026 Xtime Inc. All rights reserved.",
+        "See how our software enhances your dealership with a 1:1 strategy discussion"
+      ],
+      "snapshot_sha256": "5157daaed8b2fc38f653ef7f35657e28096dbfaba7c953eb311753ce083605e1",
+      "skip_reason": "empty resource listing: only filter options and 'No posts found.'"
     },
     {
       "id": "drawn-13",
       "category": "news",
       "url": "https://www.panmacmillan.com/news/alpana-sajip-joins-picador-from-viking",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Alpana Sajip is joining Picador as Senior Commissioning Editor, Non-fiction.",
+        "A Woman Like Me by Diane Abbott",
+        "Alpana is a brilliantly incisive and imaginative editor and publisher",
+        "Sajip will be joining the Picador editorial team on 5th August."
+      ],
+      "excluded": [
+        "© 2026 Pan Macmillan",
+        "Macmillan's Modern Slavery Act Statement",
+        "Hear more from Pan Macmillan"
+      ],
+      "snapshot_sha256": "63bb4d6fbf351c1fb5614d39bed818e0115125557e8bd132f71c21577df99aa3"
     },
     {
       "id": "drawn-14",
       "category": "news",
       "url": "https://www.bl.uk/stories/news/electronic-legal-deposit-material-available",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "For the first time since a cyber-attack on the Library in 2023, electronic legal deposit material is now available to view at the Library.",
+        "Legal deposit, which has existed in English law since 1662,",
+        "As part of the regulations, the content of eLD can only be accessed on the premises of the six legal deposit libraries.",
+        "Printing is not currently available in Reading Rooms."
+      ],
+      "excluded": [
+        "© 2026 British Library, 96 Euston Road, London, NW1 2DB",
+        "All text is © British Library Board and is available under a CC-BY Licence except where otherwise stated.",
+        "Eat, drink, shop"
+      ],
+      "snapshot_sha256": "57b66f20ce1812e19157d0273d1e530f64983fff9a644be5a85be0070793f870"
     },
     {
       "id": "drawn-15",
       "category": "news",
       "url": "https://www.vtbreg.ru/news/bank-rossii-vvel-markirovku-tsennykh-bumag-s-nedostatochnym-raskrytiem-informatsii/",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Банк России ввел маркировку ценных бумаг с недостаточным раскрытием информации",
+        "В Январе 2026 года Министерство юстиции РФ зарегистрировало Указание Банка России от 24.09.2025 № 7183-У",
+        "которым вводится обязанность маркировать ценные бумаги, эмитенты которых закрывают больший объем информации",
+        "Исключением являются ценные бумаги, или эмитенту/поручителю по таким бумагам присвоен рейтинг"
+      ],
+      "excluded": [
+        "© ВТБ Регистратор 2013-2026 - Все права защищены",
+        "Регистрация АО «под ключ» за 4 дня",
+        "Сайт обрабатывает пользовательские данные с использованием файлов, сохраняемых в браузере пользователя"
+      ],
+      "snapshot_sha256": "f8b0a71c497645753fff9dee24e46112a04cb91b64cc5f1f192606896be7d59d"
     },
     {
       "id": "drawn-16",
       "category": "news",
       "url": "https://www.gov.mo/zh-hant/news/323550/",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "文化諮詢委員會3月17日於文化中心召開全體會議",
+        "歐陽瑜表示，澳門承傳中華文化內涵及多元文化特色",
+        "會上，文化局介紹應對疫情的工作部署",
+        "為本地從事藝文演出及節目製作的團隊和藝文工作者創設條件"
+      ],
+      "excluded": [
+        "協調機構：澳門特別行政區行政公職局",
+        "全國工商聯副主席率團訪澳大",
+        "公共部門及其他機構"
+      ],
+      "snapshot_sha256": "3fcc1d045786dfc3043b77f4f1258c664676a0683e27fab4d7c30d61bd02a806"
     },
     {
       "id": "drawn-17",
       "category": "news",
       "url": "https://www.jcat.ru/realty/news/603/",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Новые поля в тематике «Квартиры и комнаты»",
+        "Одна из составляющих качественного объявления по недвижимости — исчерпывающая информация для покупателя.",
+        "Недавно мы ввели ряд новых полей с информацией о ЖК.",
+        "Также, в тематике «Новостройки» появилось еще одно поле: «Возможна рассрочка».",
+        "Добавляйте больше информации о ЖК и получайте больше звонков!"
+      ],
+      "excluded": [
+        "© Джойнио, 2003 - 2026 Все права защищены.",
+        "Юридический адрес: 121087, Москва, Береговой проезд, дом 5А корпус 1",
+        "Используем cookie и Яндекс.Метрику."
+      ],
+      "snapshot_sha256": "a69f5c55d327708b06f5060d0491c00131cb21a6fc3d5b1e2889ec5ccfff2aa6"
     },
     {
       "id": "drawn-18",
       "category": "forum",
       "url": "https://www.goodreads.com/questions/1372109-i-just-finished-the-secret-book-and-scone",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "I just finished The Secret, Book and Scone Society the other day and posted my Goodreads review.",
+        "I am patiently awaiting The Whispered Word",
+        "I'd suggest the Book Retreat series, which starts with Murder in the Mystery Suite.",
+        "Book 5 will come out in April 2019."
+      ],
+      "excluded": [
+        "Interest Based Ads",
+        "Your Ads Privacy Choices",
+        "Kindle Notes & Highlights"
+      ],
+      "snapshot_sha256": "d038fb2206c2166c54d3524a7f0aba1080ab35a40d29698f1fbb913ab609c52d"
     },
     {
       "id": "drawn-19",
       "category": "forum",
       "url": "https://playzen.io/t/io",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Best .IO Games Online in 2025 – No Downloads, Just Fun",
+        "These games are quick to load, super addictive, and best of all — completely free to play.",
+        "Roll up a giant snowball and bump other players off the platform.",
+        "Like Snake, but with real players and sleek graphics. Eat, grow, survive.",
+        "Pick a favorite from the list or try something new — no installs, just nonstop action."
+      ],
+      "excluded": [
+        "Copyright © 2026 PlayZen Co. LLC, All Rights Reserved.",
+        "Email: info@playzen.io",
+        "At PlayZen, we know that playtime matters for everyone"
+      ],
+      "snapshot_sha256": "51c3b50571d9640e18c21f99c6262941ec32b2dc06fe8bf1a8abe6f5b6d03599"
     },
     {
       "id": "drawn-20",
       "category": "forum",
       "url": "https://www.xrite.com/ko-kr/service-support/downloads/t/toolcrib_v5014",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "ToolCrib - v5.014",
+        "Full Install - Not an Update - No previous version required!",
+        "If you are using an older version of ToolCrib, please remove the program using the Add",
+        "Windows Vista 32-bit and 64-bit versions",
+        "a conventional Windows executable installer and a readme document."
+      ],
+      "excluded": [
+        "Contact Sales/Support: +1 (888) 800-9580",
+        "Register a Device",
+        "I give X-Rite permission to provide me with information about their products and services"
+      ],
+      "snapshot_sha256": "4a089797ec21355e3cedb015ab68bdec2a86cb2ee83a9735f487e11676293bc7"
     },
     {
       "id": "drawn-21",
       "category": "government",
       "url": "https://www.gov.si/zbirke/javne-objave/razvojno-raziskovalni-projekt-ovrednotenje-in-ocena-prehrane-na-mors-provoc-220531142004/",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Razvojno raziskovalni projekt: Ovrednotenje in ocena prehrane na MORS - PROVOC",
+        "Razvojno raziskovalni projekt: Ovrednotenje in ocena prehrane na Ministrstvu za obrambo.",
+        "JN003654/2022-W01",
+        "Rok za prijavo je potekel."
+      ],
+      "excluded": [
+        "Ste našli informacije, ki ste jih iskali?",
+        "Pomagajte nam izboljšati spletno stran.",
+        "© 2026 GOV.SI"
+      ],
+      "snapshot_sha256": "1345c0d8ba44651f39f869f4a727a4b176ef26d01b9a228ef0cccce1d6c45465"
     },
     {
       "id": "drawn-22",
       "category": "government",
       "url": "https://www.police.gov.sg/media-hub/news/2025/02/20250205_two_men_arrested_for_voluntarily_causing_grievous_hurt",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Two Men Arrested For Voluntarily Causing Grievous Hurt By Dangerous Means Within 11 Hours",
+        "The Police have arrested two men, aged 21 and 22, for their suspected involvement in a case of voluntarily causing grievous hurt by dangerous means.",
+        "officers from Bedok Police Division established the identities of the two men and arrested them within 11 hours.",
+        "The Police have zero tolerance for such brazen acts of violence"
+      ],
+      "excluded": [
+        "© 2026, Government of Singapore",
+        "Report Vulnerability",
+        "Woman Arrested For Shop Theft At Changi Airport",
+        "Police Heritage Trail"
+      ],
+      "snapshot_sha256": "0698c6e36791df6518a7a9e2c55ebf1cc03c972c444a7aae5ad43029a731b88b"
     },
     {
       "id": "drawn-23",
       "category": "government",
       "url": "https://www.dnp.gov.co:443/publicaciones/Planeacion/Paginas/hacia-una-colombia-que-cuida-dignidad-florezca-conpes-4143-politica-nacional-cuidado.aspx",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "Hacia una Colombia que Cuida para que la dignidad florezca. CONPES 4143 – Política Nacional de Cuidado",
+        "El objetivo de la PNC es transformar la organización social del cuidado de aquí al año 2034",
+        "El Documento CONPES 4143 está conformado por 133 acciones articuladas en torno a cuatro grandes objetivos específicos (OE):",
+        "OE3: Contribuir a la transformación de los factores culturales que mantienen la desigualdad en la organización social del cuidado para democratizarlo.",
+        "Procesos organizativos de partería tradicional, cuidado ambiental, cuidado de personas, entre otras."
+      ],
+      "excluded": [
+        "Dirección: Calle 26 # 13-19, Piso 1° - Edificio FONADE",
+        "Código Postal: 110311",
+        "Código de integridad"
+      ],
+      "snapshot_sha256": "3b0e23cf3d9f8021fd8028aa92b3c13170c9ba7a17b33533d607433533ceb05b"
     },
     {
       "id": "drawn-24",
       "category": "government",
       "url": "https://www.pm.gov.au/media/backing-our-metals-manufacturers",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "today announcing $750 million to boost development of new technologies to ensure our metals manufacturers remain globally competitive.",
+        "Funding will be administered independently through the Australian Renewable Energy Agency (ARENA).",
+        "Green Iron Investment Fund",
+        "Demand for green metals is expected to account for a third of the global metals market in coming years",
+        "cut fuel bills and remain competitive is at the centre of a Future Made in Australia."
+      ],
+      "excluded": [
+        "PM&C acknowledges the traditional owners and custodians of country throughout Australia",
+        "FOI disclosure log",
+        "Help with the cost of living"
+      ],
+      "snapshot_sha256": "5209d9e199c89bcc344e3bf804c33514e31a2b4f8ec49d9052e9a35f82d2c1c6"
     },
     {
       "id": "drawn-25",
       "category": "government",
       "url": "https://gdrfad.gov.ae/ar/contracts",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "تقدم صفحة العقود بموقع الإدارة العامة للهوية وشؤون الأجانب بدبي ، خدمة تسهيل",
+        "قاعدتنا الأساسية هي تسهيل الإجراءات واستثمار الوقت للوصول إلى الهدف وتلبية",
+        "دليل إستخدام التوقيع الإلكتروني على العقود",
+        "قانون رقم (12) لسنة 2020 بشأن العقود وإدارة المخازن في حكومة دبي"
+      ],
+      "excluded": [
+        "2026 الإدارة العامة للهوية وشؤون الأجانب - دبي - جميع الحقوق محفوظة",
+        "استبيان سعادة المتعاملين",
+        "سياسة البيانات المفتوحة"
+      ],
+      "snapshot_sha256": "d2f18adb4b36268108685a111ae95a0d1726c045ae605540fd339b4d0a6facd3"
     },
     {
       "id": "drawn-26",
       "category": "government",
       "url": "https://www.gov.uk/government/publications/school-music-development-plan-summary-template",
       "source": "sitemap",
-      "expected": [],
-      "excluded": []
+      "expected": [
+        "A template to support schools to publish a summary of their music development plan on their website.",
+        "All schools should have a music development plan, as set out in the national plan for music education.",
+        "promote the school music offer to parents and prospective parents",
+        "The template is not mandatory, and schools should feel free to adapt it.",
+        "Schools can contact their local music hubs for support with their music development plan."
+      ],
+      "excluded": [
+        "We use some essential cookies to make this website work.",
+        "All content is available under the Open Government Licence v3.0, except where otherwise stated",
+        "Help us improve GOV.UK"
+      ],
+      "snapshot_sha256": "22e66b20436c9f882a98cfa1ca3af721a65ad746c2b2878b7b9912977f4f340f"
     }
   ],
   "draws": [
