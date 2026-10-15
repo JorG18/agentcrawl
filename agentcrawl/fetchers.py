@@ -369,12 +369,21 @@ _DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar(
 )
 
 
-def _budget_ms(ms: float) -> int:
-    """``ms`` capped by what is left of the page budget (0 once it is spent)."""
+def _budget_ms(ms: float, reserve_ms: int = 0) -> int:
+    """``ms`` capped by what is left of the page budget minus ``reserve_ms``
+    (0 once it is spent)."""
     deadline = _DEADLINE.get()
     if deadline is None:
         return int(ms)
-    return max(0, min(int(ms), int((deadline - time.monotonic()) * 1000)))
+    return max(0, min(int(ms), int((deadline - time.monotonic()) * 1000) - reserve_ms))
+
+
+def _tail_reserve_ms(config: CrawlConfig) -> int:
+    """Budget optional waits (network idle, iframes) must leave for reading,
+    closing and parsing the page: 1-4 s on a 2.6 MB page (apnews; ``content()``
+    alone took 0.2-2.5 s while the page's scripts ran)."""
+    # shortcut: 10 % of the budget (3-5 s, at most half), not measured per page; size it from the HTML if pages still overshoot.
+    return min(config.page_budget_ms // 2, 5_000, max(3_000, config.page_budget_ms // 10))
 
 
 def _require_budget(ms: float, step: str) -> int:
@@ -1518,7 +1527,9 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             )
         if config.browser_wait_ms > 0:
             page.wait_for_timeout(_budget_ms(config.browser_wait_ms))
-        idle_ms = _budget_ms(min(config.timeout_ms, config.network_idle_ms))
+        idle_ms = _budget_ms(
+            min(config.timeout_ms, config.network_idle_ms), _tail_reserve_ms(config)
+        )
         if config.network_idle and idle_ms > 0:
             # Analytics beacons and live feeds keep some pages busy
             # forever. The page is already loaded here, so a busy
@@ -1553,7 +1564,11 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             from .browser_dom import flatten_page
 
             dom_report = flatten_page(
-                page, iframes=config.browser_iframes, shadow_dom=config.browser_shadow_dom
+                page,
+                iframes=config.browser_iframes,
+                shadow_dom=config.browser_shadow_dom,
+                deadline=time.monotonic()
+                + _budget_ms(config.timeout_ms, _tail_reserve_ms(config)) / 1000,
             )
             if capture is not None:
                 capture["dom"] = {k: v for k, v in dom_report.items() if v}

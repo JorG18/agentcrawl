@@ -1147,3 +1147,17 @@ def test_a_browser_page_with_status_200_is_kept(monkeypatch) -> None:
     monkeypatch.setattr(fetchers, "_fetch_source", fake)
     _html, metadata = fetch_source("https://example.com/", CrawlConfig(fetcher="playwright"))
     assert metadata["browser_status"] == 200
+
+
+def test_network_idle_leaves_a_reserve_for_reading_the_page(monkeypatch) -> None:
+    """P1: the idle wait could spend the whole budget, so reading, closing and
+    parsing a 2.6 MB page (apnews, ~3 s) always ran past it."""
+    page, _browser, _chromium = install_fake_playwright(monkeypatch)
+
+    fetch_source(
+        "https://example.com/",
+        CrawlConfig(fetcher="playwright", page_budget_ms=10_000, network_idle_ms=10_000),
+    )
+
+    [idle] = [s for s in page.load_states if s["state"] == "networkidle"]
+    assert idle["timeout"] <= 9_000  # 10 % of the budget kept for the tail
