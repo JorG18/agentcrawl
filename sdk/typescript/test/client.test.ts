@@ -35,7 +35,7 @@ test("scrape sends the documented body and the bearer key", async () => {
   const client = new AgentCrawlClient({ baseUrl, apiKey: "secret" });
 
   const result = await client.scrape("https://example.com", {
-    formats: ["markdown", "screenshot"],
+    formats: ["markdown", "screenshot", "api"],
     config: { browser_actions: [{ type: "click", selector: "#more" }] },
   });
 
@@ -45,7 +45,7 @@ test("scrape sends the documented body and the bearer key", async () => {
   assert.equal(request.headers.authorization, "Bearer secret");
   assert.deepEqual(request.body, {
     url: "https://example.com",
-    formats: ["markdown", "screenshot"],
+    formats: ["markdown", "screenshot", "api"],
     cache: true,
     config: { browser_actions: [{ type: "click", selector: "#more" }] },
   });

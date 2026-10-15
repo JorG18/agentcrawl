@@ -71,7 +71,7 @@ def scrape_url(
     formats: Annotated[
         list[str] | None,
         Field(
-            description="Any of: markdown, outline (sections and sizes, no text), text, links, metadata, html, chunks (citable pieces), screenshot (PNG, needs a browser)."
+            description="Any of: markdown, outline (section sizes), text, links, metadata, html, chunks (citable), screenshot (PNG), api (JSON calls); last two use a browser."
         ),
     ] = None,
     section: Annotated[

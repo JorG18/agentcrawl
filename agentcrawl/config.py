@@ -115,6 +115,8 @@ class CrawlConfig:
     browser_shadow_dom: bool = True
     # Capture a full-page PNG (the ``screenshot`` output format sets this).
     screenshot: bool = False
+    # Report the same-site JSON endpoints the page calls (the ``api`` format sets this).
+    capture_api: bool = False
     # OCR image-only PDF pages (needs the docs extra plus the Tesseract binary).
     ocr: bool = False
     # Conditional-request validators from a previous fetch (``AgentCrawl.diff``
@@ -278,6 +280,7 @@ _BOOL_FIELDS = frozenset(
         "allow_local_files",
         "network_idle",
         "screenshot",
+        "capture_api",
         "ocr",
         "reasoning",
         "auto_reattempt",
