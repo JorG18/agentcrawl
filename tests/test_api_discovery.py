@@ -161,6 +161,16 @@ def test_limit_of_30_endpoints():
     assert truncated is True
 
 
+def test_site_follows_the_page_after_a_cross_domain_redirect():
+    # developer.mozilla.com redirects to .org; the asked-for host found nothing.
+    page = SimpleNamespace(url="https://developer.mozilla.com/")
+    collector = ApiCollector(lambda: page.url)
+    page.url = "https://developer.mozilla.org/search"
+    collector.on_response(_response("https://developer.mozilla.org/api/v1/search"))
+    endpoints, _ = collector.finish(10_000)
+    assert [e["url"] for e in endpoints] == ["https://developer.mozilla.org/api/v1/search"]
+
+
 def test_no_budget_leaves_shapes_unread():
     endpoints, _ = _collect(_response("https://www.shop.com/a"), budget_ms=0)
     assert endpoints[0]["shape"] is None

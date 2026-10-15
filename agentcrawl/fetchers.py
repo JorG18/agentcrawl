@@ -1419,13 +1419,6 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             # Service workers can issue requests the route never sees.
             context_kwargs["service_workers"] = "block"
         context = browser.new_context(**context_kwargs)
-        api_collector = None
-        if config.capture_api and _CAPTURE.get() is not None:
-            from .api_discovery import ApiCollector
-
-            api_collector = ApiCollector(url)
-            # Context-level so calls from iframes and popups are seen too.
-            context.on("response", api_collector.on_response)
         if hasattr(context, "set_default_timeout"):
             # Every later step (iframes, shadow DOM, content) shares the budget.
             context.set_default_timeout(max(1, _budget_ms(config.timeout_ms)))
@@ -1445,6 +1438,13 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
         if guard.active and hasattr(context, "route_web_socket"):
             context.route_web_socket("**/*", guard.handle_websocket)
         page = context.new_page()
+        api_collector = None
+        if config.capture_api and _CAPTURE.get() is not None:
+            from .api_discovery import ApiCollector
+
+            api_collector = ApiCollector(lambda: page.url)
+            # Context-level so calls from iframes and popups are seen too.
+            context.on("response", api_collector.on_response)
         guard.main_frame = getattr(page, "main_frame", None)
         capture = _CAPTURE.get()
         if capture is not None and hasattr(page, "on"):

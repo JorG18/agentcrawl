@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
 MAX_ENDPOINTS = 30
@@ -112,8 +112,9 @@ def _parse_json(raw: Any) -> Any:
 
 
 class ApiCollector:
-    def __init__(self, page_url: str) -> None:
-        self.page_url = page_url
+    def __init__(self, page_url: str | Callable[[], str]) -> None:
+        # A callable follows the tab, so a redirect to another domain is judged by where it landed.
+        self.page_url = page_url if callable(page_url) else lambda: page_url
         self._found: dict[tuple, tuple[Any, dict]] = {}
         self.truncated = False
 
@@ -125,7 +126,7 @@ class ApiCollector:
             content_type = (response.headers or {}).get("content-type", "")
             if "json" not in content_type.lower():
                 return
-            if not same_site(response.url, self.page_url):
+            if not same_site(response.url, self.page_url()):
                 return
             parts = urlsplit(response.url)
             key = (
