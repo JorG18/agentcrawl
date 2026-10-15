@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import random
 
 from benchmarks.web import sample
@@ -289,3 +291,45 @@ def test_hosted_time_is_not_capped_by_the_harness() -> None:
     # Hosted seconds include our own 429 waits; the API got the cap as its timeout.
     hosted = {"tool": "firecrawl", "markdown": ARTICLE, "seconds": 200, "page_timeout": 60}
     assert classify(hosted) == "content"
+
+
+# -- aggregate: pool runs and test differences -------------------------------------
+def _run(contents: dict[str, dict[str, bool]]) -> dict:
+    """{tool: {page: has_content}} → the shape report.load returns."""
+    return {
+        tool: {
+            page: {"tool": tool, "id": page, "markdown": ARTICLE if ok else ""}
+            for page, ok in pages.items()
+        }
+        for tool, pages in contents.items()
+    }
+
+
+def test_pairs_are_per_page_and_run() -> None:
+    from benchmarks.web.aggregate import pooled
+
+    run1 = _run({"a": {"x": True, "y": True}, "b": {"x": False, "y": True}})
+    run2 = _run({"a": {"x": False, "y": True}, "b": {"x": True, "y": True}})
+
+    summary = pooled([run1, run2])
+
+    assert summary["tools"]["a"]["content_per_run"] == [2, 1]
+    assert summary["tools"]["a"]["content_total"] == 3
+    pair = summary["pairs"]["a vs b"]
+    assert (pair["a_only"], pair["b_only"]) == (1, 1)
+    assert pair["band"] == 2  # differences per run: +1 and -1
+
+
+def test_mcnemar_exact() -> None:
+    from benchmarks.web.aggregate import mcnemar_p
+
+    assert mcnemar_p(10, 2) == pytest.approx(0.0386, abs=1e-4)
+    assert mcnemar_p(0, 0) == 1.0
+
+
+def test_tie_is_written_as_a_tie() -> None:
+    from benchmarks.web.aggregate import markdown, pooled
+
+    run = _run({"a": {"x": True, "y": False}, "b": {"x": False, "y": True}})
+    text = markdown(pooled([run]))
+    assert "tie within noise" in text
