@@ -109,6 +109,30 @@ def next_step(error_type: object) -> str | None:
     return _NEXT_STEPS.get(str(error_type))
 
 
+# Signals already in the metadata that mean the page was read only in part.
+_PARTIAL = (
+    ("javascript_required", "needs_javascript"),
+    ("browser_render_error", "browser_render_failed"),
+    ("network_idle_timeout", "network_still_busy"),
+)
+_TRUNCATED = (("markdown_truncated", "token_budget"), ("api_truncated", "api_endpoint_limit"))
+
+
+def coverage_of(metadata: dict, errors: list) -> dict[str, object]:
+    """Whether a result is the whole page, in one word plus the reasons why not."""
+    error_type = metadata.get("error_type")
+    if error_type or errors:
+        error_type = str(error_type or "fetch_error")
+        status = "blocked" if error_type in ("client_challenge", "blocked") else "failed"
+        return {"status": status, "reasons": [error_type]}
+    partial = [reason for key, reason in _PARTIAL if metadata.get(key)]
+    if metadata.get("markdown_chars") == 0:
+        partial.append("empty_page")
+    truncated = [reason for key, reason in _TRUNCATED if metadata.get(key)]
+    status = "partial" if partial else "truncated" if truncated else "complete"
+    return {"status": status, "reasons": partial + truncated}
+
+
 def error_metadata(exc: BaseException) -> dict[str, object]:
     """``error_type`` / ``error_message`` / ``status_code`` for a failed fetch."""
     error_type = classify_exception(exc)
@@ -147,7 +171,7 @@ def classify_error(message: str | None) -> str | None:
     # Transport-level classes come before the browser bucket. "browser" is a
     # broad substring, so a certificate failure or a DNS failure inside a
     # browser fetch was classified as ``browser_error`` and lost its real cause.
-    if "ssl" in text or "certificate" in text:
+    if "ssl" in text or "certificate" in text or "err_cert_" in text:
         return "tls_error"
     if "name or service not known" in text or "temporary failure" in text or "connection" in text:
         return "network_error"

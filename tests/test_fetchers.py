@@ -1121,3 +1121,29 @@ def test_without_capture_api_no_api_listener(monkeypatch) -> None:
 
     assert browser.context.handlers == []
     assert "api_endpoints" not in metadata
+
+
+@pytest.mark.parametrize("status", [404, 410])
+def test_a_missing_page_read_in_the_browser_is_not_found(monkeypatch, status) -> None:
+    """The HTTP path fails a 404; the browser used to return the site's
+    "Page not found" page as content, with coverage complete."""
+
+    def fake(source, config):
+        fetchers._CAPTURE.get()["status"] = status
+        return "<html><body>Page not found</body></html>", {"fetcher": "playwright"}
+
+    monkeypatch.setattr(fetchers, "_fetch_source", fake)
+    with pytest.raises(FetchError) as excinfo:
+        fetch_source("https://example.com/gone", CrawlConfig(fetcher="playwright"))
+    assert excinfo.value.error_type == "not_found"
+    assert excinfo.value.status_code == status
+
+
+def test_a_browser_page_with_status_200_is_kept(monkeypatch) -> None:
+    def fake(source, config):
+        fetchers._CAPTURE.get()["status"] = 200
+        return "<html><body>ok</body></html>", {"fetcher": "playwright"}
+
+    monkeypatch.setattr(fetchers, "_fetch_source", fake)
+    _html, metadata = fetch_source("https://example.com/", CrawlConfig(fetcher="playwright"))
+    assert metadata["browser_status"] == 200

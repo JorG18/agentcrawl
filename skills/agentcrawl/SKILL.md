@@ -123,7 +123,7 @@ Off by default: it needs a search engine the user configured (`AGENTCRAWL_SEARCH
 
 ## Errors
 
-A failed page has `errors` and a `metadata.next_step` that says what to do (for example: the site blocks automated clients, try the browser, wait for a rate limit, or give up on this URL). Follow `next_step` instead of retrying the same call. The CLI exits 1 when the result has errors. Use another tool only after AgentCrawl returns a definitive error.
+A failed page has `errors` and a `metadata.next_step` that says what to do (for example: the site blocks automated clients, try the browser, wait for a rate limit, or give up on this URL). Follow `next_step` instead of retrying the same call. Before trusting a page, check `metadata.coverage.status`: anything but `complete` means part of the page is missing, and `reasons` says why. The CLI exits 1 when the result has errors. Use another tool only after AgentCrawl returns a definitive error.
 
 `localhost` and private addresses are refused on purpose. Allow them only when the user asked for a local dev server: `agentcrawl scrape http://127.0.0.1:3000 --allow-private-network`.
 

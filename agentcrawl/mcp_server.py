@@ -121,9 +121,9 @@ def scrape_url(
     Long page: ask formats=["outline"] first, then section=<id> for the part you need.
 
     Retries transient failures and renders JavaScript pages in a local browser
-    when one is installed. A failure says why in metadata.error_type
-    (client_challenge, blocked, not_found, timeout, network_error...) and what
-    to try instead in metadata.next_step.
+    when one is installed. metadata.coverage.status says if you got the whole
+    page (complete, truncated, partial, blocked, failed); metadata.next_step
+    says what to try on failure.
     """
     overrides: dict[str, Any] = {}
     if browser_actions:

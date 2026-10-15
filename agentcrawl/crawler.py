@@ -24,7 +24,13 @@ from .challenge import ChallengeVerdict, detect_challenge
 from .challenge import html_to_plain_text as _html_to_plain_text
 from .config import DEFAULT_USER_AGENT, CrawlConfig
 from .documents import markdown_from_fetched_content
-from .errors import classify_error, error_metadata, next_step, sanitize_error_message
+from .errors import (
+    classify_error,
+    coverage_of,
+    error_metadata,
+    next_step,
+    sanitize_error_message,
+)
 from .exceptions import FetchError
 from .fetchers import (
     _read_bounded,
@@ -182,7 +188,7 @@ class AgentCrawl:
         against the schema (``metadata.json_error`` says why it is missing).
         """
         with page_deadline(self.config):
-            return self._scrape(
+            result = self._scrape(
                 source,
                 formats,
                 only_main_content,
@@ -192,6 +198,14 @@ class AgentCrawl:
                 max_age,
                 json_options,
             )
+        # One place for every result shape: the document, the payload, crawl pages.
+        if isinstance(result, ScrapeDocument):
+            result.metadata["coverage"] = coverage_of(result.metadata, result.errors)
+        else:
+            result["metadata"]["coverage"] = coverage_of(
+                result["metadata"], result.get("errors") or []
+            )
+        return result
 
     def _scrape(
         self,

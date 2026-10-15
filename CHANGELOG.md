@@ -8,11 +8,16 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ### Added
 
+- **`metadata.coverage`: whether you got the whole page.** Every result (scrape, scrape_many, crawl pages, API, MCP) carries `{"status": ..., "reasons": [...]}` with `status` one of `complete`, `truncated`, `partial`, `blocked`, `failed`. It is computed from signals already in the metadata (`markdown_truncated`, `api_truncated`, `javascript_required`, `browser_render_error`, `network_idle_timeout`, an empty page, `error_type`), so an empty or cut page no longer looks like a plain success.
 - **`cdp` engine: read pages with your own Chrome.** `browser_engine="cdp"` (or `AGENTCRAWL_BROWSER_ENGINE=cdp`) attaches over the DevTools protocol to a Chrome you started with `--remote-debugging-port`, at `cdp_url` / `AGENTCRAWL_CDP_URL` (default `http://127.0.0.1:9222`). Each page gets a fresh isolated context (no profile cookies), the network guard, page budget and actions apply as usual, and closing the pool only disconnects: your Chrome keeps running. Only loopback URLs are accepted; `proxy` is refused because the attached Chrome uses its own network. No Chrome listening is a `config_error` with the command to start one.
 - **`api` format: the JSON endpoints behind a page.** `formats=["api"]` (library, API, MCP, CLI, TypeScript client) renders the page in the browser and returns `api`: the same-site XHR/fetch calls with a JSON response, deduplicated by method, path and query keys, each with `method`, `url`, `status`, `content_type`, `bytes`, `count`, `shape` and `request_shape` (types and keys only, never values). Secret-like query values are redacted. Limits: 30 endpoints (`metadata.api_truncated`), 2 MB per body (`too_large`), shape depth 6. With the default HTTP fetcher the page is fetched with the browser; camofox is a `config_error`.
 
 ### Fixed
 
+- **A missing page read in the browser is `not_found`.** With a browser fetcher, a 404 or 410 came back as a successful page holding the site's "Page not found" text. It now fails like the HTTP path: `error_type="not_found"`, `status_code` 404/410, `coverage.status="failed"`.
+- **Certificate errors in the browser are `tls_error`.** Chromium reports them as `net::ERR_CERT_*`, which was classified `browser_error` (retried, with "retry once" advice) unless the URL happened to contain "ssl".
+- **Refused private or localhost targets are `config_error`**, not the retryable `fetch_error`: a crawl no longer retries a URL the SSRF guard will always refuse.
+- **Browser error messages are one line.** Playwright's `Call log:` and `Page.goto:` prefix are dropped from `error_message`.
 - **Browser errors keep their type.** The `Playwright fetch failed for <url>` wrapper dropped the `error_type` and `status_code` of the error inside it, so a configuration problem (missing extra, CloakBrowser binary) was classified from the message text instead.
 
 ### Removed

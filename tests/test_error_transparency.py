@@ -4,6 +4,8 @@ fetcher validation, and the engine's error_type surviving every surface."""
 from __future__ import annotations
 
 import socket
+import sys
+import types
 import ssl
 import threading
 import urllib.error
@@ -146,3 +148,41 @@ def test_agentcrawler_can_scrape_like_agentcrawl(tmp_path) -> None:
     doc = AgentCrawler().scrape(str(page))
     assert doc.ok
     assert "Hello" in doc.markdown
+
+
+def test_browser_certificate_errors_are_tls_errors() -> None:
+    # Chromium names the cause only in net::ERR_CERT_*; a URL without "ssl"
+    # in it used to fall into the retryable browser_error bucket.
+    exc = FetchError("Playwright fetch failed for https://shop.test/: net::ERR_CERT_DATE_INVALID")
+    assert classify_exception(exc) == "tls_error"
+    assert (
+        classify_exception(FetchError("Playwright fetch failed: net::ERR_SSL_PROTOCOL_ERROR"))
+        == "tls_error"
+    )
+
+
+def test_refused_private_targets_are_not_retried() -> None:
+    result = AgentCrawl().scrape("http://127.0.0.1:9/", formats=["markdown"])
+    assert result["metadata"]["error_type"] == "config_error"
+    assert "config_error" not in CrawlConfig().crawl_retry_error_types
+
+
+def test_browser_errors_drop_the_playwright_call_log(monkeypatch) -> None:
+    from agentcrawl import fetchers
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError(
+            'Page.goto: Timeout 1500ms exceeded.\nCall log:\n  - navigating to "https://x.test/"'
+        )
+
+    # CI's unit job has no Playwright: the import check must pass for the pool to run.
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", types.SimpleNamespace())
+    monkeypatch.setattr(
+        fetchers, "_get_browser_pool", lambda _engine: type("P", (), {"run": fail})()
+    )
+    with pytest.raises(FetchError) as excinfo:
+        fetchers._fetch_playwright("https://x.test/", CrawlConfig(network_idle=False))
+    message = str(excinfo.value)
+    assert "Call log" not in message and "Page.goto" not in message
+    assert message == "Playwright fetch failed for https://x.test/: Timeout 1500ms exceeded."
+    assert classify_exception(excinfo.value) == "timeout"

@@ -443,6 +443,13 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     if metadata.get("fetcher") in {"playwright", "camofox"}:
         if isinstance(capture.get("status"), int):
             metadata["browser_status"] = capture["status"]
+            if capture["status"] in (404, 410):
+                # Same answer as the HTTP path: the site's "Page not found" is not content.
+                raise FetchError(
+                    f"HTTP {capture['status']} for {source} (read in the browser)",
+                    error_type="not_found",
+                    status_code=capture["status"],
+                )
         for key in (
             "challenge_waited_ms",
             "challenge_clicks",
@@ -1374,7 +1381,9 @@ def _fetch_playwright(url: str, config: CrawlConfig, *, audit_trail: Any | None 
         ) from exc
     except Exception as exc:
         reason = _main_navigation_block_reason(guard, url)
-        raise FetchError(f"Playwright fetch failed for {url}: {reason or exc}") from exc
+        # Playwright appends a "Call log:" of its own steps; the cause is the first part.
+        cause = str(exc).split("Call log:")[0].strip().removeprefix("Page.goto: ")
+        raise FetchError(f"Playwright fetch failed for {url}: {reason or cause}") from exc
 
 
 # English browser-wide, not per context: interstitial titles are matched in
