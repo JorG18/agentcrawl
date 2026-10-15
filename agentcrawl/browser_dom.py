@@ -20,6 +20,7 @@ roots are unreachable by design and stay as they are.
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 MAX_IFRAMES = 10
@@ -86,21 +87,29 @@ _REPLACE_IFRAME_JS = """
 MAX_SHADOW_HOSTS = 5_000
 
 
-def flatten_page(page: Any, *, iframes: bool = True, shadow_dom: bool = True) -> dict[str, Any]:
+def flatten_page(
+    page: Any, *, iframes: bool = True, shadow_dom: bool = True, deadline: float | None = None
+) -> dict[str, Any]:
     """Rewrite ``page`` so its serialization includes shadow roots and iframes.
 
-    Returns a small report (``shadow_roots``, ``iframes``, ``iframes_skipped``
-    and ``error`` when something went wrong) for the document metadata.
+    Returns a small report (``shadow_roots``, ``iframes``, ``iframes_skipped``,
+    ``budget_spent`` and ``error`` when something went wrong) for the document
+    metadata. Past ``deadline`` (``time.monotonic()``) the remaining frames are
+    skipped: Playwright's ``evaluate`` takes no timeout, so nothing else stops it.
     """
     report: dict[str, Any] = {}
     try:
         main = page.main_frame
         if iframes:
-            inlined, skipped = _inline_child_frames(main, shadow_dom=shadow_dom, depth=0)
+            inlined, skipped = _inline_child_frames(
+                main, shadow_dom=shadow_dom, depth=0, deadline=deadline
+            )
             report["iframes"] = inlined
             if skipped:
                 report["iframes_skipped"] = skipped
-        if shadow_dom:
+        if deadline is not None and time.monotonic() >= deadline:
+            report["budget_spent"] = True
+        elif shadow_dom:
             report["shadow_roots"] = int(main.evaluate(_FLATTEN_SHADOW_JS, MAX_SHADOW_HOSTS) or 0)
     except Exception as exc:  # best effort: the unflattened page is still valid
         report["error"] = f"{type(exc).__name__}: {exc}"[:300]
@@ -108,12 +117,18 @@ def flatten_page(page: Any, *, iframes: bool = True, shadow_dom: bool = True) ->
 
 
 def _inline_child_frames(
-    frame: Any, *, shadow_dom: bool, depth: int, budget: list[int] | None = None
+    frame: Any,
+    *,
+    shadow_dom: bool,
+    depth: int,
+    budget: list[int] | None = None,
+    deadline: float | None = None,
 ) -> tuple[int, int]:
     budget = budget if budget is not None else [MAX_IFRAMES]
     inlined = skipped = 0
     for child in list(frame.child_frames):
-        if budget[0] <= 0 or depth >= MAX_IFRAME_DEPTH:
+        out_of_time = deadline is not None and time.monotonic() >= deadline
+        if budget[0] <= 0 or depth >= MAX_IFRAME_DEPTH or out_of_time:
             skipped += 1
             continue
         try:
@@ -130,7 +145,7 @@ def _inline_child_frames(
                 continue
             # Nested frames first, so their content travels with this one.
             deeper, deeper_skipped = _inline_child_frames(
-                child, shadow_dom=shadow_dom, depth=depth + 1, budget=budget
+                child, shadow_dom=shadow_dom, depth=depth + 1, budget=budget, deadline=deadline
             )
             inlined += deeper
             skipped += deeper_skipped

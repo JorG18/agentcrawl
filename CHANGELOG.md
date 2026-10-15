@@ -14,6 +14,7 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ### Fixed
 
+- **The page budget holds on heavy browser pages (P1).** Two causes, both measured on apnews (2.6 MB, 133 iframes) with a 15 s budget: copying iframes into the page ran on after the budget was spent (62 Playwright calls, 5-10 s, and `evaluate` takes no timeout), and the network-idle wait could use the whole budget, leaving nothing for reading, closing and parsing the page (1-4 s). Iframe copying now stops at the deadline (`browser_dom.budget_spent`), and both optional waits leave 10 % of the budget (3-5 s) for that tail. apnews: 22.3 s → 15-16 s; washingtonpost and usnews now finish inside it. Same content at the default 45 s.
 - **A missing page read in the browser is `not_found`.** With a browser fetcher, a 404 or 410 came back as a successful page holding the site's "Page not found" text. It now fails like the HTTP path: `error_type="not_found"`, `status_code` 404/410, `coverage.status="failed"`.
 - **Certificate errors in the browser are `tls_error`.** Chromium reports them as `net::ERR_CERT_*`, which was classified `browser_error` (retried, with "retry once" advice) unless the URL happened to contain "ssl".
 - **Refused private or localhost targets are `config_error`**, not the retryable `fetch_error`: a crawl no longer retries a URL the SSRF guard will always refuse.
