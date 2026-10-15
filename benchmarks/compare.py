@@ -44,6 +44,7 @@ fixture set and the tool versions it printed.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import platform
 import re
@@ -312,6 +313,11 @@ def corpus_pages(
         path = snapshots / f"{entry['id']}.html"
         if not path.exists():
             unscored[entry["id"]] = "no snapshot (run python -m benchmarks.snapshot)"
+        elif entry.get("snapshot_sha256") and (
+            hashlib.sha256(path.read_bytes()).hexdigest() != entry["snapshot_sha256"]
+        ):
+            # Signals were written from other bytes: scoring these would be a different test.
+            unscored[entry["id"]] = f"snapshot changed: {entry['id']}"
         else:
             if not entry.get("expected"):
                 unscored[entry["id"]] = "no reviewed expected signals yet"

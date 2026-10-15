@@ -86,3 +86,56 @@ def test_neutral_corpus_snapshot_and_scoring(tmp_path, capsys) -> None:
     assert "unscored unreviewed: no reviewed expected signals yet" in out
     assert "unscored down: no snapshot" in out
     assert index["doc"]["sha256"] in out
+
+
+def test_draw_filters_are_mechanical(monkeypatch):
+    from benchmarks import draw_neutral
+
+    assert (
+        draw_neutral.visible_text(
+            "<html><head><title>t</title><style>x{}</style></head><body><p>Hi <b>there</b></p>"
+            "<script>var a</script></body></html>"
+        )
+        == "Hi there"
+    )
+    monkeypatch.setattr(draw_neutral, "_robots_allow", lambda url: True)
+    long_page = "<html><body><p>" + "word " * 400 + "</p></body></html>"
+    monkeypatch.setattr(draw_neutral, "fetch", lambda url: (long_page.encode(), url, 200))
+    known, per_domain = {"https://a.test/known"}, {"full.test": 3}
+    assert draw_neutral.why_not({"url": "https://a.test/", "kind": "homepage"}, known, per_domain)
+    assert draw_neutral.why_not({"url": "https://a.test/x.pdf", "kind": "inner"}, known, per_domain)
+    assert draw_neutral.why_not({"url": "https://a.test/known", "kind": "inner"}, known, per_domain)
+    assert draw_neutral.why_not({"url": "https://full.test/p", "kind": "inner"}, known, per_domain)
+    assert (
+        draw_neutral.why_not({"url": "https://a.test/p", "kind": "inner"}, known, per_domain)
+        is None
+    )
+    monkeypatch.setattr(
+        draw_neutral, "fetch", lambda url: (b"<html><body>short</body></html>", url, 200)
+    )
+    assert (
+        draw_neutral.why_not({"url": "https://a.test/p", "kind": "inner"}, known, per_domain)
+        == "thin"
+    )
+
+
+def test_changed_snapshot_is_left_out(tmp_path) -> None:
+    import hashlib
+    import json
+
+    from benchmarks.compare import corpus_pages
+
+    (tmp_path / "snapshots").mkdir()
+    (tmp_path / "snapshots" / "same.html").write_bytes(b"<p>signal here</p>")
+    (tmp_path / "snapshots" / "moved.html").write_bytes(b"<p>other bytes now</p>")
+    written_from = hashlib.sha256(b"<p>signal here</p>").hexdigest()
+    page = {"url": "https://x.test/", "expected": ["signal here"], "snapshot_sha256": written_from}
+    manifest = tmp_path / "neutral.json"
+    manifest.write_text(
+        json.dumps({"pages": [{"id": "same", **page}, {"id": "moved", **page}]}), "utf-8"
+    )
+
+    pages, unscored = corpus_pages(manifest)
+
+    assert [p.name for p in pages] == ["same"]
+    assert unscored["moved"] == "snapshot changed: moved"
