@@ -1,8 +1,8 @@
 """Scrape every page of a sample with one tool and record what came back.
 
 Each tool gets the URL and does its own fetching, as a user of that tool
-would: AgentCrawl and Crawl4AI run locally (with a local browser), Firecrawl,
-ScrapeGraphAI and Tavily are hosted APIs called with their own keys. API keys
+would: AgentCrawl and Crawl4AI run locally (with a local browser), Firecrawl
+and Tavily are hosted APIs called with their own keys. API keys
 are read from the environment only and never written anywhere; a tool whose
 key is missing is recorded as skipped.
 
@@ -239,33 +239,6 @@ def run_firecrawl(pages: list[dict[str, Any]], concurrency: int, key: str) -> li
     return _run_threaded(pages, "firecrawl", concurrency, call)
 
 
-def run_scrapegraph(pages: list[dict[str, Any]], concurrency: int, key: str) -> list[Result]:
-    # v2 API (the v1 markdownify endpoint rejects keys from the current
-    # dashboard). "reader" mode is its main-content extraction, like
-    # Firecrawl's onlyMainContent and Crawl4AI's fit_markdown.
-    headers = {"SGAI-APIKEY": key}
-
-    def call(url: str) -> dict[str, Any]:
-        body = _post_json(
-            "https://v2-api.scrapegraphai.com/api/scrape",
-            {"url": url, "formats": [{"type": "markdown", "mode": "reader"}]},
-            headers,
-            PAGE_TIMEOUT_S * 2,
-        )
-        entry = (body.get("results") or {}).get("markdown") or {}
-        data = entry.get("data") if isinstance(entry, dict) else entry
-        if isinstance(data, list):
-            data = "\n\n".join(str(part) for part in data)
-        errors = body.get("errors") or {}
-        warnings = (body.get("metadata") or {}).get("warnings") or []
-        error = None
-        if not data:
-            error = str(errors.get("markdown") or errors or warnings or "no markdown")[:300]
-        return {"markdown": data if isinstance(data, str) else "", "error": error}
-
-    return _run_threaded(pages, "scrapegraph", concurrency, call)
-
-
 def run_tavily(pages: list[dict[str, Any]], concurrency: int, key: str) -> list[Result]:
     headers = {"authorization": f"Bearer {key}"}
     batches = [pages[i : i + 20] for i in range(0, len(pages), 20)]
@@ -326,7 +299,6 @@ TOOLS = {
     "crawl4ai": (None, run_crawl4ai),
     "scrapling": (None, run_scrapling),
     "firecrawl": ("FIRECRAWL_API_KEY", run_firecrawl),
-    "scrapegraph": ("SCRAPEGRAPH_API_KEY", run_scrapegraph),
     "tavily": ("TAVILY_API_KEY", run_tavily),
 }
 

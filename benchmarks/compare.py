@@ -30,7 +30,7 @@ formatting never costs text recall.
 
 Adapters run only when their package is importable; missing tools are listed
 as ``skipped`` rather than silently dropped. Hosted APIs (Firecrawl, Jina
-Reader, ScrapeGraphAI) need network and keys and are *not* part of this lane.
+Reader, Tavily) need network and keys and are *not* part of this lane.
 
 Usage::
 

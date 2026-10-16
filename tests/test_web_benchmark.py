@@ -371,9 +371,23 @@ def test_cli_can_leave_a_tool_out(tmp_path, capsys) -> None:
 
     from benchmarks.web.aggregate import main
 
-    for tool in ("agentcrawl", "scrapegraph"):
+    for tool in ("agentcrawl", "othertool"):
         with gzip.open(tmp_path / f"{tool}.jsonl.gz", "wt") as f:
             f.write(json.dumps({"tool": tool, "id": "x", "markdown": ARTICLE}) + "\n")
 
-    assert main(["--run", str(tmp_path), "--skip", "scrapegraph"]) == 0
-    assert "scrapegraph" not in capsys.readouterr().out
+    assert main(["--run", str(tmp_path), "--skip", "othertool"]) == 0
+    assert "othertool" not in capsys.readouterr().out
+
+
+def test_no_scrapegraph_in_public_benchmark_code() -> None:
+    from pathlib import Path
+
+    from benchmarks.web.run import TOOLS
+
+    assert "scrapegraph" not in TOOLS
+    for path in (
+        "benchmarks/web/run.py",
+        ".github/workflows/web-benchmark.yml",
+        "benchmarks/compare.py",
+    ):
+        assert "scrapegraph" not in Path(path).read_text("utf-8").lower(), path
