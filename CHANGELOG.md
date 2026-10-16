@@ -6,11 +6,23 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ## Unreleased
 
+## 0.6.0 - 2026-10-16
+
+Register the MCP server in one command, see the JSON calls behind a page, read with your own Chrome, and know whether you got the whole page. Also the first public benchmark: on 400 random sites AgentCrawl is tied within noise with Firecrawl and Scrapling on pages read, and on quality it is on par with Firecrawl ([docs/BENCHMARKS.md](docs/BENCHMARKS.md)). Breaking: the deprecated graph classes and config keys are gone, and some errors changed type (see "Upgrading from 0.5").
+
+### Upgrading from 0.5
+
+- `from agentcrawl.graphs import ExtractionGraph, MultiExtractionGraph, SearchGraph` fails: use `AgentCrawl(config).extract(...)` and `AgentCrawl(config).search(...)`.
+- A config with `geoip`, `humanize` or `reattempt_condition` fails with `Unknown config keys`: delete those keys (they never did anything).
+- With a browser fetcher, a 404/410 page is now an error (`error_type="not_found"`) instead of a successful page with the site's "not found" text.
+- If you match on `error_type`: refused private/localhost targets are `config_error` (was `fetch_error`), and certificate errors in the browser are `tls_error` (was `browser_error`).
+
 ### Added
 
 - **`agentcrawl setup`: register the MCP server in one command.** Claude Code, Codex and Gemini CLI are registered through their own `mcp add` command; Cursor and VS Code get their `mcp.json` written atomically with a `.bak-<time>` copy next to it. It shows the plan and asks first (`--yes` applies, `--dry-run` only shows; without a terminal and without `--yes` it changes nothing and exits 2). A detected client is offered unselected unless it already has a registration; other servers are kept, an existing `agentcrawl` entry keeps its `env` (values never printed), and a config file with comments is refused with the line to add by hand. The entry runs `<this python> -m agentcrawl mcp`, so it works from a venv or pipx without PATH. `agentcrawl doctor --client NAME|all` reports `aligned`, `stale` (e.g. the venv was deleted) or `missing` per client, with the `setup` command that fixes it.
 - **`metadata.coverage`: whether you got the whole page.** Every result (scrape, scrape_many, crawl pages, API, MCP) carries `{"status": ..., "reasons": [...]}` with `status` one of `complete`, `truncated`, `partial`, `blocked`, `failed`. It is computed from signals already in the metadata (`markdown_truncated`, `api_truncated`, `javascript_required`, `browser_render_error`, `network_idle_timeout`, an empty page, `error_type`), so an empty or cut page no longer looks like a plain success.
 - **`cdp` engine: read pages with your own Chrome.** `browser_engine="cdp"` (or `AGENTCRAWL_BROWSER_ENGINE=cdp`) attaches over the DevTools protocol to a Chrome you started with `--remote-debugging-port`, at `cdp_url` / `AGENTCRAWL_CDP_URL` (default `http://127.0.0.1:9222`). Each page gets a fresh isolated context (no profile cookies), the network guard, page budget and actions apply as usual, and closing the pool only disconnects: your Chrome keeps running. Only loopback URLs are accepted; `proxy` is refused because the attached Chrome uses its own network. No Chrome listening is a `config_error` with the command to start one.
+- **Public benchmark ([docs/BENCHMARKS.md](docs/BENCHMARKS.md)).** Against Crawl4AI, Scrapling and Firecrawl: web coverage on 400 random real sites (2 runs at 60 s and 180 s per page, exact McNemar test per pair), quality on 35 saved pages of which 23 were drawn at random with their expected text written before any tool ran, and the same pages live. Summaries and samples are committed in `benchmarks/results/0.6.0/`; tooling: `benchmarks/draw_neutral.py`, `benchmarks/web/aggregate.py`, `benchmarks/web/live_quality.py`, real `o200k_base` token counts, one per-page cap for every tool (`--page-timeout`).
 - **`api` format: the JSON endpoints behind a page.** `formats=["api"]` (library, API, MCP, CLI, TypeScript client) renders the page in the browser and returns `api`: the same-site XHR/fetch calls with a JSON response, deduplicated by method, path and query keys, each with `method`, `url`, `status`, `content_type`, `bytes`, `count`, `shape` and `request_shape` (types and keys only, never values). Secret-like query values are redacted. Limits: 30 endpoints (`metadata.api_truncated`), 2 MB per body (`too_large`), shape depth 6. With the default HTTP fetcher the page is fetched with the browser; camofox is a `config_error`.
 
 ### Fixed

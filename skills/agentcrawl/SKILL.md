@@ -1,7 +1,7 @@
 ---
 name: agentcrawl
 description: Read web pages and documentation as clean Markdown with AgentCrawl, locally. Use when you need the content of a URL, several URLs, or a whole docs site; when your built-in web fetch fails, returns raw HTML, or the page needs JavaScript; when a page is too long and you only need one section or the parts about a question; or when you want structured data from a page with CSS selectors and no LLM.
-version: "0.5.6"
+version: "0.6.0"
 metadata:
   homepage: "https://github.com/JorG18/agentcrawl"
   openclaw:
@@ -98,6 +98,14 @@ agentcrawl crawl https://docs.example.com --query "authentication" --max-pages 3
 ```
 
 Always set `--max-pages`. With `--query` the crawl reads the most relevant links first and stops once pages stop matching the question. Prefer `map` and then `scrape-many` on the URLs you picked over a blind crawl.
+
+## The JSON behind a page
+
+```bash
+agentcrawl scrape https://quotes.toscrape.com/scroll --format api
+```
+
+Renders the page in a browser and lists the same-site JSON calls it made: method, URL, status and the response's shape (keys and types, never values). When the data you want comes from one of them, fetch that URL directly instead of scraping the rendered page. Needs the browser extra.
 
 ## Structured data without an LLM
 
