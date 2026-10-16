@@ -24,12 +24,13 @@ out self-clearing checks such as Cloudflare's "Just a moment…", ticking the
 Turnstile checkbox when one is still showing, as a person would; the `[stealth]`
 extra, recommended for sites behind Cloudflare, retries a refused page once with
 Patchright. A page that still
-asks for a CAPTCHA comes back as `error_type: "client_challenge"` with the
-signals seen and a `next_step`, never as content.
+asks for a CAPTCHA and is recognised as one comes back as
+`error_type: "client_challenge"` with the signals seen and a `next_step`, not as
+content.
 
-Every change is checked against real public sites (docs, Wikipedia, GitHub,
-Hacker News, Django docs, a JavaScript-rendered page) by the
-[live smoke workflow](.github/workflows/live-smoke.yml).
+Pull requests that change the engine, and a weekly run, check it against real
+public sites (docs, Wikipedia, GitHub, Hacker News, Django docs, a
+JavaScript-rendered page) in the [live smoke workflow](.github/workflows/live-smoke.yml).
 
 ## Pick your path 🚀
 
@@ -153,13 +154,19 @@ Community is self-hosted: everything above runs on your machine, with your brows
 
 ## Community boundary 🚧
 
-Community is everything that runs on your own machine: the extraction engine, the local browser with its stealth retry, proxies you bring, your own LLM. It never returns a challenge page as content: what it cannot read is reported with the reason and a `next_step`.
+Community is everything that runs on your own machine: the extraction engine, the local browser with its stealth retry, proxies you bring, your own LLM. A page it recognises as a challenge is reported with the reason and a `next_step` instead of being returned as content.
 
 What costs money to operate belongs to AgentCrawl Enhanced, a hosted API (planned): managed residential and mobile proxies, geolocation, a managed browser fleet, CAPTCHA solving, schedules, webhooks, retained datasets, teams and billing.
 
 ## Extraction quality 🧹
 
-The Community engine focuses on stable, agent-ready Markdown before benchmark claims:
+Measured in October 2026 against Crawl4AI, Scrapling and Firecrawl ([full results, method and limits](docs/BENCHMARKS.md)):
+
+- On 400 random real sites AgentCrawl gets readable content from about 64 % of pages, tied within noise with Firecrawl and Scrapling, and ahead of Crawl4AI.
+- On 23 randomly drawn pages with checked expectations it keeps 99 % of the checked text, and 8–10 % of the checked chrome strings (navigation, cookie banners, footers) leak through. On that quality it is on par with Firecrawl and Crawl4AI, and ahead of Scrapling.
+- On those pages its output is about a third smaller than Firecrawl's, and close to Crawl4AI's `fit_markdown` (2 % smaller live, 18 % larger offline).
+
+How the engine gets there:
 
 - selects semantic content from `<main>`, `<article>`, documentation/content containers, or text-rich fallback blocks;
 - removes unsafe and noisy page chrome such as scripts, styles, hidden content, nav, footer, cookie banners, sidebars, and related-post blocks;
@@ -206,7 +213,7 @@ Scrape a URL:
 curl http://127.0.0.1:8000/v1/scrape \
   -H "authorization: Bearer replace-with-a-long-random-key" \
   -H "content-type: application/json" \
-  -d '{"url":"https://example.com","formats":["markdown","links","metadata"]}'
+  -d '{"url":"https://docs.python.org/3/library/json.html","formats":["markdown","links","metadata"]}'
 ```
 
 Main endpoints (everything except `/health` requires the bearer key; the dashboard follows the same setting unless `AGENTCRAWL_DASHBOARD_PUBLIC=true`):
@@ -265,11 +272,7 @@ agentcrawl dashboard --db agentcrawl.db --output dashboard.html
 
 When the API server is running, the same read-only view is available at `/dashboard` (HTML) and `/api/dashboard/summary` (JSON). The dashboard reports job status, crawl queue, open failures, cache domains, and usage units without sending data to any hosted service.
 
-Because that is the same operational data `GET /v1/stats` protects, the HTTP dashboard follows `AGENTCRAWL_AUTH_ENABLED`: with auth on it needs the bearer key, and with auth off (local/dev) it stays open. A browser cannot send a bearer header, so a single-operator host that wants the header-less view sets `AGENTCRAWL_DASHBOARD_PUBLIC=true`. The offline path needs no server at all:
-
-```bash
-agentcrawl dashboard --db agentcrawl.db --output dashboard.html
-```
+Because that is the same operational data `GET /v1/stats` protects, the HTTP dashboard follows `AGENTCRAWL_AUTH_ENABLED`: with auth on it needs the bearer key, and with auth off (local/dev) it stays open. A browser cannot send a bearer header, so a single-operator host that wants the header-less view sets `AGENTCRAWL_DASHBOARD_PUBLIC=true`. The static file above needs no server at all.
 
 ## Crawl jobs 🧭
 
@@ -386,9 +389,9 @@ browser got as a challenge or a 403/429 once with Patchright, on the next proxy
 if you gave several. Both browsers wait out "Just a moment…" pages and tick a
 Cloudflare Turnstile checkbox that is still showing, in your own browser
 (`AGENTCRAWL_BROWSER_CHALLENGE_CLICK=false` turns that off). No solver service is
-called and no image CAPTCHA is attempted. In a 400-page sample the retry opened 7
-of 17 challenged pages and left 9 pages on a challenge (16 to 21 without it),
-within 3 pages of Scrapling's result on the same machine.
+called and no image CAPTCHA is attempted. In the 0.6.0 benchmark, with this
+extra, AgentCrawl and Scrapling's `StealthyFetcher` read as many pages as each
+other ([benchmarks](docs/BENCHMARKS.md)).
 
 ```bash
 python -m pip install "agentcrawl-ai[stealth]"
@@ -493,10 +496,11 @@ Do not expose the API without authentication, TLS, request limits, and network c
 - [Install for agents](INSTALL_FOR_AGENTS.md): canonical setup flow for coding agents.
 - [Docs index](docs/README.md): map of the public documentation set.
 - [Examples](docs/EXAMPLES.md): copy-paste workflows for CLI, Python, HTTP, MCP, Docker, and agents.
-- [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): how extraction quality is measured and reported.
+- [Benchmarks](docs/BENCHMARKS.md): AgentCrawl against Crawl4AI, Scrapling and Firecrawl on real websites, with how to reproduce it.
+- [Quality benchmarks](docs/QUALITY_BENCHMARKS.md): the regression suite and how extraction quality is measured.
 - [Operations](docs/OPERATIONS.md): deployment, backup, restore, and production checks.
 - [Release checklist](docs/RELEASE.md): PyPI/GHCR release validation and smoke tests.
-- [Comparison](docs/COMPARISON.md): choose between AgentCrawl, Firecrawl, Crawl4AI, ScrapeGraphAI, Jina Reader, Crawlee, and Stagehand.
+- [Comparison](docs/COMPARISON.md): choose between AgentCrawl, Firecrawl, Crawl4AI, Scrapling, Jina Reader, Crawlee, and Stagehand.
 
 ## Optional LLM extraction
 

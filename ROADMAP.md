@@ -2,7 +2,7 @@
 
 AgentCrawl focuses on one job first: help AI agents read and crawl web content reliably from infrastructure you control.
 
-This roadmap is **directional**. Public performance or quality claims need reproducible tests before they appear in docs or marketing. No benchmark numbers in marketing copy.
+This roadmap is **directional**. Public performance or quality claims need reproducible tests before they appear in docs or marketing: benchmark numbers appear only with a public, reproducible run (see [docs/BENCHMARKS.md](docs/BENCHMARKS.md)), and a gap that is not significant is called a tie.
 
 ## Current community status
 
@@ -79,7 +79,7 @@ AgentCrawl Community is a serious self-hosted alpha surface. The core paths work
 - Deterministic CSS-schema extraction (`extract-css`, `/v1/extract_css`, MCP `extract_structured`) — no LLM, zero tokens.
 - Query-aware (BM25) selection when a page exceeds the output or chunk budget.
 - CSV/TSV ingestion for local files and `text/csv` URLs.
-- `benchmarks/compare.py`: reproducible offline comparison lane (results stay internal until a neutral corpus exists).
+- `benchmarks/compare.py`: reproducible offline comparison lane (published for 0.6.0 in [docs/BENCHMARKS.md](docs/BENCHMARKS.md)).
 
 **Audit context:** each audit pass is recorded, finding by finding, in [CHANGELOG.md](CHANGELOG.md) (the 2026-06 audit under 0.1.3, the 2026-09 passes under 0.2.0).
 
@@ -97,7 +97,7 @@ Managed residential and mobile proxies, geolocation, a managed browser fleet, CA
 
 We're working on, in roughly this order:
 
-1. **Keep the public benchmark lane honest.** The 400-page random web sample (`benchmarks/web`) against Crawl4AI, run from GitHub's datacenter network, on every release. Numbers of hosted tools are published only where their terms allow it.
+1. **Keep the public benchmark lane honest.** The 400-page random web sample (`benchmarks/web`) against Crawl4AI, Scrapling and Firecrawl, run from GitHub's datacenter network, rerun before each release and published in [docs/BENCHMARKS.md](docs/BENCHMARKS.md). Numbers of hosted tools are published only where their terms allow it.
 2. **Maintained release smoke targets.** Smoke-tested paths stay tested. They don't grow into unsupported "vs X" comparison copy.
 3. **Lighter document ingestion.** More file types only when the dependency cost stays small enough to remain an optional extra.
 4. **Verified examples.** Every example in `examples/` runs against a real public site we actually tested. Anything else gets removed.
@@ -114,4 +114,4 @@ Public announcements only go out after:
 4. The GHCR workflow for the tag is green.
 5. No proprietary or non-Community code exists in any public source file.
 
-Comparative claims follow the benchmark policy in [docs/QUALITY_BENCHMARKS.md](docs/QUALITY_BENCHMARKS.md): no numbers without a reproducible run on a neutral corpus.
+Comparative claims follow [docs/BENCHMARKS.md](docs/BENCHMARKS.md): no numbers without a reproducible public run, with quality scored on pages drawn at random.

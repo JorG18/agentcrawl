@@ -15,6 +15,6 @@ Start here when you need deeper documentation beyond the root README.
 
 ## Boundary rule
 
-Public docs should use `https://pypi.org/project/agentcrawl-ai/` or another accessible page for normal smoke tests.
+Public docs should use `https://docs.python.org/3/library/json.html` or another page that reads over plain HTTP for normal smoke tests (PyPI now answers plain HTTP with a client challenge and needs the browser extra).
 
 `https://example.com` is the documented Community boundary case because it often returns a Cloudflare client challenge. Use it only when explaining honest `client_challenge` behavior, not as the default success example.
