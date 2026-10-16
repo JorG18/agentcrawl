@@ -2,7 +2,7 @@
 
 Each tool gets the URL and does its own fetching, as a user of that tool
 would: AgentCrawl and Crawl4AI run locally (with a local browser), Firecrawl
-and Tavily are hosted APIs called with their own keys. API keys
+is a hosted API called with its own key. API keys
 are read from the environment only and never written anywhere; a tool whose
 key is missing is recorded as skipped.
 
@@ -239,45 +239,6 @@ def run_firecrawl(pages: list[dict[str, Any]], concurrency: int, key: str) -> li
     return _run_threaded(pages, "firecrawl", concurrency, call)
 
 
-def run_tavily(pages: list[dict[str, Any]], concurrency: int, key: str) -> list[Result]:
-    headers = {"authorization": f"Bearer {key}"}
-    batches = [pages[i : i + 20] for i in range(0, len(pages), 20)]
-
-    def batch(chunk: list[dict[str, Any]]) -> list[Result]:
-        started = time.perf_counter()
-        try:
-            body = _post_json(
-                "https://api.tavily.com/extract",
-                {
-                    "urls": [page["url"] for page in chunk],
-                    "format": "markdown",
-                    "extract_depth": "basic",
-                },
-                headers,
-                PAGE_TIMEOUT_S * 2,
-            )
-        except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"[:300]
-            return [_result(page, "tavily", error=error, seconds=None) for page in chunk]
-        elapsed = (time.perf_counter() - started) / max(1, len(chunk))
-        found = {item.get("url"): item for item in body.get("results", [])}
-        failed = {item.get("url"): item for item in body.get("failed_results", [])}
-        out = []
-        for page in chunk:
-            item = found.get(page["url"])
-            if item is not None:
-                out.append(
-                    _result(page, "tavily", markdown=item.get("raw_content") or "", seconds=elapsed)
-                )
-            else:
-                reason = (failed.get(page["url"]) or {}).get("error") or "not returned"
-                out.append(_result(page, "tavily", error=str(reason)[:300], seconds=elapsed))
-        return out
-
-    with ThreadPoolExecutor(max_workers=max(1, concurrency // 4)) as pool:
-        return [result for chunk in pool.map(batch, batches) for result in chunk]
-
-
 def run_scrapling(pages: list[dict[str, Any]], concurrency: int) -> list[Result]:
     # Its strongest local mode, as an agent would pick it for a hard site:
     # Patchright with the Turnstile click, then the markdown its MCP returns.
@@ -299,7 +260,6 @@ TOOLS = {
     "crawl4ai": (None, run_crawl4ai),
     "scrapling": (None, run_scrapling),
     "firecrawl": ("FIRECRAWL_API_KEY", run_firecrawl),
-    "tavily": ("TAVILY_API_KEY", run_tavily),
 }
 
 

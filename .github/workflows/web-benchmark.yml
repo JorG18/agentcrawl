@@ -5,8 +5,8 @@ name: Web benchmark
 # each returned without hand-written expectations (benchmarks/web).
 #
 # Pull requests that touch it run a small sample with the local tools only.
-# Hosted APIs (Firecrawl, Tavily) run only on demand, with
-# keys from repository secrets; they spend the owner's credits.
+# Hosted APIs (Firecrawl) run only on demand, with keys from
+# repository secrets; they spend the owner's credits.
 on:
   pull_request:
     paths:
@@ -25,7 +25,7 @@ on:
         default: "2026"
       tools:
         description: Comma-separated tools
-        default: "agentcrawl,crawl4ai,scrapling,firecrawl,tavily"
+        default: "agentcrawl,crawl4ai,scrapling,firecrawl"
       sample_from_run:
         description: Reuse the sample of an earlier run (its run id) instead of drawing one
         default: ""
@@ -188,7 +188,6 @@ jobs:
         env:
           # Only the step that needs a key sees it; the runner never prints it.
           FIRECRAWL_API_KEY: ${{ matrix.tool == 'firecrawl' && secrets.FIRECRAWL_API_KEY || '' }}
-          TAVILY_API_KEY: ${{ matrix.tool == 'tavily' && secrets.TAVILY_API_KEY || '' }}
         run: |
           # Stay under free-plan rate limits.
           python -m benchmarks.web.run --tool "${{ matrix.tool }}" --sample sample.json \
