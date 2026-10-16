@@ -391,3 +391,24 @@ def test_no_scrapegraph_in_public_benchmark_code() -> None:
         "benchmarks/compare.py",
     ):
         assert "scrapegraph" not in Path(path).read_text("utf-8").lower(), path
+
+
+def test_live_quality_scores_got_pages_only(tmp_path) -> None:
+    import gzip
+    import json
+
+    from benchmarks.web.live_quality import live_quality
+
+    manifest = tmp_path / "neutral.json"
+    page = {"url": "https://x.test/", "expected": ["Install Guide"], "excluded": ["Subscribe now"]}
+    manifest.write_text(json.dumps({"pages": [{"id": "p1", **page}, {"id": "p2", **page}]}))
+    run = tmp_path / "run" / "web-local"
+    run.mkdir(parents=True)
+    with gzip.open(run / "t.jsonl.gz", "wt") as f:
+        f.write(json.dumps({"tool": "t", "id": "p1", "markdown": "# Install Guide\nSubscribe now"}))
+        f.write("\n" + json.dumps({"tool": "t", "id": "p2", "markdown": ""}) + "\n")
+
+    row = live_quality(tmp_path / "run", manifest)["t"]
+
+    assert (row["pages"], row["got"], row["clean"]) == (2, 1, 0)
+    assert (row["text_recall"], row["noise"], row["quality"]) == (1.0, 1.0, 0.0)
