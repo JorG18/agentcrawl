@@ -43,6 +43,14 @@ from .run import PAGE_TIMEOUT_S
 # for minutes), so the same wall clock is applied to all of them here. Hosted
 # APIs are left out: their time includes our rate-limit waits.
 LOCAL_TOOLS = frozenset({"agentcrawl", "crawl4ai", "scrapling"})
+# Past its own cap a tool gets this long to hand back what it has.
+GRACE_S = 15
+
+
+def is_local(tool: str | None) -> bool:
+    """Local tools and their variants (``agentcrawl-stealth``)."""
+    return bool(tool) and tool.split("-")[0] in LOCAL_TOOLS
+
 
 MIN_CONTENT_CHARS = 300
 MIN_SENTENCE_CHARS = 50
@@ -69,7 +77,8 @@ _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+|\n+")
 def classify(result: dict[str, Any]) -> str:
     if result.get("skipped"):
         return "skipped"
-    if result.get("tool") in LOCAL_TOOLS and (result.get("seconds") or 0) > PAGE_TIMEOUT_S:
+    cap = result.get("page_timeout") or PAGE_TIMEOUT_S  # results older than the field: 60 s
+    if is_local(result.get("tool")) and (result.get("seconds") or 0) > cap + GRACE_S:
         return "failed"
     text = _plain(result.get("markdown") or "")
     readable = re.sub(r"\s+", " ", re.sub(r"https?://\S+|[#|>\-*_=\[\]()]", " ", text)).strip()

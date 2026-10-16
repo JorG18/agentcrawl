@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import random
 
 from benchmarks.web import sample
@@ -75,6 +77,7 @@ def test_infrastructure_and_adult_domains_are_not_sampled() -> None:
     assert not is_candidate("d1.cloudfront.net")
     assert not is_candidate("xvideos.com")
     assert not is_candidate("javhd.today")
+    assert not is_candidate("redtube.com")  # slipped into the 2026-10-15 corpus draw
     assert is_candidate("wikipedia.org")
 
 
@@ -105,10 +108,10 @@ def test_error_status_page_is_not_content() -> None:
 
 
 def test_local_tools_share_one_wall_clock() -> None:
-    slow = {"markdown": ARTICLE, "seconds": 61}
+    slow = {"markdown": ARTICLE, "seconds": 76}  # past the 60 s cap + 15 s grace
     assert classify({**slow, "tool": "scrapling"}) == "failed"
     assert classify({**slow, "tool": "agentcrawl"}) == "failed"
-    assert classify({**slow, "tool": "agentcrawl", "seconds": 59}) == "content"
+    assert classify({**slow, "tool": "agentcrawl", "seconds": 74}) == "content"
     # A hosted API's time includes our rate-limit waits.
     assert classify({**slow, "tool": "firecrawl"}) == "content"
 
@@ -260,3 +263,196 @@ def test_a_sitemap_url_list_is_content_not_thin() -> None:
     urls = "\n".join(f"- https://example.com/page/{n}" for n in range(6))
     assert classify({"markdown": urls}) == "content"
     assert classify({"markdown": "- https://example.com/a"}) == "thin"
+
+
+def test_cap_applies_to_every_tool_alike() -> None:
+    for tool in ("agentcrawl", "agentcrawl-stealth", "scrapling", "crawl4ai"):
+        late = {"tool": tool, "markdown": ARTICLE, "seconds": 76, "page_timeout": 60}
+        in_time = {**late, "seconds": 74}
+        assert classify(late) == "failed", tool
+        assert classify(in_time) == "content", tool
+
+
+def test_uncapped_run_keeps_slow_pages() -> None:
+    slow = {"tool": "scrapling", "markdown": ARTICLE, "seconds": 120, "page_timeout": 180}
+    assert classify(slow) == "content"
+    # Results from before the field existed were run with a 60 s cap.
+    assert classify({"tool": "scrapling", "markdown": ARTICLE, "seconds": 120}) == "failed"
+
+
+def test_variants_are_local() -> None:
+    from benchmarks.web.report import is_local
+
+    assert is_local("agentcrawl-stealth") is True
+    assert is_local("crawl4ai") is True
+    assert is_local("firecrawl") is False
+
+
+def test_hosted_time_is_not_capped_by_the_harness() -> None:
+    # Hosted seconds include our own 429 waits; the API got the cap as its timeout.
+    hosted = {"tool": "firecrawl", "markdown": ARTICLE, "seconds": 200, "page_timeout": 60}
+    assert classify(hosted) == "content"
+
+
+# -- aggregate: pool runs and test differences -------------------------------------
+def _run(contents: dict[str, dict[str, bool]]) -> dict:
+    """{tool: {page: has_content}} → the shape report.load returns."""
+    return {
+        tool: {
+            page: {"tool": tool, "id": page, "markdown": ARTICLE if ok else ""}
+            for page, ok in pages.items()
+        }
+        for tool, pages in contents.items()
+    }
+
+
+def test_pairs_are_per_page_and_run() -> None:
+    from benchmarks.web.aggregate import pooled
+
+    run1 = _run({"a": {"x": True, "y": True}, "b": {"x": False, "y": True}})
+    run2 = _run({"a": {"x": False, "y": True}, "b": {"x": True, "y": True}})
+
+    summary = pooled([run1, run2])
+
+    assert summary["tools"]["a"]["content_per_run"] == [2, 1]
+    assert summary["tools"]["a"]["content_total"] == 3
+    pair = summary["pairs"]["a vs b"]
+    assert (pair["a_only"], pair["b_only"]) == (1, 1)
+    assert pair["band"] == 2  # differences per run: +1 and -1
+
+
+def test_mcnemar_exact() -> None:
+    from benchmarks.web.aggregate import mcnemar_p
+
+    assert mcnemar_p(10, 2) == pytest.approx(0.0386, abs=1e-4)
+    assert mcnemar_p(0, 0) == 1.0
+
+
+def test_tie_is_written_as_a_tie() -> None:
+    from benchmarks.web.aggregate import markdown, pooled
+
+    run = _run({"a": {"x": True, "y": False}, "b": {"x": False, "y": True}})
+    text = markdown(pooled([run]))
+    assert "tie within noise" in text
+
+
+def test_cli_reads_results_from_downloaded_artifact_folders(tmp_path, capsys) -> None:
+    # `gh run download -p "web-*"` writes one subfolder per artifact.
+    import gzip
+    import json
+
+    from benchmarks.web.aggregate import main
+
+    (tmp_path / "web-local").mkdir()
+    row = {"tool": "agentcrawl", "id": "x", "markdown": ARTICLE}
+    with gzip.open(tmp_path / "web-local" / "agentcrawl.jsonl.gz", "wt") as f:
+        f.write(json.dumps(row) + "\n")
+
+    assert main(["--run", str(tmp_path)]) == 0
+    assert "| agentcrawl | 1 | 1 |" in capsys.readouterr().out
+
+
+def test_billing_errors_are_not_attempts() -> None:
+    # Out of credits is the account, not the scraper: those pages leave the pair.
+    from benchmarks.web.aggregate import pooled
+
+    run = _run({"a": {"x": True, "y": True}, "b": {"x": True, "y": False}})
+    run["b"]["y"]["error"] = 'RuntimeError: HTTP 402: {"error":"Insufficient credits"}'
+
+    summary = pooled([run])
+
+    assert summary["tools"]["b"]["pages"] == 1
+    assert (summary["pairs"]["a vs b"]["a_only"], summary["pairs"]["a vs b"]["b_only"]) == (0, 0)
+
+
+def test_cli_can_leave_a_tool_out(tmp_path, capsys) -> None:
+    import gzip
+    import json
+
+    from benchmarks.web.aggregate import main
+
+    for tool in ("agentcrawl", "othertool"):
+        with gzip.open(tmp_path / f"{tool}.jsonl.gz", "wt") as f:
+            f.write(json.dumps({"tool": tool, "id": "x", "markdown": ARTICLE}) + "\n")
+
+    assert main(["--run", str(tmp_path), "--skip", "othertool"]) == 0
+    assert "othertool" not in capsys.readouterr().out
+
+
+def test_public_benchmark_runs_only_the_published_tools() -> None:
+    # Hosted tools stay out unless their terms allow publishing; see docs/BENCHMARKS.md.
+    import json
+    from pathlib import Path
+
+    from benchmarks.web.run import TOOLS
+
+    published = {"agentcrawl", "crawl4ai", "scrapling", "firecrawl"}
+    assert set(TOOLS) == published
+    for path in Path("benchmarks/results").rglob("*.json"):
+        data = json.loads(path.read_text("utf-8"))
+        tools = data.get("tools", {}) if isinstance(data, dict) else {}
+        assert set(tools) <= published, path
+
+
+def test_live_quality_scores_got_pages_only(tmp_path) -> None:
+    import gzip
+    import json
+
+    from benchmarks.web.live_quality import live_quality
+
+    manifest = tmp_path / "neutral.json"
+    page = {"url": "https://x.test/", "expected": ["Install Guide"], "excluded": ["Subscribe now"]}
+    manifest.write_text(json.dumps({"pages": [{"id": "p1", **page}, {"id": "p2", **page}]}))
+    run = tmp_path / "run" / "web-local"
+    run.mkdir(parents=True)
+    with gzip.open(run / "t.jsonl.gz", "wt") as f:
+        f.write(json.dumps({"tool": "t", "id": "p1", "markdown": "# Install Guide\nSubscribe now"}))
+        f.write("\n" + json.dumps({"tool": "t", "id": "p2", "markdown": ""}) + "\n")
+
+    row = live_quality(tmp_path / "run", manifest)["t"]
+
+    assert (row["pages"], row["got"], row["clean"]) == (2, 1, 0)
+    assert (row["text_recall"], row["noise"], row["quality"]) == (1.0, 1.0, 0.0)
+
+
+def test_live_quality_pairs_count_pages_each_tool_did_better() -> None:
+    from benchmarks.web.live_quality import pairs
+
+    per_page = {"a": {"x": 1.0, "y": 0.5, "z": 1.0}, "b": {"x": 0.5, "y": 0.5, "z": 0.0}}
+
+    pair = pairs(per_page)["a vs b"]
+
+    assert (pair["a_better"], pair["b_better"], pair["same"]) == (2, 0, 1)
+    assert pair["p"] == 0.5  # exact sign test on 2 vs 0
+
+
+def test_skipped_pages_are_not_attempts() -> None:
+    # A tool that never ran (no key, --limit) must not lose every pair.
+    from benchmarks.web.aggregate import pooled
+
+    run = _run({"a": {"x": True, "y": True}, "b": {"x": False, "y": False}})
+    for page in ("x", "y"):
+        run["b"][page]["skipped"] = "no FIRECRAWL_API_KEY"
+
+    summary = pooled([run])
+
+    assert summary["tools"]["b"]["pages"] == 0
+    assert summary["pairs"]["a vs b"]["a_only"] == 0
+
+
+def test_live_quality_leaves_out_skipped_pages(tmp_path) -> None:
+    import gzip
+    import json
+
+    from benchmarks.web.live_quality import live_quality
+
+    manifest = tmp_path / "neutral.json"
+    page = {"url": "https://x.test/", "expected": ["Install Guide"]}
+    manifest.write_text(json.dumps({"pages": [{"id": "p1", **page}]}))
+    (tmp_path / "run").mkdir()
+    with gzip.open(tmp_path / "run" / "t.jsonl.gz", "wt") as f:
+        f.write(json.dumps({"tool": "t", "id": "p1", "markdown": "", "skipped": "no key"}) + "\n")
+
+    row = live_quality(tmp_path / "run", manifest)["t"]
+
+    assert (row["pages"], row["got"]) == (0, 0)

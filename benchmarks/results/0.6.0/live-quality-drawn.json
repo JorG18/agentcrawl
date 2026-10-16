@@ -1,0 +1,178 @@
+{
+  "tools": {
+    "firecrawl": {
+      "pages": 23,
+      "got": 22,
+      "text_recall": 0.964,
+      "noise": 0.14,
+      "clean": 13,
+      "real_tokens": 61352,
+      "quality": 0.823,
+      "per_page": {
+        "drawn-01": 1.0,
+        "drawn-02": 0.6666666666666667,
+        "drawn-04": 0.5,
+        "drawn-05": 0.33333333333333337,
+        "drawn-06": 0.6666666666666667,
+        "drawn-07": 1.0,
+        "drawn-09": 1.0,
+        "drawn-10": 0.75,
+        "drawn-11": 0.4,
+        "drawn-13": 1.0,
+        "drawn-14": 1.0,
+        "drawn-15": 0.6666666666666667,
+        "drawn-16": 0.0,
+        "drawn-17": 0.8,
+        "drawn-18": 1.0,
+        "drawn-19": 1.0,
+        "drawn-20": 1.0,
+        "drawn-21": 1.0,
+        "drawn-22": 1.0,
+        "drawn-23": 1.0,
+        "drawn-24": 1.0,
+        "drawn-25": 1.0,
+        "drawn-26": 0.33333333333333337
+      }
+    },
+    "agentcrawl": {
+      "pages": 23,
+      "got": 23,
+      "text_recall": 0.991,
+      "noise": 0.083,
+      "clean": 18,
+      "real_tokens": 39393,
+      "quality": 0.91,
+      "per_page": {
+        "drawn-01": 1.0,
+        "drawn-02": 0.6666666666666667,
+        "drawn-04": 1.0,
+        "drawn-05": 0.33333333333333337,
+        "drawn-06": 0.6666666666666667,
+        "drawn-07": 1.0,
+        "drawn-09": 1.0,
+        "drawn-10": 0.6000000000000001,
+        "drawn-11": 1.0,
+        "drawn-13": 1.0,
+        "drawn-14": 1.0,
+        "drawn-15": 1.0,
+        "drawn-16": 1.0,
+        "drawn-17": 1.0,
+        "drawn-18": 1.0,
+        "drawn-19": 1.0,
+        "drawn-20": 1.0,
+        "drawn-21": 1.0,
+        "drawn-22": 1.0,
+        "drawn-23": 1.0,
+        "drawn-24": 1.0,
+        "drawn-25": 1.0,
+        "drawn-26": 0.6666666666666667
+      }
+    },
+    "crawl4ai": {
+      "pages": 23,
+      "got": 22,
+      "text_recall": 0.973,
+      "noise": 0.17,
+      "clean": 12,
+      "real_tokens": 37256,
+      "quality": 0.802,
+      "per_page": {
+        "drawn-01": 1.0,
+        "drawn-02": 0.6666666666666667,
+        "drawn-04": 0.5,
+        "drawn-05": 0.33333333333333337,
+        "drawn-06": 0.6666666666666667,
+        "drawn-07": 0.6666666666666667,
+        "drawn-09": 1.0,
+        "drawn-10": 0.75,
+        "drawn-11": 0.4,
+        "drawn-13": 1.0,
+        "drawn-14": 1.0,
+        "drawn-15": 0.6666666666666667,
+        "drawn-16": 1.0,
+        "drawn-17": 0.6666666666666667,
+        "drawn-18": 1.0,
+        "drawn-19": 1.0,
+        "drawn-20": 1.0,
+        "drawn-21": 1.0,
+        "drawn-22": 1.0,
+        "drawn-23": 0.0,
+        "drawn-24": 1.0,
+        "drawn-25": 1.0,
+        "drawn-26": 0.33333333333333337
+      }
+    },
+    "scrapling": {
+      "pages": 23,
+      "got": 23,
+      "text_recall": 0.978,
+      "noise": 0.913,
+      "clean": 0,
+      "real_tokens": 148924,
+      "quality": 0.087,
+      "per_page": {
+        "drawn-01": 0.33333333333333337,
+        "drawn-02": 0.0,
+        "drawn-04": 0.0,
+        "drawn-05": 0.0,
+        "drawn-06": 0.33333333333333337,
+        "drawn-07": 0.0,
+        "drawn-09": 0.0,
+        "drawn-10": 0.0,
+        "drawn-11": 0.6666666666666667,
+        "drawn-13": 0.0,
+        "drawn-14": 0.0,
+        "drawn-15": 0.0,
+        "drawn-16": 0.0,
+        "drawn-17": 0.0,
+        "drawn-18": 0.0,
+        "drawn-19": 0.0,
+        "drawn-20": 0.0,
+        "drawn-21": 0.33333333333333337,
+        "drawn-22": 0.0,
+        "drawn-23": 0.0,
+        "drawn-24": 0.33333333333333337,
+        "drawn-25": 0.0,
+        "drawn-26": 0.0
+      }
+    }
+  },
+  "pairs": {
+    "agentcrawl vs crawl4ai": {
+      "a_better": 7,
+      "b_better": 1,
+      "same": 15,
+      "p": 0.0703
+    },
+    "agentcrawl vs firecrawl": {
+      "a_better": 6,
+      "b_better": 1,
+      "same": 16,
+      "p": 0.125
+    },
+    "agentcrawl vs scrapling": {
+      "a_better": 23,
+      "b_better": 0,
+      "same": 0,
+      "p": 0.0
+    },
+    "crawl4ai vs firecrawl": {
+      "a_better": 1,
+      "b_better": 3,
+      "same": 19,
+      "p": 0.625
+    },
+    "crawl4ai vs scrapling": {
+      "a_better": 21,
+      "b_better": 1,
+      "same": 1,
+      "p": 0.0
+    },
+    "firecrawl vs scrapling": {
+      "a_better": 21,
+      "b_better": 1,
+      "same": 1,
+      "p": 0.0
+    }
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "runs": 2,
+  "tools": {
+    "agentcrawl": {
+      "content_per_run": [
+        255,
+        254
+      ],
+      "content_total": 509,
+      "pages": 800
+    },
+    "crawl4ai": {
+      "content_per_run": [
+        221,
+        221
+      ],
+      "content_total": 442,
+      "pages": 800
+    },
+    "firecrawl": {
+      "content_per_run": [
+        260,
+        187
+      ],
+      "content_total": 447,
+      "pages": 688
+    },
+    "scrapling": {
+      "content_per_run": [
+        258,
+        258
+      ],
+      "content_total": 516,
+      "pages": 800
+    }
+  },
+  "pairs": {
+    "agentcrawl vs crawl4ai": {
+      "a": "agentcrawl",
+      "b": "crawl4ai",
+      "a_only": 84,
+      "b_only": 17,
+      "difference": 67,
+      "p": 0.0,
+      "band": 1
+    },
+    "agentcrawl vs firecrawl": {
+      "a": "agentcrawl",
+      "b": "firecrawl",
+      "a_only": 45,
+      "b_only": 59,
+      "difference": -14,
+      "p": 0.2022,
+      "band": 4
+    },
+    "agentcrawl vs scrapling": {
+      "a": "agentcrawl",
+      "b": "scrapling",
+      "a_only": 38,
+      "b_only": 45,
+      "difference": -7,
+      "p": 0.5104,
+      "band": 1
+    },
+    "crawl4ai vs firecrawl": {
+      "a": "crawl4ai",
+      "b": "firecrawl",
+      "a_only": 31,
+      "b_only": 98,
+      "difference": -67,
+      "p": 0.0,
+      "band": 11
+    },
+    "crawl4ai vs scrapling": {
+      "a": "crawl4ai",
+      "b": "scrapling",
+      "a_only": 31,
+      "b_only": 105,
+      "difference": -74,
+      "p": 0.0,
+      "band": 0
+    },
+    "firecrawl vs scrapling": {
+      "a": "firecrawl",
+      "b": "scrapling",
+      "a_only": 47,
+      "b_only": 42,
+      "difference": 5,
+      "p": 0.6718,
+      "band": 1
+    }
+  }
+}

@@ -19,7 +19,7 @@ metadata:
 
 # AgentCrawl
 
-AgentCrawl turns web pages into Markdown, links and metadata for agents. It runs on the user's machine: no account, no API key, no hosted scraper. It follows robots.txt, refuses private-network targets unless told otherwise, and never returns a bot-check page as if it were content.
+AgentCrawl turns web pages into Markdown, links and metadata for agents. It runs on the user's machine: no account, no API key, no hosted scraper. It follows robots.txt, refuses private-network targets unless told otherwise, and reports a bot-check page it recognises instead of returning it as content.
 
 **This is the official skill, by the AgentCrawl author.**
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from benchmarks.compare import ADAPTERS, main, score, summarize
 
 
@@ -86,3 +88,121 @@ def test_neutral_corpus_snapshot_and_scoring(tmp_path, capsys) -> None:
     assert "unscored unreviewed: no reviewed expected signals yet" in out
     assert "unscored down: no snapshot" in out
     assert index["doc"]["sha256"] in out
+
+
+def test_draw_filters_are_mechanical(monkeypatch):
+    from benchmarks import draw_neutral
+
+    assert (
+        draw_neutral.visible_text(
+            "<html><head><title>t</title><style>x{}</style></head><body><p>Hi <b>there</b></p>"
+            "<script>var a</script></body></html>"
+        )
+        == "Hi there"
+    )
+    monkeypatch.setattr(draw_neutral, "_robots_allow", lambda url: True)
+    long_page = "<html><body><p>" + "word " * 400 + "</p></body></html>"
+    monkeypatch.setattr(draw_neutral, "fetch", lambda url: (long_page.encode(), url, 200))
+    known, per_domain = {"https://a.test/known"}, {"full.test": 3}
+    assert draw_neutral.why_not({"url": "https://a.test/", "kind": "homepage"}, known, per_domain)
+    assert draw_neutral.why_not({"url": "https://a.test/x.pdf", "kind": "inner"}, known, per_domain)
+    assert draw_neutral.why_not({"url": "https://a.test/known", "kind": "inner"}, known, per_domain)
+    assert draw_neutral.why_not({"url": "https://full.test/p", "kind": "inner"}, known, per_domain)
+    assert (
+        draw_neutral.why_not({"url": "https://a.test/p", "kind": "inner"}, known, per_domain)
+        is None
+    )
+    monkeypatch.setattr(
+        draw_neutral, "fetch", lambda url: (b"<html><body>short</body></html>", url, 200)
+    )
+    assert (
+        draw_neutral.why_not({"url": "https://a.test/p", "kind": "inner"}, known, per_domain)
+        == "thin"
+    )
+
+
+def test_changed_snapshot_is_left_out(tmp_path) -> None:
+    import hashlib
+    import json
+
+    from benchmarks.compare import corpus_pages
+
+    (tmp_path / "snapshots").mkdir()
+    (tmp_path / "snapshots" / "same.html").write_bytes(b"<p>signal here</p>")
+    (tmp_path / "snapshots" / "moved.html").write_bytes(b"<p>other bytes now</p>")
+    written_from = hashlib.sha256(b"<p>signal here</p>").hexdigest()
+    page = {"url": "https://x.test/", "expected": ["signal here"], "snapshot_sha256": written_from}
+    manifest = tmp_path / "neutral.json"
+    manifest.write_text(
+        json.dumps({"pages": [{"id": "same", **page}, {"id": "moved", **page}]}), "utf-8"
+    )
+
+    pages, unscored = corpus_pages(manifest)
+
+    assert [p.name for p in pages] == ["same"]
+    assert unscored["moved"] == "snapshot changed: moved"
+
+
+def test_real_tokens_use_o200k() -> None:
+    tiktoken = pytest.importorskip("tiktoken")
+    from benchmarks.compare import count_real_tokens
+
+    expected = len(tiktoken.get_encoding("o200k_base").encode("hello world"))
+    assert count_real_tokens("hello world") == expected
+
+
+def test_missing_tiktoken_says_na(monkeypatch) -> None:
+    import builtins
+
+    from benchmarks import compare
+
+    real_import = builtins.__import__
+
+    def no_tiktoken(name, *args, **kwargs):
+        if name == "tiktoken":
+            raise ImportError("no tiktoken")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_tiktoken)
+    compare._encoder.cache_clear()
+    try:
+        assert compare.count_real_tokens("hello") is None
+        row = {"tool": "t", "fixtures": 1, "text_recall": 1.0, "structure_recall": None,
+               "fence_language": None, "noise_leakage": 0.0, "clean_passes": 1,
+               "total_tokens": 2, "total_real_tokens": None, "median_latency_ms": 1.0,
+               "errors": 0}  # fmt: skip
+        table = compare._markdown_table([row])
+        assert "tokens (o200k)" in table and "| n/a |" in table
+    finally:
+        compare._encoder.cache_clear()
+
+
+def test_draw_uses_the_sampler_domain_filter() -> None:
+    from benchmarks import draw_neutral
+
+    assert draw_neutral.why_not(
+        {"url": "https://www.redtube.com/1", "kind": "inner"}, set(), {}
+    ) == ("adult or not a site")
+
+
+def test_snapshot_cli_fails_only_when_nothing_was_saved(tmp_path, monkeypatch, capsys) -> None:
+    # One slow third-party site must not fail the run; the compare lists it unscored.
+    import json
+
+    from benchmarks import snapshot
+
+    manifest = tmp_path / "neutral.json"
+    pages = [{"id": "up", "url": "https://up.test/"}, {"id": "slow", "url": "https://slow.test/"}]
+    manifest.write_text(json.dumps({"pages": pages}), "utf-8")
+
+    def fetch(url):
+        if "slow" in url:
+            raise TimeoutError("The read operation timed out")
+        return b"<p>ok</p>", url, 200
+
+    monkeypatch.setattr(snapshot, "fetch", fetch)
+    assert snapshot.main([str(manifest)]) == 0
+    assert "slow" in json.loads(capsys.readouterr().out)["failed"]
+
+    monkeypatch.setattr(snapshot, "fetch", lambda url: (_ for _ in ()).throw(OSError("down")))
+    assert snapshot.main([str(manifest), "--refresh"]) == 1

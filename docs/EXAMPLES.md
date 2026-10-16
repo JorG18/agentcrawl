@@ -67,10 +67,11 @@ docker run --rm -p 8000:8000 \
 ```bash
 python -m pip install "agentcrawl-ai[browser]"
 agentcrawl doctor
-agentcrawl mcp
+agentcrawl setup                 # Claude Code, Codex, Gemini CLI, Cursor, VS Code; asks first
+agentcrawl doctor --client all   # aligned / stale / missing per client
 ```
 
-Generic MCP configuration:
+Any other client, configured by hand:
 
 ```json
 {

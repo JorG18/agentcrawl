@@ -1,0 +1,357 @@
+{
+  "seed": null,
+  "size": 35,
+  "source": "benchmarks/corpus/neutral.json pages with reviewed signals",
+  "pages": [
+    {
+      "id": "python-json",
+      "domain": "docs.python.org",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "org",
+      "url": "https://docs.python.org/3/library/json.html",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "fastapi-first-steps",
+      "domain": "fastapi.tiangolo.com",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "com",
+      "url": "https://fastapi.tiangolo.com/tutorial/first-steps/",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "mdn-using-fetch",
+      "domain": "developer.mozilla.org",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "org",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "rust-book-installation",
+      "domain": "doc.rust-lang.org",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "org",
+      "url": "https://doc.rust-lang.org/book/ch01-01-installation.html",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "github-rest-repos",
+      "domain": "docs.github.com",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "com",
+      "url": "https://docs.github.com/en/rest/repos/repos",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "rfc9110",
+      "domain": "www.rfc-editor.org",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "org",
+      "url": "https://www.rfc-editor.org/rfc/rfc9110.html",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "pep-8",
+      "domain": "peps.python.org",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "org",
+      "url": "https://peps.python.org/pep-0008/",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "postgres-select",
+      "domain": "www.postgresql.org",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "org",
+      "url": "https://www.postgresql.org/docs/current/sql-select.html",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "sqlite-select",
+      "domain": "www.sqlite.org",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "org",
+      "url": "https://www.sqlite.org/lang_select.html",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "wikipedia-web-crawler",
+      "domain": "en.wikipedia.org",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "org",
+      "url": "https://en.wikipedia.org/wiki/Web_crawler",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "go-blog-errors-are-values",
+      "domain": "go.dev",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "dev",
+      "url": "https://go.dev/blog/errors-are-values",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "books-toscrape-product",
+      "domain": "books.toscrape.com",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "com",
+      "url": "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-01",
+      "domain": "www.corriere.it",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "it",
+      "url": "https://www.corriere.it/salute/dizionario/mielofibrosi/",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-02",
+      "domain": "home.pl",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "pl",
+      "url": "https://home.pl/uslugi-dla-ecommerce/",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-04",
+      "domain": "www.priceline.com",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "com",
+      "url": "https://www.priceline.com/hotel-deals/en-us/P3000010477/hotels-in-walled-lake.ssp",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-05",
+      "domain": "www.hurriyet.com.tr",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "tr",
+      "url": "https://www.hurriyet.com.tr/aile/ergenlik-doneminde-yapilan-yanlis-diyetlere-dikkat-41658879",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-06",
+      "domain": "www.meinbezirk.at",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "at",
+      "url": "https://www.meinbezirk.at/c-lokales/die-wichtigsten-nachrichten-des-tages_a4691501",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-07",
+      "domain": "www.opera.com",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "com",
+      "url": "https://www.opera.com/it/products/apex-football",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-09",
+      "domain": "www.ordnancesurvey.co.uk",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "uk",
+      "url": "https://www.ordnancesurvey.co.uk/products/os-open-toid",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-10",
+      "domain": "www.gap.com",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "com",
+      "url": "https://www.gap.com/shop/everyday-bralette-0abz06a",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-11",
+      "domain": "www.zales.com",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "com",
+      "url": "https://www.zales.com/previously-owned-1-ct-tw-diamond-engagement-ring-14k-white-gold/p/V-32627161",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-13",
+      "domain": "www.panmacmillan.com",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "com",
+      "url": "https://www.panmacmillan.com/news/alpana-sajip-joins-picador-from-viking",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-14",
+      "domain": "www.bl.uk",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "uk",
+      "url": "https://www.bl.uk/stories/news/electronic-legal-deposit-material-available",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-15",
+      "domain": "www.vtbreg.ru",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "ru",
+      "url": "https://www.vtbreg.ru/news/bank-rossii-vvel-markirovku-tsennykh-bumag-s-nedostatochnym-raskrytiem-informatsii/",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-16",
+      "domain": "www.gov.mo",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "mo",
+      "url": "https://www.gov.mo/zh-hant/news/323550/",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-17",
+      "domain": "www.jcat.ru",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "ru",
+      "url": "https://www.jcat.ru/realty/news/603/",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-18",
+      "domain": "www.goodreads.com",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "com",
+      "url": "https://www.goodreads.com/questions/1372109-i-just-finished-the-secret-book-and-scone",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-19",
+      "domain": "playzen.io",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "io",
+      "url": "https://playzen.io/t/io",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-20",
+      "domain": "www.xrite.com",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "com",
+      "url": "https://www.xrite.com/ko-kr/service-support/downloads/t/toolcrib_v5014",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-21",
+      "domain": "www.gov.si",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "si",
+      "url": "https://www.gov.si/zbirke/javne-objave/razvojno-raziskovalni-projekt-ovrednotenje-in-ocena-prehrane-na-mors-provoc-220531142004/",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-22",
+      "domain": "www.police.gov.sg",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "sg",
+      "url": "https://www.police.gov.sg/media-hub/news/2025/02/20250205_two_men_arrested_for_voluntarily_causing_grievous_hurt",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-23",
+      "domain": "www.dnp.gov.co",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "co",
+      "url": "https://www.dnp.gov.co:443/publicaciones/Planeacion/Paginas/hacia-una-colombia-que-cuida-dignidad-florezca-conpes-4143-politica-nacional-cuidado.aspx",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-24",
+      "domain": "www.pm.gov.au",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "au",
+      "url": "https://www.pm.gov.au/media/backing-our-metals-manufacturers",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-25",
+      "domain": "gdrfad.gov.ae",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "ae",
+      "url": "https://gdrfad.gov.ae/ar/contracts",
+      "kind": "inner",
+      "source": "neutral.json"
+    },
+    {
+      "id": "drawn-26",
+      "domain": "www.gov.uk",
+      "rank": 0,
+      "stratum": "corpus",
+      "tld": "uk",
+      "url": "https://www.gov.uk/government/publications/school-music-development-plan-summary-template",
+      "kind": "inner",
+      "source": "neutral.json"
+    }
+  ]
+}
