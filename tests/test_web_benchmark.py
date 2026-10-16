@@ -412,3 +412,14 @@ def test_live_quality_scores_got_pages_only(tmp_path) -> None:
 
     assert (row["pages"], row["got"], row["clean"]) == (2, 1, 0)
     assert (row["text_recall"], row["noise"], row["quality"]) == (1.0, 1.0, 0.0)
+
+
+def test_live_quality_pairs_count_pages_each_tool_did_better() -> None:
+    from benchmarks.web.live_quality import pairs
+
+    per_page = {"a": {"x": 1.0, "y": 0.5, "z": 1.0}, "b": {"x": 0.5, "y": 0.5, "z": 0.0}}
+
+    pair = pairs(per_page)["a vs b"]
+
+    assert (pair["a_better"], pair["b_better"], pair["same"]) == (2, 0, 1)
+    assert pair["p"] == 0.5  # exact sign test on 2 vs 0

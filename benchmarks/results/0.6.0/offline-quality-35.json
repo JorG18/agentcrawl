@@ -1,0 +1,3566 @@
+{
+  "environment": {
+    "python": "3.14.4",
+    "platform": "Linux-7.0.0-38-generic-x86_64-desconocido-with-glibc2.43",
+    "agentcrawl_commit": "c274701",
+    "fixture_dir": "tests/fixtures/quality",
+    "date_utc": "2026-10-15T22:31:05Z",
+    "corpus": "benchmarks/corpus/neutral.json",
+    "corpus_sha256": {
+      "python-json": "8036af4c1beec25ad52bf966d19883c081e181cc6b9d58ceabb37547f06a31ef",
+      "fastapi-first-steps": "794c7112882e54dd8a59788c025b63a99ac3be7d6bda83beb1a1238390f79423",
+      "mdn-using-fetch": "ca87b5488a5d70398c3d1c491d708a056570b7fafe2d7bf9084d520790f0ea4a",
+      "rust-book-installation": "ce452adfb1cda713092e8805e829d24bd87f5ce46ecf49c2a74e26b4db568904",
+      "github-rest-repos": "a6ab18da0f30a99a5c5f12a3f01464db135ee147f4d1e56aa91f9a614c229554",
+      "rfc9110": "d431760660ea44e130f6e919dab216df2d0b3a490567a98089267523368fe1e5",
+      "pep-8": "9f4e669bee0fab4b1b0e60321b9ca8822b2f1e61a6ebe0243760294eaba0248e",
+      "postgres-select": "00a76a0fd3411967edcb1380b49ad2b2f42a90711bc78bd46508cdf232802845",
+      "sqlite-select": "f850d5a0e9441d348535494f9c647ea90548a03a1c7bd51cdac6c7943e6dc785",
+      "wikipedia-web-crawler": "db367db2ec7dd204208618fa433c9397d4da9d3a17bffaebc901b3ff84a1b74d",
+      "go-blog-errors-are-values": "42bfbecc97ef980092e84cddddd7a9c75eaa7d1438b8c3eec81f48fed8de75a1",
+      "books-toscrape-product": "a6e572bec156bf80ff3149b89b6d218cdcf8866ccc26ccf69a5431db8e142c6a",
+      "drawn-01": "92debe80a86758ee8505422588af9bc63634d7277955f3aaf8773d003a5a3e44",
+      "drawn-02": "e341afa7355a52de959952568b9d86323fb26c7e91f1ad9d1fda3406a6955a0e",
+      "drawn-04": "a0ba4b9bfc0064ce5d43c2a7cc594552c931702043b50e047342fce3f152c75f",
+      "drawn-05": "c85480445b1f5ae2191bc31287b3546ed39f51fcd11e7e8389bfa96f662ee504",
+      "drawn-06": "620069b239b5b904ddeb8a4e54bc2fdc7afa41c0ea10ab4ab1304281cbf28a3b",
+      "drawn-07": "3bbb3b20f1ae37fb0648aec33f4cef16d7441aa1b048632a1be396299a47229c",
+      "drawn-09": "63ea69491730de84c3dd13345017757b0be5c7bc34c7df68a390ddc550c05ebe",
+      "drawn-10": "6a163bdfa2f19089b841381b4837e030e0c43d0f7b10ea24c4cb54b855154622",
+      "drawn-11": "47074d0afce24c4feecd99fb08a00837e60c42a7d03fb79f9c854ab1d1671b3b",
+      "drawn-13": "63bb4d6fbf351c1fb5614d39bed818e0115125557e8bd132f71c21577df99aa3",
+      "drawn-14": "57b66f20ce1812e19157d0273d1e530f64983fff9a644be5a85be0070793f870",
+      "drawn-15": "f8b0a71c497645753fff9dee24e46112a04cb91b64cc5f1f192606896be7d59d",
+      "drawn-16": "3fcc1d045786dfc3043b77f4f1258c664676a0683e27fab4d7c30d61bd02a806",
+      "drawn-17": "a69f5c55d327708b06f5060d0491c00131cb21a6fc3d5b1e2889ec5ccfff2aa6",
+      "drawn-18": "d038fb2206c2166c54d3524a7f0aba1080ab35a40d29698f1fbb913ab609c52d",
+      "drawn-19": "51c3b50571d9640e18c21f99c6262941ec32b2dc06fe8bf1a8abe6f5b6d03599",
+      "drawn-20": "4a089797ec21355e3cedb015ab68bdec2a86cb2ee83a9735f487e11676293bc7",
+      "drawn-21": "1345c0d8ba44651f39f869f4a727a4b176ef26d01b9a228ef0cccce1d6c45465",
+      "drawn-22": "0698c6e36791df6518a7a9e2c55ebf1cc03c972c444a7aae5ad43029a731b88b",
+      "drawn-23": "3b0e23cf3d9f8021fd8028aa92b3c13170c9ba7a17b33533d607433533ceb05b",
+      "drawn-24": "5209d9e199c89bcc344e3bf804c33514e31a2b4f8ec49d9052e9a35f82d2c1c6",
+      "drawn-25": "d2f18adb4b36268108685a111ae95a0d1726c045ae605540fd339b4d0a6facd3",
+      "drawn-26": "22e66b20436c9f882a98cfa1ca3af721a65ad746c2b2878b7b9912977f4f340f"
+    }
+  },
+  "versions": {
+    "agentcrawl": "0.5.6",
+    "html2text-baseline": "2025.4.15",
+    "trafilatura": "2.3.1",
+    "crawl4ai": "0.9.5",
+    "crawl4ai-fit": "0.9.5",
+    "scrapling": "0.4.15"
+  },
+  "skipped": {},
+  "unscored": {
+    "drawn-03": "no reviewed expected signals yet",
+    "drawn-08": "no reviewed expected signals yet",
+    "drawn-12": "no reviewed expected signals yet"
+  },
+  "summary": [
+    {
+      "tool": "agentcrawl",
+      "fixtures": 35,
+      "text_recall": 0.994,
+      "structure_recall": 1.0,
+      "fence_language": 1.0,
+      "noise_leakage": 0.098,
+      "clean_passes": 28,
+      "total_tokens": 289244,
+      "total_real_tokens": 277995,
+      "median_latency_ms": 36.2,
+      "errors": 0
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixtures": 35,
+      "text_recall": 0.986,
+      "structure_recall": 0.25,
+      "fence_language": 0.0,
+      "noise_leakage": 0.888,
+      "clean_passes": 1,
+      "total_tokens": 428875,
+      "total_real_tokens": 459623,
+      "median_latency_ms": 12.4,
+      "errors": 0
+    },
+    {
+      "tool": "trafilatura",
+      "fixtures": 35,
+      "text_recall": 0.843,
+      "structure_recall": 0.9,
+      "fence_language": 0.0,
+      "noise_leakage": 0.0,
+      "clean_passes": 24,
+      "total_tokens": 144087,
+      "total_real_tokens": 144583,
+      "median_latency_ms": 14.4,
+      "errors": 0
+    },
+    {
+      "tool": "crawl4ai",
+      "fixtures": 35,
+      "text_recall": 0.971,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "noise_leakage": 0.905,
+      "clean_passes": 2,
+      "total_tokens": 3254086,
+      "total_real_tokens": 5370972,
+      "median_latency_ms": 52.8,
+      "errors": 0
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixtures": 35,
+      "text_recall": 0.943,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "noise_leakage": 0.124,
+      "clean_passes": 22,
+      "total_tokens": 377035,
+      "total_real_tokens": 395107,
+      "median_latency_ms": 63.8,
+      "errors": 0
+    },
+    {
+      "tool": "scrapling",
+      "fixtures": 35,
+      "text_recall": 0.971,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "noise_leakage": 0.888,
+      "clean_passes": 2,
+      "total_tokens": 417034,
+      "total_real_tokens": 463890,
+      "median_latency_ms": 18.2,
+      "errors": 0
+    }
+  ],
+  "rows": [
+    {
+      "tool": "agentcrawl",
+      "fixture": "python-json",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 7446,
+      "latency_ms": 137.84351399954176,
+      "real_tokens": 7509,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "fastapi-first-steps",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 3365,
+      "latency_ms": 86.02811799937626,
+      "real_tokens": 3518,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "mdn-using-fetch",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": 1.0,
+      "leakage": 0.0,
+      "tokens": 7181,
+      "latency_ms": 54.40117499529151,
+      "real_tokens": 7006,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "rust-book-installation",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": 1.0,
+      "leakage": 0.0,
+      "tokens": 1473,
+      "latency_ms": 10.16601800074568,
+      "real_tokens": 1301,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "github-rest-repos",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 63414,
+      "latency_ms": 839.267456001835,
+      "real_tokens": 67903,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "rfc9110",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 107436,
+      "latency_ms": 724.4228529962129,
+      "real_tokens": 94139,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "pep-8",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 11835,
+      "latency_ms": 138.24334500532132,
+      "real_tokens": 10510,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "postgres-select",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 16886,
+      "latency_ms": 149.86191900243284,
+      "real_tokens": 16270,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "sqlite-select",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 9514,
+      "latency_ms": 207.83086199662648,
+      "real_tokens": 8409,
+      "missing": [],
+      "leaked": [
+        "Purchase"
+      ],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "wikipedia-web-crawler",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 18604,
+      "latency_ms": 174.69218100450234,
+      "real_tokens": 19184,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "go-blog-errors-are-values",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 2170,
+      "latency_ms": 31.323297997005284,
+      "real_tokens": 2074,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "books-toscrape-product",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 372,
+      "latency_ms": 4.092762996151578,
+      "real_tokens": 357,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-01",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 1740,
+      "latency_ms": 36.40650099987397,
+      "real_tokens": 2216,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-02",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.3333333333333333,
+      "tokens": 414,
+      "latency_ms": 36.169762002828065,
+      "real_tokens": 532,
+      "missing": [],
+      "leaked": [
+        "Back to Business – promocje do -98%. Sprawdź. >>"
+      ],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-04",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.5,
+      "tokens": 16897,
+      "latency_ms": 225.98880900477525,
+      "real_tokens": 15020,
+      "missing": [],
+      "leaked": [
+        "Hotels In Post Falls"
+      ],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-05",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 1167,
+      "latency_ms": 13.995186993270181,
+      "real_tokens": 1373,
+      "missing": [],
+      "leaked": [
+        "Haberlerimizi Google’da Takip Edin",
+        "Gelişmelerden anında haberdar olun."
+      ],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-06",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.3333333333333333,
+      "tokens": 2294,
+      "latency_ms": 54.114899001433514,
+      "real_tokens": 2496,
+      "missing": [],
+      "leaked": [
+        "Melde dich jetzt kostenlos an, um selbst mit eigenen Inhalten beizutragen."
+      ],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-07",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 735,
+      "latency_ms": 24.323122001078445,
+      "real_tokens": 690,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-09",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 684,
+      "latency_ms": 17.63655799732078,
+      "real_tokens": 605,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-10",
+      "text_recall": 0.8,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.25,
+      "tokens": 4042,
+      "latency_ms": 332.787356004701,
+      "real_tokens": 5085,
+      "missing": [
+        "Everyday Bralettes"
+      ],
+      "leaked": [
+        "Related Items"
+      ],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-11",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 1037,
+      "latency_ms": 63.047723000636324,
+      "real_tokens": 990,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-13",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 388,
+      "latency_ms": 12.75451300170971,
+      "real_tokens": 345,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-14",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 819,
+      "latency_ms": 14.775854004255962,
+      "real_tokens": 670,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-15",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 280,
+      "latency_ms": 19.351209994056262,
+      "real_tokens": 308,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-16",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 298,
+      "latency_ms": 21.780211995064747,
+      "real_tokens": 1036,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-17",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 212,
+      "latency_ms": 11.489479998999741,
+      "real_tokens": 223,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-18",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 758,
+      "latency_ms": 23.717709998891223,
+      "real_tokens": 798,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-19",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 739,
+      "latency_ms": 30.130346996884327,
+      "real_tokens": 764,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-20",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 944,
+      "latency_ms": 88.86519000225235,
+      "real_tokens": 992,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-21",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 158,
+      "latency_ms": 10.752359004982281,
+      "real_tokens": 237,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-22",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 548,
+      "latency_ms": 94.60389200103236,
+      "real_tokens": 515,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-23",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 3241,
+      "latency_ms": 43.35273600008804,
+      "real_tokens": 3034,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-24",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 1120,
+      "latency_ms": 20.098663000680972,
+      "real_tokens": 843,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-25",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 435,
+      "latency_ms": 34.85996199742658,
+      "real_tokens": 513,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "agentcrawl",
+      "fixture": "drawn-26",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.3333333333333333,
+      "tokens": 598,
+      "latency_ms": 18.319386996154208,
+      "real_tokens": 530,
+      "missing": [],
+      "leaked": [
+        "Help us improve GOV.UK"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "python-json",
+      "text_recall": 1.0,
+      "structure_recall": 0.5,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 8776,
+      "latency_ms": 24.623771001643036,
+      "real_tokens": 8822,
+      "missing": [
+        "```"
+      ],
+      "leaked": [
+        "Report a bug",
+        "Show source",
+        "Previous topic"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "fastapi-first-steps",
+      "text_recall": 1.0,
+      "structure_recall": 0.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 7253,
+      "latency_ms": 31.154389995208476,
+      "real_tokens": 7488,
+      "missing": [
+        "```"
+      ],
+      "leaked": [
+        "Made with Zensical",
+        "Subscribe to the FastAPI and friends newsletter",
+        "The FastAPI trademark is owned by"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "mdn-using-fetch",
+      "text_recall": 1.0,
+      "structure_recall": 0.0,
+      "fence_language": 0.0,
+      "leakage": 1.0,
+      "tokens": 9999,
+      "latency_ms": 19.14054199733073,
+      "real_tokens": 9963,
+      "missing": [
+        "```js"
+      ],
+      "leaked": [
+        "Your blueprint for a better internet.",
+        "Mozilla careers",
+        "Advertise with us"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "rust-book-installation",
+      "text_recall": 1.0,
+      "structure_recall": 0.0,
+      "fence_language": 0.0,
+      "leakage": 0.0,
+      "tokens": 1625,
+      "latency_ms": 3.1415260018547997,
+      "real_tokens": 1440,
+      "missing": [
+        "```console"
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "github-rest-repos",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 67737,
+      "latency_ms": 116.49221699917689,
+      "real_tokens": 72275,
+      "missing": [],
+      "leaked": [
+        "Help us make GitHub Docs great!",
+        "All Docs are open source.",
+        "Expert services"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "rfc9110",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 119507,
+      "latency_ms": 191.46949800051516,
+      "real_tokens": 110820,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "pep-8",
+      "text_recall": 1.0,
+      "structure_recall": 0.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 13169,
+      "latency_ms": 24.085937002382707,
+      "real_tokens": 11356,
+      "missing": [
+        "```"
+      ],
+      "leaked": [
+        "Page Source (GitHub)"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "postgres-select",
+      "text_recall": 1.0,
+      "structure_recall": 0.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 17785,
+      "latency_ms": 20.96646899735788,
+      "real_tokens": 17093,
+      "missing": [
+        "```"
+      ],
+      "leaked": [
+        "Code of Conduct",
+        "About PostgreSQL",
+        "Your account"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "sqlite-select",
+      "text_recall": 1.0,
+      "structure_recall": 0.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 15256,
+      "latency_ms": 133.87999599945033,
+      "real_tokens": 14172,
+      "missing": [
+        "```"
+      ],
+      "leaked": [
+        "Purchase"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "wikipedia-web-crawler",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 24432,
+      "latency_ms": 39.77634000329999,
+      "real_tokens": 26131,
+      "missing": [],
+      "leaked": [
+        "Jump to content",
+        "Privacy policy",
+        "This page was last edited on",
+        "Main menu"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "go-blog-errors-are-values",
+      "text_recall": 1.0,
+      "structure_recall": 0.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 3578,
+      "latency_ms": 20.37778300291393,
+      "real_tokens": 3534,
+      "missing": [
+        "```"
+      ],
+      "leaked": [
+        "go.dev uses cookies from Google",
+        "Terms of Service",
+        "Golang Weekly"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "books-toscrape-product",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 443,
+      "latency_ms": 1.494204996561166,
+      "real_tokens": 445,
+      "missing": [],
+      "leaked": [
+        "We love being scraped!"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-01",
+      "text_recall": 0.5,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 8057,
+      "latency_ms": 18.265632999828085,
+      "real_tokens": 10550,
+      "missing": [
+        "La fibrosi è costituita da collagene di tipo III.",
+        "L’unica terapia realmente efficace è il trapianto di midollo."
+      ],
+      "leaked": [
+        "Iscriviti alla newsletter",
+        "Scegli la tua città preferita"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-02",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2888,
+      "latency_ms": 12.205763996462338,
+      "real_tokens": 3933,
+      "missing": [],
+      "leaked": [
+        "Back to Business – promocje do -98%. Sprawdź. >>",
+        "Polityka bezpieczeństwa ISO",
+        "Plan połączenia spółek"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-04",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 20542,
+      "latency_ms": 36.93108999868855,
+      "real_tokens": 20082,
+      "missing": [],
+      "leaked": [
+        "Priceline is part of Booking Holdings, the world leader in online travel & related services.",
+        "Hotels In Post Falls"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-05",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 3812,
+      "latency_ms": 6.472697001299821,
+      "real_tokens": 5205,
+      "missing": [],
+      "leaked": [
+        "Haberlerimizi Google’da Takip Edin",
+        "Gelişmelerden anında haberdar olun."
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-06",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 4336,
+      "latency_ms": 26.395622997370083,
+      "real_tokens": 5268,
+      "missing": [],
+      "leaked": [
+        "MeinMed.at – Medizinwissen",
+        "Die billigsten Tankstellen in Oberösterreich",
+        "Melde dich jetzt kostenlos an, um selbst mit eigenen Inhalten beizutragen."
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-07",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 2091,
+      "latency_ms": 12.047640004311688,
+      "real_tokens": 2351,
+      "missing": [],
+      "leaked": [
+        "Innova e ispira, scopri l'inaspettato, sostieni gli standard aperti.",
+        "Politica sui Cookie"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-09",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1056,
+      "latency_ms": 7.738701002381276,
+      "real_tokens": 1086,
+      "missing": [],
+      "leaked": [
+        "© 2026 Ordnance Survey Limited. All Rights Reserved",
+        "Explorer House, Adanac Drive, Nursling, Southampton, Hampshire, SO16 0AS",
+        "Developer communities"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-10",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 41559,
+      "latency_ms": 89.6878839994315,
+      "real_tokens": 60336,
+      "missing": [],
+      "leaked": [
+        "California Transparency in Supply Chains Act",
+        "Become an Encore Member - it's free",
+        "Friends & Family 40% off everything — includes new arrivals",
+        "Related Items"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-11",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 7479,
+      "latency_ms": 28.714439999021124,
+      "real_tokens": 10100,
+      "missing": [],
+      "leaked": [
+        "Extra 30%‡ Off select Clearance‡Exclusions apply",
+        "EXCLUSIVE OFFERS. NEW STYLES. FIRST ACCESS.",
+        "Conflict-Free Sourcing"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-13",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1370,
+      "latency_ms": 3.9573719986947253,
+      "real_tokens": 1612,
+      "missing": [],
+      "leaked": [
+        "© 2026 Pan Macmillan",
+        "Macmillan's Modern Slavery Act Statement",
+        "Hear more from Pan Macmillan"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-14",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1345,
+      "latency_ms": 3.846917999908328,
+      "real_tokens": 1264,
+      "missing": [],
+      "leaked": [
+        "© 2026 British Library, 96 Euston Road, London, NW1 2DB",
+        "All text is © British Library Board and is available under a CC-BY Licence except where otherwise stated.",
+        "Eat, drink, shop"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-15",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1435,
+      "latency_ms": 6.843939998361748,
+      "real_tokens": 1723,
+      "missing": [],
+      "leaked": [
+        "© ВТБ Регистратор 2013-2026 - Все права защищены",
+        "Регистрация АО «под ключ» за 4 дня",
+        "Сайт обрабатывает пользовательские данные с использованием файлов, сохраняемых в браузере пользователя"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-16",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 4179,
+      "latency_ms": 10.111249997862615,
+      "real_tokens": 6808,
+      "missing": [],
+      "leaked": [
+        "協調機構：澳門特別行政區行政公職局",
+        "全國工商聯副主席率團訪澳大",
+        "公共部門及其他機構"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-17",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2007,
+      "latency_ms": 6.114852003520355,
+      "real_tokens": 3019,
+      "missing": [],
+      "leaked": [
+        "© Джойнио, 2003 - 2026 Все права защищены.",
+        "Юридический адрес: 121087, Москва, Береговой проезд, дом 5А корпус 1",
+        "Используем cookie и Яндекс.Метрику."
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-18",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2579,
+      "latency_ms": 6.670893002592493,
+      "real_tokens": 3157,
+      "missing": [],
+      "leaked": [
+        "Interest Based Ads",
+        "Your Ads Privacy Choices",
+        "Kindle Notes & Highlights"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-19",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 3551,
+      "latency_ms": 6.494878005469218,
+      "real_tokens": 5042,
+      "missing": [],
+      "leaked": [
+        "Copyright © 2026 PlayZen Co. LLC, All Rights Reserved.",
+        "Email: info@playzen.io",
+        "At PlayZen, we know that playtime matters for everyone"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-20",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 9448,
+      "latency_ms": 35.94720499677351,
+      "real_tokens": 11322,
+      "missing": [],
+      "leaked": [
+        "Register a Device",
+        "I give X-Rite permission to provide me with information about their products and services"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-21",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 732,
+      "latency_ms": 3.8909449940547347,
+      "real_tokens": 1082,
+      "missing": [],
+      "leaked": [
+        "Ste našli informacije, ki ste jih iskali?",
+        "Pomagajte nam izboljšati spletno stran."
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-22",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.75,
+      "tokens": 10316,
+      "latency_ms": 32.208316995820496,
+      "real_tokens": 11321,
+      "missing": [],
+      "leaked": [
+        "Report Vulnerability",
+        "Woman Arrested For Shop Theft At Changi Airport",
+        "Police Heritage Trail"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-23",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 5219,
+      "latency_ms": 8.068670002103318,
+      "real_tokens": 5348,
+      "missing": [],
+      "leaked": [
+        "Dirección: Calle 26 # 13-19, Piso 1° - Edificio FONADE",
+        "Código Postal: 110311",
+        "Código de integridad"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-24",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2016,
+      "latency_ms": 3.8649429989163764,
+      "real_tokens": 1821,
+      "missing": [],
+      "leaked": [
+        "PM&C acknowledges the traditional owners and custodians of country throughout Australia",
+        "FOI disclosure log",
+        "Help with the cost of living"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-25",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1483,
+      "latency_ms": 12.402839995047543,
+      "real_tokens": 1899,
+      "missing": [],
+      "leaked": [
+        "2026 الإدارة العامة للهوية وشؤون الأجانب - دبي - جميع الحقوق محفوظة",
+        "استبيان سعادة المتعاملين",
+        "سياسة البيانات المفتوحة"
+      ],
+      "error": null
+    },
+    {
+      "tool": "html2text-baseline",
+      "fixture": "drawn-26",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1815,
+      "latency_ms": 6.415215000743046,
+      "real_tokens": 1755,
+      "missing": [],
+      "leaked": [
+        "We use some essential cookies to make this website work.",
+        "All content is available under the Open Government Licence v3.0, except where otherwise stated",
+        "Help us improve GOV.UK"
+      ],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "python-json",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 6379,
+      "latency_ms": 58.19898600020679,
+      "real_tokens": 6654,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "fastapi-first-steps",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 3213,
+      "latency_ms": 26.507941998715978,
+      "real_tokens": 3347,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "mdn-using-fetch",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "leakage": 0.0,
+      "tokens": 5715,
+      "latency_ms": 18.963662994792685,
+      "real_tokens": 5096,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "rust-book-installation",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "leakage": 0.0,
+      "tokens": 1417,
+      "latency_ms": 5.090466998808552,
+      "real_tokens": 1278,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "github-rest-repos",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 61734,
+      "latency_ms": 206.84412700211396,
+      "real_tokens": 67127,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "rfc9110",
+      "text_recall": 0.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 1398,
+      "latency_ms": 213.53210000233958,
+      "real_tokens": 1226,
+      "missing": [
+        "The Hypertext Transfer Protocol (HTTP) is a stateless application-level protocol for distributed, collaborative, hypertext information systems.",
+        "HTTP does not restrict applications to this simple challenge-response framework for access authentication.",
+        "This is an Internet Standards Track document.",
+        "Roy T. Fielding"
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "pep-8",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 10952,
+      "latency_ms": 57.62260600022273,
+      "real_tokens": 9922,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "postgres-select",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 15870,
+      "latency_ms": 62.54603300476447,
+      "real_tokens": 15216,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "sqlite-select",
+      "text_recall": 1.0,
+      "structure_recall": 0.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 7924,
+      "latency_ms": 128.7992090001353,
+      "real_tokens": 6606,
+      "missing": [
+        "```"
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "wikipedia-web-crawler",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 10912,
+      "latency_ms": 70.25616100145271,
+      "real_tokens": 10429,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "go-blog-errors-are-values",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 2078,
+      "latency_ms": 6.722295998770278,
+      "real_tokens": 1954,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "books-toscrape-product",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 368,
+      "latency_ms": 2.9892589955125004,
+      "real_tokens": 357,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-01",
+      "text_recall": 0.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 0,
+      "latency_ms": 66.13802100036992,
+      "real_tokens": 0,
+      "missing": [
+        "processo patologico caratterizzato da uno spiccato aumento delle fibrille reticolari nel midollo osseo emopoietico",
+        "È un disordine emopoietico clonale, dovuto probabilmente al rilascio di fattori di crescita.",
+        "La fibrosi è costituita da collagene di tipo III.",
+        "L’unica terapia realmente efficace è il trapianto di midollo."
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-02",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 303,
+      "latency_ms": 13.137225003447384,
+      "real_tokens": 363,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-04",
+      "text_recall": 0.4,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 3980,
+      "latency_ms": 61.19902100181207,
+      "real_tokens": 3637,
+      "missing": [
+        "Hampton Inn by Hilton Commerce Novi",
+        "Chain hotels in Walled Lake generally follow corporate standards: check-in is around 3:00 PM and check-out is around 11:00 AM.",
+        "You can expect a 6% Michigan state sales/use tax on most lodging charges."
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-05",
+      "text_recall": 0.5,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 845,
+      "latency_ms": 9.874519004370086,
+      "real_tokens": 950,
+      "missing": [
+        "Ergenlik döneminde yapılan yanlış diyetlere dikkat!",
+        "Beden algısının daha çok önem kazandığı ergenlik döneminde yapılan bilinçsiz diyetlerin birçok sağlık sorununu beraberinde getirdiğini"
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-06",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 863,
+      "latency_ms": 14.523175996146165,
+      "real_tokens": 793,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-07",
+      "text_recall": 0.5,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 308,
+      "latency_ms": 14.475657997536473,
+      "real_tokens": 234,
+      "missing": [
+        "Our industry-leading aggregator translates over 5,000 news sources",
+        "Follow transfer market updates and news, including values, negotiations and final confirmations."
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-09",
+      "text_recall": 0.75,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 405,
+      "latency_ms": 9.453769998799544,
+      "real_tokens": 328,
+      "missing": [
+        "A TOID (Topographic Identifier) is a unique and persistent identifier for each and every feature found in OS MasterMap products."
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-10",
+      "text_recall": 0.4,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 289,
+      "latency_ms": 284.3278420041315,
+      "real_tokens": 210,
+      "missing": [
+        "Everyday Bralettes",
+        "SoftMade Organic Stretch Cotton Gap Logo Bralette",
+        "Organic Stretch Cotton Lace-Trim Bandeau Bralette"
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-11",
+      "text_recall": 0.6,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 512,
+      "latency_ms": 28.01195500069298,
+      "real_tokens": 482,
+      "missing": [
+        "$1,224.50",
+        "this ring showcases a stunning 5/8 ct. round diamond solitaire standing tall in a traditional four-prong setting."
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-13",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 388,
+      "latency_ms": 5.193791002966464,
+      "real_tokens": 345,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-14",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 653,
+      "latency_ms": 8.594212995376438,
+      "real_tokens": 504,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-15",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 220,
+      "latency_ms": 5.815844000608195,
+      "real_tokens": 238,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-16",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 261,
+      "latency_ms": 10.413662996143103,
+      "real_tokens": 968,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-17",
+      "text_recall": 0.6,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 171,
+      "latency_ms": 5.268099004752003,
+      "real_tokens": 169,
+      "missing": [
+        "Новые поля в тематике «Квартиры и комнаты»",
+        "Также, в тематике «Новостройки» появилось еще одно поле: «Возможна рассрочка»."
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-18",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 192,
+      "latency_ms": 13.362484001845587,
+      "real_tokens": 170,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-19",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 680,
+      "latency_ms": 12.393874996632803,
+      "real_tokens": 631,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-20",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 827,
+      "latency_ms": 14.849649000097997,
+      "real_tokens": 869,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-21",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 102,
+      "latency_ms": 7.763260000501759,
+      "real_tokens": 141,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-22",
+      "text_recall": 0.75,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 744,
+      "latency_ms": 54.595282999798656,
+      "real_tokens": 619,
+      "missing": [
+        "Two Men Arrested For Voluntarily Causing Grievous Hurt By Dangerous Means Within 11 Hours"
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-23",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 2774,
+      "latency_ms": 11.744086994440295,
+      "real_tokens": 2438,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-24",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 1075,
+      "latency_ms": 4.682176004280336,
+      "real_tokens": 781,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-25",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 235,
+      "latency_ms": 14.392291006515734,
+      "real_tokens": 277,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "trafilatura",
+      "fixture": "drawn-26",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 300,
+      "latency_ms": 8.615184000518639,
+      "real_tokens": 224,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "python-json",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 67164,
+      "latency_ms": 92.22691700415453,
+      "real_tokens": 75464,
+      "missing": [],
+      "leaked": [
+        "Report a bug",
+        "Show source",
+        "Previous topic"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "fastapi-first-steps",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 7718,
+      "latency_ms": 175.3400510060601,
+      "real_tokens": 8194,
+      "missing": [],
+      "leaked": [
+        "Made with Zensical",
+        "Subscribe to the FastAPI and friends newsletter",
+        "The FastAPI trademark is owned by"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "mdn-using-fetch",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "leakage": 1.0,
+      "tokens": 9778,
+      "latency_ms": 167.45024600095348,
+      "real_tokens": 10099,
+      "missing": [],
+      "leaked": [
+        "Your blueprint for a better internet.",
+        "Mozilla careers",
+        "Advertise with us"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "rust-book-installation",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "leakage": 0.0,
+      "tokens": 1657,
+      "latency_ms": 7.688525001867674,
+      "real_tokens": 1533,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "github-rest-repos",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 74235,
+      "latency_ms": 5713.534063004772,
+      "real_tokens": 80263,
+      "missing": [],
+      "leaked": [
+        "Help us make GitHub Docs great!",
+        "All Docs are open source.",
+        "Expert services"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "rfc9110",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 145129,
+      "latency_ms": 12182.660118996864,
+      "real_tokens": 159754,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "pep-8",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 13296,
+      "latency_ms": 74.7918600027333,
+      "real_tokens": 12300,
+      "missing": [],
+      "leaked": [
+        "Page Source (GitHub)"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "postgres-select",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 17459,
+      "latency_ms": 64.69571399793494,
+      "real_tokens": 17074,
+      "missing": [],
+      "leaked": [
+        "Code of Conduct",
+        "About PostgreSQL",
+        "Your account"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "sqlite-select",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 15293,
+      "latency_ms": 590.5805229995167,
+      "real_tokens": 14343,
+      "missing": [],
+      "leaked": [
+        "Purchase"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "wikipedia-web-crawler",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 24939,
+      "latency_ms": 498.5796970067895,
+      "real_tokens": 27171,
+      "missing": [],
+      "leaked": [
+        "Jump to content",
+        "Privacy policy",
+        "This page was last edited on",
+        "Main menu"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "go-blog-errors-are-values",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 3484,
+      "latency_ms": 19.625101995188743,
+      "real_tokens": 3559,
+      "missing": [],
+      "leaked": [
+        "go.dev uses cookies from Google",
+        "Terms of Service",
+        "Golang Weekly"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "books-toscrape-product",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 450,
+      "latency_ms": 3.877044997352641,
+      "real_tokens": 473,
+      "missing": [],
+      "leaked": [
+        "We love being scraped!"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-01",
+      "text_recall": 0.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 1,
+      "latency_ms": 10.435094001877587,
+      "real_tokens": 1,
+      "missing": [
+        "processo patologico caratterizzato da uno spiccato aumento delle fibrille reticolari nel midollo osseo emopoietico",
+        "È un disordine emopoietico clonale, dovuto probabilmente al rilascio di fattori di crescita.",
+        "La fibrosi è costituita da collagene di tipo III.",
+        "L’unica terapia realmente efficace è il trapianto di midollo."
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-02",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2846,
+      "latency_ms": 138.7380679952912,
+      "real_tokens": 3914,
+      "missing": [],
+      "leaked": [
+        "Back to Business – promocje do -98%. Sprawdź. >>",
+        "Polityka bezpieczeństwa ISO",
+        "Plan połączenia spółek"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-04",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 20336,
+      "latency_ms": 293.6479620038881,
+      "real_tokens": 20082,
+      "missing": [],
+      "leaked": [
+        "Priceline is part of Booking Holdings, the world leader in online travel & related services.",
+        "Hotels In Post Falls"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-05",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 3793,
+      "latency_ms": 28.883234001114033,
+      "real_tokens": 5198,
+      "missing": [],
+      "leaked": [
+        "Hürriyet'e Reklam VerYatırımcı İlişkileriBize UlaşınHürriyet KurumsalHata Bildirimi",
+        "Haberlerimizi Google’da Takip Edin",
+        "Gelişmelerden anında haberdar olun."
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-06",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2643383,
+      "latency_ms": 656.6753739971318,
+      "real_tokens": 4688339,
+      "missing": [],
+      "leaked": [
+        "MeinMed.at – Medizinwissen",
+        "Die billigsten Tankstellen in Oberösterreich",
+        "Melde dich jetzt kostenlos an, um selbst mit eigenen Inhalten beizutragen."
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-07",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2053,
+      "latency_ms": 44.92780399596086,
+      "real_tokens": 2329,
+      "missing": [],
+      "leaked": [
+        "© 1995-2026 Opera Norway",
+        "Innova e ispira, scopri l'inaspettato, sostieni gli standard aperti.",
+        "Politica sui Cookie"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-09",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1040,
+      "latency_ms": 37.28971999953501,
+      "real_tokens": 1082,
+      "missing": [],
+      "leaked": [
+        "© 2026 Ordnance Survey Limited. All Rights Reserved",
+        "Explorer House, Adanac Drive, Nursling, Southampton, Hampshire, SO16 0AS",
+        "Developer communities"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-10",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 41516,
+      "latency_ms": 249.69943100586534,
+      "real_tokens": 60875,
+      "missing": [],
+      "leaked": [
+        "California Transparency in Supply Chains Act",
+        "Become an Encore Member - it's free",
+        "Friends & Family 40% off everything — includes new arrivals",
+        "Related Items"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-11",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 7492,
+      "latency_ms": 78.37968900275882,
+      "real_tokens": 10122,
+      "missing": [],
+      "leaked": [
+        "Extra 30%‡ Off select Clearance‡Exclusions apply",
+        "EXCLUSIVE OFFERS. NEW STYLES. FIRST ACCESS.",
+        "Conflict-Free Sourcing"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-13",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1359,
+      "latency_ms": 18.516864998673555,
+      "real_tokens": 1603,
+      "missing": [],
+      "leaked": [
+        "© 2026 Pan Macmillan",
+        "Macmillan's Modern Slavery Act Statement",
+        "Hear more from Pan Macmillan"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-14",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1337,
+      "latency_ms": 16.48089399532182,
+      "real_tokens": 1269,
+      "missing": [],
+      "leaked": [
+        "© 2026 British Library, 96 Euston Road, London, NW1 2DB",
+        "All text is © British Library Board and is available under a CC-BY Licence except where otherwise stated.",
+        "Eat, drink, shop"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-15",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1438,
+      "latency_ms": 25.343034001707565,
+      "real_tokens": 1746,
+      "missing": [],
+      "leaked": [
+        "© ВТБ Регистратор 2013-2026 - Все права защищены",
+        "Регистрация АО «под ключ» за 4 дня",
+        "Сайт обрабатывает пользовательские данные с использованием файлов, сохраняемых в браузере пользователя"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-16",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 4128,
+      "latency_ms": 43.138203996932134,
+      "real_tokens": 6783,
+      "missing": [],
+      "leaked": [
+        "協調機構：澳門特別行政區行政公職局",
+        "全國工商聯副主席率團訪澳大",
+        "公共部門及其他機構"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-17",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1970,
+      "latency_ms": 36.39645299699623,
+      "real_tokens": 2993,
+      "missing": [],
+      "leaked": [
+        "© Джойнио, 2003 - 2026 Все права защищены.",
+        "Юридический адрес: 121087, Москва, Береговой проезд, дом 5А корпус 1",
+        "Используем cookie и Яндекс.Метрику."
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-18",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2563,
+      "latency_ms": 30.302532999485265,
+      "real_tokens": 3151,
+      "missing": [],
+      "leaked": [
+        "Interest Based Ads",
+        "Your Ads Privacy Choices",
+        "Kindle Notes & Highlights"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-19",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 3523,
+      "latency_ms": 76.4452639996307,
+      "real_tokens": 5033,
+      "missing": [],
+      "leaked": [
+        "Copyright © 2026 PlayZen Co. LLC, All Rights Reserved.",
+        "Email: info@playzen.io",
+        "At PlayZen, we know that playtime matters for everyone"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-20",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 69617,
+      "latency_ms": 258.2814849956776,
+      "real_tokens": 66509,
+      "missing": [],
+      "leaked": [
+        "Register a Device",
+        "I give X-Rite permission to provide me with information about their products and services"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-21",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 865,
+      "latency_ms": 8.222274002037011,
+      "real_tokens": 1213,
+      "missing": [],
+      "leaked": [
+        "Ste našli informacije, ki ste jih iskali?",
+        "Pomagajte nam izboljšati spletno stran.",
+        "© 2026 GOV.SI"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-22",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 10252,
+      "latency_ms": 255.1565540052252,
+      "real_tokens": 11398,
+      "missing": [],
+      "leaked": [
+        "© 2026, Government of Singapore",
+        "Report Vulnerability",
+        "Woman Arrested For Shop Theft At Changi Airport",
+        "Police Heritage Trail"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-23",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 48635,
+      "latency_ms": 39.67795400239993,
+      "real_tokens": 61494,
+      "missing": [],
+      "leaked": [
+        "Dirección: Calle 26 # 13-19, Piso 1° - Edificio FONADE",
+        "Código Postal: 110311",
+        "Código de integridad"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-24",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1973,
+      "latency_ms": 13.286423003592063,
+      "real_tokens": 1784,
+      "missing": [],
+      "leaked": [
+        "PM&C acknowledges the traditional owners and custodians of country throughout Australia",
+        "FOI disclosure log",
+        "Help with the cost of living"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-25",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1570,
+      "latency_ms": 52.84018399834167,
+      "real_tokens": 2071,
+      "missing": [],
+      "leaked": [
+        "2026 الإدارة العامة للهوية وشؤون الأجانب - دبي - جميع الحقوق محفوظة",
+        "استبيان سعادة المتعاملين",
+        "سياسة البيانات المفتوحة"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai",
+      "fixture": "drawn-26",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1794,
+      "latency_ms": 23.90615100011928,
+      "real_tokens": 1756,
+      "missing": [],
+      "leaked": [
+        "We use some essential cookies to make this website work.",
+        "All content is available under the Open Government Licence v3.0, except where otherwise stated",
+        "Help us improve GOV.UK"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "python-json",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.3333333333333333,
+      "tokens": 66135,
+      "latency_ms": 141.9488379979157,
+      "real_tokens": 74271,
+      "missing": [],
+      "leaked": [
+        "Previous topic"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "fastapi-first-steps",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 3559,
+      "latency_ms": 194.25010900158668,
+      "real_tokens": 3785,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "mdn-using-fetch",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "leakage": 0.0,
+      "tokens": 7177,
+      "latency_ms": 196.77494999632472,
+      "real_tokens": 6957,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "rust-book-installation",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "leakage": 0.0,
+      "tokens": 1582,
+      "latency_ms": 11.075584006903227,
+      "real_tokens": 1439,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "github-rest-repos",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 70149,
+      "latency_ms": 3932.8458640011377,
+      "real_tokens": 75759,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "rfc9110",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 130077,
+      "latency_ms": 17744.7973620001,
+      "real_tokens": 137117,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "pep-8",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 12246,
+      "latency_ms": 117.6218999971752,
+      "real_tokens": 11120,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "postgres-select",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 17190,
+      "latency_ms": 91.33818100235658,
+      "real_tokens": 16713,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "sqlite-select",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 14107,
+      "latency_ms": 840.9837090002839,
+      "real_tokens": 13020,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "wikipedia-web-crawler",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.25,
+      "tokens": 18395,
+      "latency_ms": 680.3894159966148,
+      "real_tokens": 18790,
+      "missing": [],
+      "leaked": [
+        "Jump to content"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "go-blog-errors-are-values",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.3333333333333333,
+      "tokens": 2202,
+      "latency_ms": 22.06780600681668,
+      "real_tokens": 2091,
+      "missing": [],
+      "leaked": [
+        "go.dev uses cookies from Google"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "books-toscrape-product",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 381,
+      "latency_ms": 4.461415999685414,
+      "real_tokens": 382,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-01",
+      "text_recall": 0.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 1,
+      "latency_ms": 10.635899998305831,
+      "real_tokens": 1,
+      "missing": [
+        "processo patologico caratterizzato da uno spiccato aumento delle fibrille reticolari nel midollo osseo emopoietico",
+        "È un disordine emopoietico clonale, dovuto probabilmente al rilascio di fattori di crescita.",
+        "La fibrosi è costituita da collagene di tipo III.",
+        "L’unica terapia realmente efficace è il trapianto di midollo."
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-02",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.3333333333333333,
+      "tokens": 454,
+      "latency_ms": 144.04452799499268,
+      "real_tokens": 576,
+      "missing": [],
+      "leaked": [
+        "Back to Business – promocje do -98%. Sprawdź. >>"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-04",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.5,
+      "tokens": 16684,
+      "latency_ms": 355.76623499946436,
+      "real_tokens": 15023,
+      "missing": [],
+      "leaked": [
+        "Hotels In Post Falls"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-05",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 1277,
+      "latency_ms": 32.75757800292922,
+      "real_tokens": 1534,
+      "missing": [],
+      "leaked": [
+        "Haberlerimizi Google’da Takip Edin",
+        "Gelişmelerden anında haberdar olun."
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-06",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.3333333333333333,
+      "tokens": 1981,
+      "latency_ms": 677.7510999963852,
+      "real_tokens": 2015,
+      "missing": [],
+      "leaked": [
+        "Melde dich jetzt kostenlos an, um selbst mit eigenen Inhalten beizutragen."
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-07",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 686,
+      "latency_ms": 50.37029700179119,
+      "real_tokens": 618,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-09",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 684,
+      "latency_ms": 46.38537400023779,
+      "real_tokens": 602,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-10",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.25,
+      "tokens": 3055,
+      "latency_ms": 277.20727199630346,
+      "real_tokens": 3621,
+      "missing": [],
+      "leaked": [
+        "Related Items"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-11",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 999,
+      "latency_ms": 88.53294200525852,
+      "real_tokens": 936,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-13",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 397,
+      "latency_ms": 19.573316996684298,
+      "real_tokens": 356,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-14",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 844,
+      "latency_ms": 20.083942996279802,
+      "real_tokens": 690,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-15",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.3333333333333333,
+      "tokens": 346,
+      "latency_ms": 28.966579004190862,
+      "real_tokens": 359,
+      "missing": [],
+      "leaked": [
+        "Сайт обрабатывает пользовательские данные с использованием файлов, сохраняемых в браузере пользователя"
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-16",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 431,
+      "latency_ms": 49.90911899949424,
+      "real_tokens": 1287,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-17",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.3333333333333333,
+      "tokens": 242,
+      "latency_ms": 39.51224200136494,
+      "real_tokens": 252,
+      "missing": [],
+      "leaked": [
+        "Используем cookie и Яндекс.Метрику."
+      ],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-18",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 605,
+      "latency_ms": 34.21204799815314,
+      "real_tokens": 620,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-19",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 897,
+      "latency_ms": 88.26141199824633,
+      "real_tokens": 1004,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-20",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 931,
+      "latency_ms": 263.86977799847955,
+      "real_tokens": 984,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-21",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 162,
+      "latency_ms": 9.829269998590462,
+      "real_tokens": 244,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-22",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 526,
+      "latency_ms": 260.4988870007219,
+      "real_tokens": 493,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-23",
+      "text_recall": 0.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 1,
+      "latency_ms": 36.4482449949719,
+      "real_tokens": 1,
+      "missing": [
+        "Hacia una Colombia que Cuida para que la dignidad florezca. CONPES 4143 – Política Nacional de Cuidado",
+        "El objetivo de la PNC es transformar la organización social del cuidado de aquí al año 2034",
+        "El Documento CONPES 4143 está conformado por 133 acciones articuladas en torno a cuatro grandes objetivos específicos (OE):",
+        "OE3: Contribuir a la transformación de los factores culturales que mantienen la desigualdad en la organización social del cuidado para democratizarlo.",
+        "Procesos organizativos de partería tradicional, cuidado ambiental, cuidado de personas, entre otras."
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-24",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 1196,
+      "latency_ms": 15.053165996505413,
+      "real_tokens": 919,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-25",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 742,
+      "latency_ms": 63.79392700182507,
+      "real_tokens": 912,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "crawl4ai-fit",
+      "fixture": "drawn-26",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 694,
+      "latency_ms": 24.50513399526244,
+      "real_tokens": 616,
+      "missing": [],
+      "leaked": [
+        "We use some essential cookies to make this website work.",
+        "Help us improve GOV.UK"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "python-json",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 9912,
+      "latency_ms": 83.15045600465965,
+      "real_tokens": 10066,
+      "missing": [],
+      "leaked": [
+        "Report a bug",
+        "Show source",
+        "Previous topic"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "fastapi-first-steps",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 7410,
+      "latency_ms": 65.27400499908254,
+      "real_tokens": 7647,
+      "missing": [],
+      "leaked": [
+        "Made with Zensical",
+        "Subscribe to the FastAPI and friends newsletter",
+        "The FastAPI trademark is owned by"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "mdn-using-fetch",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "leakage": 1.0,
+      "tokens": 9530,
+      "latency_ms": 39.59722899890039,
+      "real_tokens": 9654,
+      "missing": [],
+      "leaked": [
+        "Your blueprint for a better internet.",
+        "Mozilla careers",
+        "Advertise with us"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "rust-book-installation",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": 0.0,
+      "leakage": 0.0,
+      "tokens": 1603,
+      "latency_ms": 7.421178997901734,
+      "real_tokens": 1498,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "github-rest-repos",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 67853,
+      "latency_ms": 253.46323199482867,
+      "real_tokens": 71954,
+      "missing": [],
+      "leaked": [
+        "Help us make GitHub Docs great!",
+        "All Docs are open source.",
+        "Expert services"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "rfc9110",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 146941,
+      "latency_ms": 510.4303260013694,
+      "real_tokens": 165606,
+      "missing": [],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "pep-8",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 13574,
+      "latency_ms": 89.17605500028003,
+      "real_tokens": 13005,
+      "missing": [],
+      "leaked": [
+        "Page Source (GitHub)"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "postgres-select",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 17449,
+      "latency_ms": 57.97471600089921,
+      "real_tokens": 16740,
+      "missing": [],
+      "leaked": [
+        "Code of Conduct",
+        "About PostgreSQL",
+        "Your account"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "sqlite-select",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 9855,
+      "latency_ms": 44.82881899457425,
+      "real_tokens": 9044,
+      "missing": [],
+      "leaked": [
+        "Purchase"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "wikipedia-web-crawler",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 24397,
+      "latency_ms": 93.47089799848618,
+      "real_tokens": 26018,
+      "missing": [],
+      "leaked": [
+        "Jump to content",
+        "Privacy policy",
+        "This page was last edited on",
+        "Main menu"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "go-blog-errors-are-values",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 3476,
+      "latency_ms": 12.66826700157253,
+      "real_tokens": 3603,
+      "missing": [],
+      "leaked": [
+        "go.dev uses cookies from Google",
+        "Terms of Service",
+        "Golang Weekly"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "books-toscrape-product",
+      "text_recall": 1.0,
+      "structure_recall": 1.0,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 457,
+      "latency_ms": 2.819936999003403,
+      "real_tokens": 454,
+      "missing": [],
+      "leaked": [
+        "We love being scraped!"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-01",
+      "text_recall": 0.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.0,
+      "tokens": 0,
+      "latency_ms": 1.700638997135684,
+      "real_tokens": 0,
+      "missing": [
+        "processo patologico caratterizzato da uno spiccato aumento delle fibrille reticolari nel midollo osseo emopoietico",
+        "È un disordine emopoietico clonale, dovuto probabilmente al rilascio di fattori di crescita.",
+        "La fibrosi è costituita da collagene di tipo III.",
+        "L’unica terapia realmente efficace è il trapianto di midollo."
+      ],
+      "leaked": [],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-02",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2886,
+      "latency_ms": 18.227350003144238,
+      "real_tokens": 3876,
+      "missing": [],
+      "leaked": [
+        "Back to Business – promocje do -98%. Sprawdź. >>",
+        "Polityka bezpieczeństwa ISO",
+        "Plan połączenia spółek"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-04",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 20060,
+      "latency_ms": 61.07991799945012,
+      "real_tokens": 19594,
+      "missing": [],
+      "leaked": [
+        "Priceline is part of Booking Holdings, the world leader in online travel & related services.",
+        "Hotels In Post Falls"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-05",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 4023,
+      "latency_ms": 12.356222003290895,
+      "real_tokens": 5371,
+      "missing": [],
+      "leaked": [
+        "Hürriyet'e Reklam VerYatırımcı İlişkileriBize UlaşınHürriyet KurumsalHata Bildirimi",
+        "Haberlerimizi Google’da Takip Edin",
+        "Gelişmelerden anında haberdar olun."
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-06",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 4000,
+      "latency_ms": 30.581477003579494,
+      "real_tokens": 4628,
+      "missing": [],
+      "leaked": [
+        "MeinMed.at – Medizinwissen",
+        "Die billigsten Tankstellen in Oberösterreich",
+        "Melde dich jetzt kostenlos an, um selbst mit eigenen Inhalten beizutragen."
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-07",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1927,
+      "latency_ms": 20.545424005831592,
+      "real_tokens": 2133,
+      "missing": [],
+      "leaked": [
+        "© 1995-2026 Opera Norway",
+        "Innova e ispira, scopri l'inaspettato, sostieni gli standard aperti.",
+        "Politica sui Cookie"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-09",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 835,
+      "latency_ms": 7.923028999357484,
+      "real_tokens": 768,
+      "missing": [],
+      "leaked": [
+        "© 2026 Ordnance Survey Limited. All Rights Reserved",
+        "Explorer House, Adanac Drive, Nursling, Southampton, Hampshire, SO16 0AS",
+        "Developer communities"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-10",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.75,
+      "tokens": 18605,
+      "latency_ms": 138.61129400174832,
+      "real_tokens": 27476,
+      "missing": [],
+      "leaked": [
+        "California Transparency in Supply Chains Act",
+        "Become an Encore Member - it's free",
+        "Related Items"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-11",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 7453,
+      "latency_ms": 56.475715995475184,
+      "real_tokens": 10119,
+      "missing": [],
+      "leaked": [
+        "Extra 30%‡ Off select Clearance‡Exclusions apply",
+        "EXCLUSIVE OFFERS. NEW STYLES. FIRST ACCESS.",
+        "Conflict-Free Sourcing"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-13",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1361,
+      "latency_ms": 7.822794999810867,
+      "real_tokens": 1570,
+      "missing": [],
+      "leaked": [
+        "© 2026 Pan Macmillan",
+        "Macmillan's Modern Slavery Act Statement",
+        "Hear more from Pan Macmillan"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-14",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1184,
+      "latency_ms": 6.570063000253867,
+      "real_tokens": 1045,
+      "missing": [],
+      "leaked": [
+        "© 2026 British Library, 96 Euston Road, London, NW1 2DB",
+        "All text is © British Library Board and is available under a CC-BY Licence except where otherwise stated.",
+        "Eat, drink, shop"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-15",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1430,
+      "latency_ms": 12.746170003083535,
+      "real_tokens": 1745,
+      "missing": [],
+      "leaked": [
+        "© ВТБ Регистратор 2013-2026 - Все права защищены",
+        "Регистрация АО «под ключ» за 4 дня",
+        "Сайт обрабатывает пользовательские данные с использованием файлов, сохраняемых в браузере пользователя"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-16",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 3981,
+      "latency_ms": 20.670017001975793,
+      "real_tokens": 6646,
+      "missing": [],
+      "leaked": [
+        "協調機構：澳門特別行政區行政公職局",
+        "全國工商聯副主席率團訪澳大",
+        "公共部門及其他機構"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-17",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1962,
+      "latency_ms": 13.365819002501667,
+      "real_tokens": 2923,
+      "missing": [],
+      "leaked": [
+        "© Джойнио, 2003 - 2026 Все права защищены.",
+        "Юридический адрес: 121087, Москва, Береговой проезд, дом 5А корпус 1",
+        "Используем cookie и Яндекс.Метрику."
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-18",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2775,
+      "latency_ms": 14.792917005252093,
+      "real_tokens": 3107,
+      "missing": [],
+      "leaked": [
+        "Interest Based Ads",
+        "Your Ads Privacy Choices",
+        "Kindle Notes & Highlights"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-19",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 3550,
+      "latency_ms": 14.904251002008095,
+      "real_tokens": 4968,
+      "missing": [],
+      "leaked": [
+        "Copyright © 2026 PlayZen Co. LLC, All Rights Reserved.",
+        "Email: info@playzen.io",
+        "At PlayZen, we know that playtime matters for everyone"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-20",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 8869,
+      "latency_ms": 82.1157409955049,
+      "real_tokens": 11605,
+      "missing": [],
+      "leaked": [
+        "Contact Sales/Support: +1 (888) 800-9580",
+        "Register a Device",
+        "I give X-Rite permission to provide me with information about their products and services"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-21",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 456,
+      "latency_ms": 7.667964993743226,
+      "real_tokens": 675,
+      "missing": [],
+      "leaked": [
+        "Ste našli informacije, ki ste jih iskali?",
+        "© 2026 GOV.SI"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-22",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 10352,
+      "latency_ms": 79.30982299876632,
+      "real_tokens": 11665,
+      "missing": [],
+      "leaked": [
+        "© 2026, Government of Singapore",
+        "Report Vulnerability",
+        "Woman Arrested For Shop Theft At Changi Airport",
+        "Police Heritage Trail"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-23",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 0.6666666666666666,
+      "tokens": 3766,
+      "latency_ms": 10.80538499809336,
+      "real_tokens": 3557,
+      "missing": [],
+      "leaked": [
+        "Dirección: Calle 26 # 13-19, Piso 1° - Edificio FONADE",
+        "Código Postal: 110311"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-24",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 2062,
+      "latency_ms": 8.243527998274658,
+      "real_tokens": 1793,
+      "missing": [],
+      "leaked": [
+        "PM&C acknowledges the traditional owners and custodians of country throughout Australia",
+        "FOI disclosure log",
+        "Help with the cost of living"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-25",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1256,
+      "latency_ms": 14.938480999262538,
+      "real_tokens": 1695,
+      "missing": [],
+      "leaked": [
+        "2026 الإدارة العامة للهوية وشؤون الأجانب - دبي - جميع الحقوق محفوظة",
+        "استبيان سعادة المتعاملين",
+        "سياسة البيانات المفتوحة"
+      ],
+      "error": null
+    },
+    {
+      "tool": "scrapling",
+      "fixture": "drawn-26",
+      "text_recall": 1.0,
+      "structure_recall": null,
+      "fence_language": null,
+      "leakage": 1.0,
+      "tokens": 1784,
+      "latency_ms": 12.504153994086664,
+      "real_tokens": 1642,
+      "missing": [],
+      "leaked": [
+        "We use some essential cookies to make this website work.",
+        "All content is available under the Open Government Licence v3.0, except where otherwise stated",
+        "Help us improve GOV.UK"
+      ],
+      "error": null
+    }
+  ]
+}
