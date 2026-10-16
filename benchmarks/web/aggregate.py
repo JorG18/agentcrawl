@@ -40,8 +40,23 @@ def _content(result: dict[str, Any] | None) -> bool:
     return result is not None and classify(result) == "content"
 
 
+def _billing_error(result: dict[str, Any]) -> bool:
+    return "HTTP 402" in (result.get("error") or "")
+
+
 def pooled(runs: list[dict[str, dict[str, dict[str, Any]]]]) -> dict[str, Any]:
-    """``runs`` = one ``report.load`` result per run, all on the same sample."""
+    """``runs`` = one ``report.load`` result per run, all on the same sample.
+
+    A page a hosted API refused for lack of credits (HTTP 402) is left out of
+    that tool's run: the account ran dry, the scraper was never tried.
+    """
+    runs = [
+        {
+            tool: {page: r for page, r in results.items() if not _billing_error(r)}
+            for tool, results in run.items()
+        }
+        for run in runs
+    ]
     tools = sorted({tool for run in runs for tool in run})
     summary: dict[str, Any] = {"runs": len(runs), "tools": {}, "pairs": {}}
     for tool in tools:
@@ -83,12 +98,12 @@ def markdown(summary: dict[str, Any]) -> str:
     lines = [
         f"Runs pooled: {summary['runs']}",
         "",
-        "| tool | content pages per run | total |",
-        "|---|---|---|",
+        "| tool | content pages per run | total | pages tried |",
+        "|---|---|---|---|",
     ]
     for tool, row in summary["tools"].items():
         per_run = ", ".join(map(str, row["content_per_run"]))
-        lines.append(f"| {tool} | {per_run} | {row['content_total']} |")
+        lines.append(f"| {tool} | {per_run} | {row['content_total']} | {row['pages']} |")
     lines += [
         "",
         "| pair | only first | only second | difference | run-to-run band | p (McNemar) | verdict |",
@@ -111,8 +126,10 @@ def main(argv: list[str] | None = None) -> int:
         help="A run's folder of *.jsonl.gz results (searched recursively).",
     )
     parser.add_argument("--out", help="Write the summary as JSON here.")
+    parser.add_argument("--skip", action="append", default=[], help="Leave this tool out.")
     args = parser.parse_args(argv)
     runs = [load(sorted(str(p) for p in Path(folder).rglob("*.jsonl.gz"))) for folder in args.run]
+    runs = [{t: r for t, r in run.items() if t not in args.skip} for run in runs]
     summary = pooled(runs)
     if args.out:
         Path(args.out).write_text(json.dumps(summary, indent=2) + "\n", "utf-8")

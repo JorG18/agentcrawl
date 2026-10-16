@@ -350,3 +350,30 @@ def test_cli_reads_results_from_downloaded_artifact_folders(tmp_path, capsys) ->
 
     assert main(["--run", str(tmp_path)]) == 0
     assert "| agentcrawl | 1 | 1 |" in capsys.readouterr().out
+
+
+def test_billing_errors_are_not_attempts() -> None:
+    # Out of credits is the account, not the scraper: those pages leave the pair.
+    from benchmarks.web.aggregate import pooled
+
+    run = _run({"a": {"x": True, "y": True}, "b": {"x": True, "y": False}})
+    run["b"]["y"]["error"] = 'RuntimeError: HTTP 402: {"error":"Insufficient credits"}'
+
+    summary = pooled([run])
+
+    assert summary["tools"]["b"]["pages"] == 1
+    assert (summary["pairs"]["a vs b"]["a_only"], summary["pairs"]["a vs b"]["b_only"]) == (0, 0)
+
+
+def test_cli_can_leave_a_tool_out(tmp_path, capsys) -> None:
+    import gzip
+    import json
+
+    from benchmarks.web.aggregate import main
+
+    for tool in ("agentcrawl", "scrapegraph"):
+        with gzip.open(tmp_path / f"{tool}.jsonl.gz", "wt") as f:
+            f.write(json.dumps({"tool": tool, "id": "x", "markdown": ARTICLE}) + "\n")
+
+    assert main(["--run", str(tmp_path), "--skip", "scrapegraph"]) == 0
+    assert "scrapegraph" not in capsys.readouterr().out
