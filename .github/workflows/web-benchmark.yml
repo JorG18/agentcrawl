@@ -41,6 +41,9 @@ on:
       page_timeout:
         description: Seconds per page, the same for every tool (60 = capped, 180 = "uncapped")
         default: "60"
+      sample_path:
+        description: Use a sample file from the repo instead (e.g. benchmarks/corpus/live_quality.json)
+        default: ""
 
 permissions:
   contents: read
@@ -55,6 +58,7 @@ env:
   SAMPLE_FROM_RUN: ${{ inputs.sample_from_run || '' }}
   KEEP_HTML: ${{ inputs.keep_html || '' }}
   PAGE_TIMEOUT: ${{ inputs.page_timeout || '60' }}
+  SAMPLE_PATH: ${{ inputs.sample_path || '' }}
 
 jobs:
   sample:
@@ -68,15 +72,18 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Use a sample from the repo
+        if: env.SAMPLE_PATH != ''
+        run: cp "$SAMPLE_PATH" sample.json
       - name: Reuse an earlier sample
-        if: env.SAMPLE_FROM_RUN != ''
+        if: env.SAMPLE_FROM_RUN != '' && env.SAMPLE_PATH == ''
         uses: actions/download-artifact@v4
         with:
           name: web-sample
           run-id: ${{ env.SAMPLE_FROM_RUN }}
           github-token: ${{ github.token }}
       - name: Draw the sample
-        if: env.SAMPLE_FROM_RUN == ''
+        if: env.SAMPLE_FROM_RUN == '' && env.SAMPLE_PATH == ''
         run: python -m benchmarks.web.sample --size "$SIZE" --hard "$HARD" --seed "$SEED" --out sample.json
       - id: tools
         run: |
