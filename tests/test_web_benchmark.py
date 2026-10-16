@@ -379,21 +379,19 @@ def test_cli_can_leave_a_tool_out(tmp_path, capsys) -> None:
     assert "othertool" not in capsys.readouterr().out
 
 
-def test_excluded_tools_are_not_in_public_benchmark_code() -> None:
-    # Left out on purpose (account terms or no usable run); see docs/BENCHMARKS.md.
+def test_public_benchmark_runs_only_the_published_tools() -> None:
+    # Hosted tools stay out unless their terms allow publishing; see docs/BENCHMARKS.md.
+    import json
     from pathlib import Path
 
     from benchmarks.web.run import TOOLS
 
-    for name in ("scrapegraph", "tavily"):
-        assert name not in TOOLS
-        for path in (
-            "benchmarks/web/run.py",
-            ".github/workflows/web-benchmark.yml",
-            "benchmarks/compare.py",
-            *map(str, Path("benchmarks/results").rglob("*.json")),
-        ):
-            assert name not in Path(path).read_text("utf-8").lower(), (name, path)
+    published = {"agentcrawl", "crawl4ai", "scrapling", "firecrawl"}
+    assert set(TOOLS) == published
+    for path in Path("benchmarks/results").rglob("*.json"):
+        data = json.loads(path.read_text("utf-8"))
+        tools = data.get("tools", {}) if isinstance(data, dict) else {}
+        assert set(tools) <= published, path
 
 
 def test_live_quality_scores_got_pages_only(tmp_path) -> None:
