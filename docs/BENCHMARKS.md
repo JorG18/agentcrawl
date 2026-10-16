@@ -6,7 +6,7 @@ How AgentCrawl compares with Crawl4AI, Scrapling and Firecrawl on real websites,
 
 - **Pages read (400 random real sites, two runs per time cap):** AgentCrawl, Firecrawl and Scrapling are tied within noise, at about 64–66 % of pages with readable content. AgentCrawl reads more pages than Crawl4AI (p < 0.001).
 - **What comes back, on 23 randomly drawn pages with checked expectations:** AgentCrawl kept 99 % of the checked text with 10 % noise offline, and 99 % with 8 % live. It is ahead of Scrapling on quality (p < 0.001). **Against Firecrawl and Crawl4AI the quality difference is a tie** (p = 0.13 and 0.07).
-- **Tokens:** on random pages AgentCrawl's output is about a third smaller than Firecrawl's. Against Crawl4AI's `fit_markdown` it is 18 % larger offline and about the same live. On the 12 documentation pages it is about a third smaller than `fit_markdown`.
+- **Tokens:** on random pages AgentCrawl's output is about a third smaller than Firecrawl's. Against Crawl4AI's `fit_markdown` it is 18 % larger offline and about the same live. On the 12 chosen pages it is about a third smaller than `fit_markdown`.
 - **Combined score** (pages read × quality of what came back): AgentCrawl 58, Firecrawl 53, Crawl4AI 45, Scrapling 6. This is our own formula, and the gap between AgentCrawl and Firecrawl is inside the noise of both inputs.
 
 ## What was measured
@@ -195,7 +195,7 @@ The offline numbers can only be re-scored on the original page bytes. A fresh `s
 
 To run it yourself, dispatch the **Web benchmark** workflow with `stealth=1`, a `page_timeout` of `60` or `180`, and either of:
 
-- `sample_from_run=36514612561`: the same 400 sites;
+- `sample_path=benchmarks/results/0.6.0/web-sample.json`: the same 400 sites;
 - `sample_path=benchmarks/corpus/live_quality.json`: the 35 quality pages.
 
 Firecrawl needs a `FIRECRAWL_API_KEY` repository secret and spends its credits.

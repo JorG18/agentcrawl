@@ -390,8 +390,8 @@ if you gave several. Both browsers wait out "Just a moment…" pages and tick a
 Cloudflare Turnstile checkbox that is still showing, in your own browser
 (`AGENTCRAWL_BROWSER_CHALLENGE_CLICK=false` turns that off). No solver service is
 called and no image CAPTCHA is attempted. In the 0.6.0 benchmark, with this
-extra, AgentCrawl and Scrapling's `StealthyFetcher` read as many pages as each
-other ([benchmarks](docs/BENCHMARKS.md)).
+extra, AgentCrawl and Scrapling's `StealthyFetcher` were tied within noise on
+pages read ([benchmarks](docs/BENCHMARKS.md)).
 
 ```bash
 python -m pip install "agentcrawl-ai[stealth]"
