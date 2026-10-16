@@ -183,3 +183,26 @@ def test_draw_uses_the_sampler_domain_filter() -> None:
     assert draw_neutral.why_not(
         {"url": "https://www.redtube.com/1", "kind": "inner"}, set(), {}
     ) == ("adult or not a site")
+
+
+def test_snapshot_cli_fails_only_when_nothing_was_saved(tmp_path, monkeypatch, capsys) -> None:
+    # One slow third-party site must not fail the run; the compare lists it unscored.
+    import json
+
+    from benchmarks import snapshot
+
+    manifest = tmp_path / "neutral.json"
+    pages = [{"id": "up", "url": "https://up.test/"}, {"id": "slow", "url": "https://slow.test/"}]
+    manifest.write_text(json.dumps({"pages": pages}), "utf-8")
+
+    def fetch(url):
+        if "slow" in url:
+            raise TimeoutError("The read operation timed out")
+        return b"<p>ok</p>", url, 200
+
+    monkeypatch.setattr(snapshot, "fetch", fetch)
+    assert snapshot.main([str(manifest)]) == 0
+    assert "slow" in json.loads(capsys.readouterr().out)["failed"]
+
+    monkeypatch.setattr(snapshot, "fetch", lambda url: (_ for _ in ()).throw(OSError("down")))
+    assert snapshot.main([str(manifest), "--refresh"]) == 1

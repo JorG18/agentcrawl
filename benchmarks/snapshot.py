@@ -84,10 +84,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", action="append", help="Page id to fetch (repeatable).")
     parser.add_argument("--refresh", action="store_true", help="Re-fetch existing snapshots.")
     args = parser.parse_args(argv)
-    index = snapshot(Path(args.manifest), only=set(args.only or ()), refresh=args.refresh)
+    index = snapshot(
+        Path(args.manifest), only=set(args.only or ()), refresh=args.refresh, fetcher=fetch
+    )
     failed = {page: item["error"] for page, item in index.items() if "error" in item}
     print(json.dumps({"snapshots": len(index) - len(failed), "failed": failed}, indent=2))
-    return 1 if failed else 0
+    # Third-party sites go down or slow; the compare lists those pages as unscored.
+    return 1 if failed and len(failed) == len(index) else 0
 
 
 if __name__ == "__main__":
