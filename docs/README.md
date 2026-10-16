@@ -7,6 +7,7 @@ Start here when you need deeper documentation beyond the root README.
 | File | Use when |
 | --- | --- |
 | [EXAMPLES.md](EXAMPLES.md) | You want copy-paste workflows for CLI, Python, HTTP API, Docker, MCP, browser rendering, and local documents. |
+| [BENCHMARKS.md](BENCHMARKS.md) | You want to know how AgentCrawl compares with Crawl4AI, Scrapling and Firecrawl on real websites, and how to reproduce it. |
 | [QUALITY_BENCHMARKS.md](QUALITY_BENCHMARKS.md) | You want to understand the checked-in extraction quality suite and benchmark policy. |
 | [OPERATIONS.md](OPERATIONS.md) | You run AgentCrawl as a service and need health checks, backup, restore, and production notes. |
 | [RELEASE.md](RELEASE.md) | You are preparing a PyPI, GitHub, or GHCR release. |
