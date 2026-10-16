@@ -4,7 +4,8 @@ Hosted APIs cannot read our snapshots, so for them quality is measured on a
 live run (``sample_path=benchmarks/corpus/live_quality.json`` in the web
 benchmark workflow) with the same signals and scoring as ``benchmarks.compare``.
 A page a tool returned nothing for counts against ``got``, not against its
-recall or noise; a page refused for lack of credits (HTTP 402) is left out.
+recall or noise; a page the tool never tried (skipped, or HTTP 402 for lack
+of credits) is left out.
 
 Usage::
 
@@ -22,7 +23,7 @@ from pathlib import Path
 
 from benchmarks.compare import score
 
-from .aggregate import _billing_error, mcnemar_p
+from .aggregate import _not_attempted, mcnemar_p
 from .report import load
 
 MANIFEST = Path(__file__).resolve().parents[1] / "corpus" / "neutral.json"
@@ -37,7 +38,7 @@ def live_quality(run_dir: Path, manifest: Path = MANIFEST, prefix: str = "") -> 
     results = load(sorted(str(p) for p in Path(run_dir).rglob("*.jsonl.gz")))
     summary: dict[str, dict] = {}
     for tool, by_page in results.items():
-        pages = [pid for pid in signals if not _billing_error(by_page.get(pid) or {})]
+        pages = [pid for pid in signals if not _not_attempted(by_page.get(pid) or {})]
         rows = []
         per_page = {}
         for pid in pages:

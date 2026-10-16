@@ -40,19 +40,21 @@ def _content(result: dict[str, Any] | None) -> bool:
     return result is not None and classify(result) == "content"
 
 
-def _billing_error(result: dict[str, Any]) -> bool:
-    return "HTTP 402" in (result.get("error") or "")
+def _not_attempted(result: dict[str, Any]) -> bool:
+    """Skipped (no key, beyond --limit) or refused for lack of credits (HTTP 402)."""
+    return bool(result.get("skipped")) or "HTTP 402" in (result.get("error") or "")
 
 
 def pooled(runs: list[dict[str, dict[str, dict[str, Any]]]]) -> dict[str, Any]:
     """``runs`` = one ``report.load`` result per run, all on the same sample.
 
-    A page a hosted API refused for lack of credits (HTTP 402) is left out of
-    that tool's run: the account ran dry, the scraper was never tried.
+    A page a tool never tried is left out of that tool's run: skipped (no key,
+    beyond --limit) or refused for lack of credits (HTTP 402, the account ran
+    dry). Counting it would charge the tool for a page it never saw.
     """
     runs = [
         {
-            tool: {page: r for page, r in results.items() if not _billing_error(r)}
+            tool: {page: r for page, r in results.items() if not _not_attempted(r)}
             for tool, results in run.items()
         }
         for run in runs

@@ -424,3 +424,35 @@ def test_live_quality_pairs_count_pages_each_tool_did_better() -> None:
 
     assert (pair["a_better"], pair["b_better"], pair["same"]) == (2, 0, 1)
     assert pair["p"] == 0.5  # exact sign test on 2 vs 0
+
+
+def test_skipped_pages_are_not_attempts() -> None:
+    # A tool that never ran (no key, --limit) must not lose every pair.
+    from benchmarks.web.aggregate import pooled
+
+    run = _run({"a": {"x": True, "y": True}, "b": {"x": False, "y": False}})
+    for page in ("x", "y"):
+        run["b"][page]["skipped"] = "no FIRECRAWL_API_KEY"
+
+    summary = pooled([run])
+
+    assert summary["tools"]["b"]["pages"] == 0
+    assert summary["pairs"]["a vs b"]["a_only"] == 0
+
+
+def test_live_quality_leaves_out_skipped_pages(tmp_path) -> None:
+    import gzip
+    import json
+
+    from benchmarks.web.live_quality import live_quality
+
+    manifest = tmp_path / "neutral.json"
+    page = {"url": "https://x.test/", "expected": ["Install Guide"]}
+    manifest.write_text(json.dumps({"pages": [{"id": "p1", **page}]}))
+    (tmp_path / "run").mkdir()
+    with gzip.open(tmp_path / "run" / "t.jsonl.gz", "wt") as f:
+        f.write(json.dumps({"tool": "t", "id": "p1", "markdown": "", "skipped": "no key"}) + "\n")
+
+    row = live_quality(tmp_path / "run", manifest)["t"]
+
+    assert (row["pages"], row["got"]) == (0, 0)
