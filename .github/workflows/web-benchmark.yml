@@ -227,10 +227,13 @@ jobs:
       - name: Compare
         run: |
           set -o pipefail
+          # Only tools the benchmark still runs: an earlier run may hold others.
+          published=" $(python -c 'from benchmarks.web.run import TOOLS; print(*TOOLS)') "
           for file in earlier/*.jsonl.gz; do
             [ -e "$file" ] || continue
             tool=$(basename "$file" .jsonl.gz)
             case ",$TOOLS," in *",$tool,"*) continue ;; esac
+            case "$published" in *" ${tool%%-*} "*) ;; *) continue ;; esac
             cp "$file" .
             echo "- \`$tool\`: earlier results from run $SAMPLE_FROM_RUN (not rerun)" \
               | tee -a "$GITHUB_STEP_SUMMARY"
