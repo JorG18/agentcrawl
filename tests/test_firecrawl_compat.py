@@ -248,3 +248,21 @@ def test_crawl_accepts_the_sdk_defaults(tmp_path: Path, run_jobs_inline) -> None
     assert status["data"][0]["metadata"]["title"] == "Guide"
     refused = client.post("/v2/crawl", json={"url": page, "ignoreRobotsTxt": True})
     assert refused.status_code == 400
+
+
+def test_no_cache_copy_when_the_caller_says_not_to_keep_one() -> None:
+    from agentcrawl.firecrawl_compat import _scrape_fields
+
+    assert _scrape_fields({"storeInCache": False, "maxAge": 14400000})["cache"] is False
+    assert _scrape_fields({"zeroDataRetention": True})["cache"] is False
+    assert "cache" not in _scrape_fields({"storeInCache": True, "zeroDataRetention": False})
+
+
+def test_zero_data_retention_is_refused_where_results_are_stored(tmp_path: Path) -> None:
+    client, page = _client(tmp_path)
+    for path, body in (
+        ("/v2/crawl", {"url": page, "zeroDataRetention": True}),
+        ("/v2/batch/scrape", {"urls": [page], "zeroDataRetention": True}),
+    ):
+        response = client.post(path, json=body)
+        assert response.status_code == 400, path
