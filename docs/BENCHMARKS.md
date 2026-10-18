@@ -1,11 +1,11 @@
 # Benchmarks (0.6.0)
 
-How AgentCrawl compares with Crawl4AI, Scrapling and Firecrawl on real websites, measured in October 2026. Every number below comes from a public GitHub Actions run or a command in this repository, and the summaries and samples behind it are committed in [`benchmarks/results/0.6.0/`](../benchmarks/results/0.6.0/).
+How AgentCrawl compares with Crawl4AI, Scrapling and Firecrawl on real websites, measured in October 2026. Every number below comes from a GitHub Actions run or a command in this repository, and the summaries and samples behind it are committed in [`benchmarks/results/0.6.0/`](../benchmarks/results/0.6.0/).
 
 ## Summary
 
 - **Pages read (400 random real sites, two runs per time cap):** AgentCrawl, Firecrawl and Scrapling are tied within noise, at about 64–66 % of pages with readable content. AgentCrawl reads more pages than Crawl4AI (p < 0.001).
-- **What comes back, on 23 randomly drawn pages with checked expectations:** AgentCrawl kept 99 % of the checked text with 10 % noise offline, and 99 % with 8 % live. It is ahead of Scrapling on quality (p < 0.001). **Against Firecrawl and Crawl4AI the quality difference is a tie** (p = 0.13 and 0.07).
+- **What comes back, on 23 randomly drawn pages with checked expectations:** AgentCrawl kept 99 % of the checked text with 10.5 % noise offline, and 99 % with 8 % live. It is ahead of Scrapling on quality (p < 0.001). **Against Firecrawl and Crawl4AI the quality difference is a tie** (p = 0.13 and 0.07).
 - **Tokens:** on random pages AgentCrawl's output is about a third smaller than Firecrawl's. Against Crawl4AI's `fit_markdown` it is 18 % larger offline and about the same live. On the 12 chosen pages it is about a third smaller than `fit_markdown`.
 - **Combined score** (pages read × quality of what came back): AgentCrawl 58, Firecrawl 53, Crawl4AI 45, Scrapling 6. This is our own formula, and the gap between AgentCrawl and Firecrawl is inside the noise of both inputs.
 
@@ -40,12 +40,12 @@ The 12 chosen pages were picked by this project: documentation and reference pag
 The 23 drawn pages come from a second Tranco sample: seed 20261015, 142 pages, drawn on 2026-10-15, including a block of news, product, forum and government pages ([`draw-sample.json`](../benchmarks/results/0.6.0/draw-sample.json)). `benchmarks/draw_neutral.py` kept pages in draw order when they passed mechanical filters only:
 
 - an inner or hard-block page;
-- HTTP 200 with no challenge (AgentCrawl's challenge detector run on the raw HTML);
+- HTTP 200 with no challenge to a plain HTTP fetch, no browser (AgentCrawl's challenge detector run on the raw HTML), so pages that need JavaScript are not in the quality set;
 - allowed by robots.txt;
 - at least 1,500 characters of visible text;
 - at most 3 pages per domain and 6 per page kind.
 
-The drawn pages' signals were written from the saved HTML and committed before any tool ran on them. Three drawn pages had no main content to check and were left unscored.
+The drawn pages' signals were written by a separate AI agent from the saved HTML only (no tool output), and committed before any tool ran on them. Three drawn pages had no main content to check and were left unscored.
 
 ## Results
 
@@ -136,7 +136,7 @@ One of the 6 pages counted for AgentCrawl against Firecrawl, and one of the 7 ag
   - Pages refused for lack of credits (HTTP 402) are left out, not counted as failures, and the pairwise tests only compare pages both tools were tried on.
   - Firecrawl's coverage therefore rests on 1,253 pages instead of 1,600.
   - The sample is ordered by rank, so those second-run pages are almost all top-1,000 sites (180 s) or top-10,000 sites (60 s). Firecrawl's pooled coverage over-weights popular sites.
-- **The signals were written by this project.** The 23 drawn pages were picked mechanically and their signals written before any tool ran on them, but by us. AgentCrawl's extractor has been fixed against the 12 chosen pages in the past, so its score there is optimistic. That is why the drawn pages are reported on their own.
+- **The signals were written by this project.** The 23 drawn pages were picked mechanically and their signals written before any tool ran on them, but by us. AgentCrawl's extractor has been fixed against the 12 chosen pages in the past, so its score there is optimistic. That is why the drawn pages are reported on their own. Between the draw of the 400-site sample and these runs, AgentCrawl's engine was also fixed against pages of that same sample that other tools read and it did not, so its web coverage here is optimistic; a fresh draw for the next release removes that bias.
 - **Live ran about two hours after the pages were saved** (22:22 UTC on 15 October vs 00:08 UTC on 16 October). A page that changed in between lowers every tool's recall.
 - **Small samples.** 23 drawn pages can separate large differences (vs Scrapling) but not small ones (vs Firecrawl, vs Crawl4AI).
 - **What "content" lets through.** The 300-character threshold also counts navigation-only output as content, which helps tools that return the whole page.
@@ -162,11 +162,11 @@ Workflow runs ([web-benchmark.yml](../.github/workflows/web-benchmark.yml)). The
 | lane | runs |
 |---|---|
 | sample | [36514612561](https://github.com/JorG18/agentcrawl/actions/runs/36514612561) |
-| web, 60 s cap | [38814822376](https://github.com/JorG18/agentcrawl/actions/runs/38814822376), [38824289158](https://github.com/JorG18/agentcrawl/actions/runs/38824289158) |
-| web, 180 s cap | [38814835609](https://github.com/JorG18/agentcrawl/actions/runs/38814835609), [38825325668](https://github.com/JorG18/agentcrawl/actions/runs/38825325668) |
+| web, 60 s cap | 38814822376, 38824289158 (deleted; summary in [`web-60s.json`](../benchmarks/results/0.6.0/web-60s.json)) |
+| web, 180 s cap | 38814835609, 38825325668 (deleted; summary in [`web-180s.json`](../benchmarks/results/0.6.0/web-180s.json)) |
 | live quality | [38827740605](https://github.com/JorG18/agentcrawl/actions/runs/38827740605) |
 
-The live run shows as failed on GitHub because its summary job crashed. The scraping jobs succeeded, and their artifacts are the ones used here.
+The four web runs were deleted on 2026-10-18 because they also carried results of a hosted tool whose terms do not allow publishing them; their per-page data went with them, and the committed summaries are what remains. The next release's runs will be public again. The live run shows as failed on GitHub because its summary job crashed. The scraping jobs succeeded, and their artifacts are the ones used here.
 
 The offline lane ran locally (Linux, Python 3.14.4) on pages saved on 2026-10-15. Their SHA-256 hashes are in [`offline-quality-35.json`](../benchmarks/results/0.6.0/offline-quality-35.json) and [`benchmarks/corpus/neutral.json`](../benchmarks/corpus/neutral.json).
 
@@ -174,13 +174,9 @@ The offline lane ran locally (Linux, Python 3.14.4) on pages saved on 2026-10-15
 
 GitHub keeps run artifacts for 14 days. The summaries and both samples in [`benchmarks/results/0.6.0/`](../benchmarks/results/0.6.0/) stay.
 
-```bash
-# Web coverage: pool the two runs of a cap
-for run in 38814822376 38824289158; do
-  gh run download $run -n web-local -n web-firecrawl -D runs/$run
-done
-python -m benchmarks.web.aggregate --run runs/38814822376 --run runs/38824289158
+Web coverage cannot be re-pooled from the 0.6.0 runs (deleted, see above): run the workflow again (below) and pool your runs with `python -m benchmarks.web.aggregate --run runs/<id> --run runs/<id>`.
 
+```bash
 # Live quality
 gh run download 38827740605 -n web-local -n web-firecrawl -D runs/live
 python -m benchmarks.web.live_quality --run runs/live --prefix drawn

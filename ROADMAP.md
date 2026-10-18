@@ -59,7 +59,7 @@ AgentCrawl Community is a serious self-hosted alpha surface. The core paths work
 - `agentcrawl doctor`, `agentcrawl --version`, package build verification, clean install smoke tests.
 - Lightweight Docker image on GHCR (`ghcr.io/jorg18/agentcrawl:latest`).
 - PyPI publication pipeline (`pip install agentcrawl-ai`).
-- CI badge in README + PyPI version badge.
+- CI badge in README.
 
 ### Security & correctness fixes (2026-09 audits, shipped in v0.2.0)
 - SSRF guard rails extended to `robots.txt` and sitemap discovery; sitemap-index recursion bounded (depth + entry budget).

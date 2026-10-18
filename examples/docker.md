@@ -17,7 +17,7 @@ curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/v1/scrape \
   -H "authorization: Bearer example-development-key" \
   -H "content-type: application/json" \
-  -d '{"url":"https://pypi.org/project/agentcrawl-ai/","formats":["markdown","metadata"]}'
+  -d '{"url":"https://docs.python.org/3/library/json.html","formats":["markdown","metadata"]}'
 ```
 
 ## Persistent data
