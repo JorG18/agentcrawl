@@ -163,7 +163,7 @@ What costs money to operate belongs to AgentCrawl Enhanced, a hosted API (planne
 Measured in October 2026 against Crawl4AI, Scrapling and Firecrawl ([full results, method and limits](docs/BENCHMARKS.md)):
 
 - On 400 random real sites AgentCrawl gets readable content from about 64 % of pages, tied within noise with Firecrawl and Scrapling, and ahead of Crawl4AI.
-- On 23 randomly drawn pages with checked expectations it keeps 99 % of the checked text, and 8–10 % of the checked chrome strings (navigation, cookie banners, footers) leak through. On that quality it is on par with Firecrawl and Crawl4AI, and ahead of Scrapling.
+- On 23 randomly drawn pages with checked expectations it keeps 99 % of the checked text, and 8–11 % of the checked chrome strings (navigation, cookie banners, footers) leak through. On that quality it is on par with Firecrawl and Crawl4AI, and ahead of Scrapling.
 - On those pages its output is about a third smaller than Firecrawl's, and close to Crawl4AI's `fit_markdown` (2 % smaller live, 18 % larger offline).
 
 How the engine gets there:
