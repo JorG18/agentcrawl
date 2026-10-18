@@ -40,7 +40,13 @@ from .fetchers import (
     page_deadline,
     read_deadline_seconds,
 )
-from .html_tools import extract_html_facts, normalize_url, same_domain, url_allowed
+from .html_tools import (
+    document_base_url,
+    extract_html_facts,
+    normalize_url,
+    same_domain,
+    url_allowed,
+)
 from .models import CrawlRun, MapResult, ScrapeDocument
 from .parsing import (
     budget_markdown,
@@ -290,10 +296,11 @@ class AgentCrawl:
                     if formats is None:
                         return document
                     return _format_document(document, requested)
-            # Links resolve against the page after redirects, like the Markdown.
-            links, metadata = extract_html_facts(
-                html, str(fetch_metadata.get("final_url") or source)
-            )
+            # Links and Markdown resolve against the page after redirects and
+            # its <base href>; source_url stays the URL that was asked for.
+            base_url = document_base_url(html, str(fetch_metadata.get("final_url") or source))
+            links, metadata = extract_html_facts(html, base_url)
+            metadata["source_url"] = source
             main_content = True if only_main_content is None else only_main_content
             markdown = markdown_from_fetched_content(html, fetch_metadata)
             if markdown is None:
@@ -301,7 +308,7 @@ class AgentCrawl:
                     html,
                     self.config,
                     only_main_content=main_content,
-                    base_url=str(fetch_metadata.get("final_url") or source),
+                    base_url=base_url,
                 )
                 provenance = extraction_provenance(html, only_main_content=main_content)
             else:
@@ -515,8 +522,9 @@ class AgentCrawl:
         errors = list(document.get("errors") or [])
         data: Any = None
         if not errors:
-            final_url = str(metadata.get("final_url") or source)
-            data = extract_with_schema(document.get("html") or "", schema, base_url=final_url)
+            html = document.get("html") or ""
+            base_url = document_base_url(html, str(metadata.get("final_url") or source))
+            data = extract_with_schema(html, schema, base_url=base_url)
             serialized = json.dumps(data, ensure_ascii=False)
             metadata.update(
                 {
@@ -678,7 +686,7 @@ class AgentCrawl:
         with _discovery_run(self.config, source) as discovery_trail:
             for sitemap_url in _candidate_sitemaps(source, self.config):
                 try:
-                    discovered.update(_read_sitemap(sitemap_url, self.config))
+                    discovered.update(_read_sitemap(sitemap_url, self.config, errors=errors))
                 except AirgapViolation:
                     # Refused before it was sent: a sitemap on another host is
                     # skipped (and recorded as blocked), not a failed map.
@@ -1167,7 +1175,9 @@ class AgentCrawl:
         if document.get("errors"):
             return {"schema": None, "data": None, "errors": document["errors"]}
         html = document.get("html") or ""
-        base_url = str((document.get("metadata") or {}).get("final_url") or source)
+        base_url = document_base_url(
+            html, str((document.get("metadata") or {}).get("final_url") or source)
+        )
         prompt = _SCHEMA_PROMPT.format(description=description, html=_html_for_prompt(html))
         feedback = ""
         for attempt in range(1, max(1, max_attempts) + 1):
@@ -1543,6 +1553,7 @@ def _read_sitemap(
     *,
     _depth: int = 0,
     _budget: list[int] | None = None,
+    errors: list[str] | None = None,
 ) -> list[str]:
     # ``_guarded_urlopen`` validates the initial URL and every redirect hop
     # (via ``_SafeRedirectHandler``), so the final response URL is already
@@ -1570,11 +1581,14 @@ def _read_sitemap(
             # is also what terminates cyclic sitemap-index references.
             continue
         try:
-            urls.extend(_read_sitemap(url, config, _depth=_depth + 1, _budget=_budget))
+            urls.extend(
+                _read_sitemap(url, config, _depth=_depth + 1, _budget=_budget, errors=errors)
+            )
         except AirgapViolation:
             raise
-        except Exception:  # noqa: BLE001 - one broken child must not drop its siblings
-            continue
+        except Exception as exc:  # one broken child must not drop its siblings
+            if errors is not None:
+                errors.append(f"{url}: {exc}")
     return urls
 
 

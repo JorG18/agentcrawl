@@ -631,7 +631,8 @@ def _extracted_chars(html: str) -> int:
     from .parsing import _html_text_chars, extract_content_html
 
     try:
-        return _html_text_chars(extract_content_html(html))
+        # Same call shape as html_to_markdown, so its cached result is reused.
+        return _html_text_chars(extract_content_html(html, only_main_content=True))
     except Exception:  # pragma: no cover - the parser falls back on its own
         return 0
 
@@ -1118,7 +1119,13 @@ def _decompress_body(data: bytes, encoding: str, limit: int, *, url: str = "") -
     try:
         out = inflater.decompress(data, limit + 1)
         # A gzip body may hold several members back to back; keep them all.
-        while encoding != "deflate" and inflater.eof and inflater.unused_data and len(out) <= limit:
+        # Trailing padding or junk after the last member is ignored, as before.
+        while (
+            encoding != "deflate"
+            and inflater.eof
+            and inflater.unused_data[:2] == b"\x1f\x8b"
+            and len(out) <= limit
+        ):
             rest = inflater.unused_data
             inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
             out += inflater.decompress(rest, limit + 1 - len(out))
@@ -1530,9 +1537,6 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             if waited:
                 capture["challenge_waited_ms"] = waited
             capture["browser_version"] = str(getattr(browser, "version", "") or "")
-            final_url = str(getattr(page, "url", "") or "")
-            if final_url.startswith(("http://", "https://")):
-                capture["final_url"] = final_url  # after redirects, for the link base
             capture["challenge_title"] = _safe_title(page)[:80]
             capture["turnstile_frame"] = _turnstile_frame_state(page)
         if config.browser_wait_for_selector:
@@ -1591,6 +1595,9 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             # Bodies must be read before the context closes.
             capture["api"] = api_collector.finish(_budget_ms(config.timeout_ms))
         html = page.content()
+        final_url = str(getattr(page, "url", "") or "")
+        if capture is not None and final_url.startswith(("http://", "https://")):
+            capture["final_url"] = final_url  # where the HTML came from: the link base
         if config.browser_session:
             # Keep a rolling login alive: sites refresh cookies on use.
             from .sessions import save_storage_state

@@ -20,7 +20,6 @@ class HTMLFactsParser(HTMLParser):
         self._in_jsonld = False
         self._jsonld_parts: list[str] = []
         self._jsonld_documents: list[object] = []
-        self._saw_base = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attrs_dict = {key.lower(): value for key, value in attrs if value is not None}
@@ -30,10 +29,6 @@ class HTMLFactsParser(HTMLParser):
         if tag == "script" and attrs_dict.get("type", "").lower() == "application/ld+json":
             self._in_jsonld = True
             self._jsonld_parts = []
-        if tag == "base" and attrs_dict.get("href") and not self._saw_base:
-            # Only the first <base href> counts; relative links resolve against it.
-            self._saw_base = True
-            self.base_url = urllib.parse.urljoin(self.base_url, attrs_dict["href"])
         if tag == "a" and attrs_dict.get("href"):
             self.links.append(normalize_url(attrs_dict["href"], self.base_url))
         if tag == "link" and attrs_dict.get("href") and attrs_dict.get("rel"):
@@ -75,6 +70,19 @@ class HTMLFactsParser(HTMLParser):
             self._title_parts.append(data)
         if self._in_jsonld:
             self._jsonld_parts.append(data)
+
+
+_BASE_HREF_RE = re.compile(r"""<base\b[^>]*?\bhref\s*=\s*["']?([^"'\s>]+)""", re.IGNORECASE)
+
+
+def document_base_url(html: str, url: str) -> str:
+    """The URL relative links resolve against: the first ``<base href>``, else ``url``."""
+    match = _BASE_HREF_RE.search(html[:200_000])
+    if not match:
+        return url
+    import html as html_module
+
+    return urllib.parse.urljoin(url, html_module.unescape(match.group(1)))
 
 
 def extract_html_facts(html: str, base_url: str) -> tuple[list[str], dict[str, str]]:

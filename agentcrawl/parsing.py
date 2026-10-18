@@ -131,6 +131,7 @@ class _HTMLTreeParser(HTMLParser):
             self._stack.append(node)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        _close_implied(self._stack, tag.lower())  # <hr/> closes a <p> like <hr>
         self._stack[-1].children.append(_HTMLNode(tag.lower(), attrs))
 
     def handle_endtag(self, tag: str) -> None:
@@ -294,7 +295,7 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
     try:
         return _extract_content_tree(html, only_main_content=only_main_content)
     except RecursionError:  # markup nested deeper than the tree walk can follow
-        return _legacy_strip_boilerplate(html)
+        return _legacy_strip_boilerplate(html) if only_main_content else html
 
 
 def _extract_content_tree(html: str, *, only_main_content: bool) -> str:

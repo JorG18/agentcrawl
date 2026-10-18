@@ -144,8 +144,12 @@ def test_one_broken_child_sitemap_keeps_the_others(monkeypatch) -> None:
         raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
 
     monkeypatch.setattr(crawler, "_discovery_read", fake)
-    urls = crawler._read_sitemap("https://example.com/sitemap.xml", crawler.CrawlConfig())
+    errors: list[str] = []
+    urls = crawler._read_sitemap(
+        "https://example.com/sitemap.xml", crawler.CrawlConfig(), errors=errors
+    )
     assert urls == ["https://example.com/p"]
+    assert errors and errors[0].startswith("https://example.com/gone.xml: ")
 
 
 def test_gzipped_sitemap_body_is_inflated(monkeypatch) -> None:

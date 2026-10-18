@@ -72,3 +72,13 @@ def test_meta_utf16_on_an_ascii_page_is_read_as_utf8() -> None:
 
     page = '<html><head><meta charset="utf-16"></head><body>Héllo world</body></html>'
     assert "Héllo world" in _decode_http_body(page.encode("utf-8"), None)
+
+
+def test_gzip_with_trailing_padding_still_decodes() -> None:
+    import gzip
+
+    from agentcrawl.fetchers import _decompress_body
+
+    assert (
+        _decompress_body(gzip.compress(b"<p>ok</p>") + b"\x00" * 8, "gzip", 10**6) == b"<p>ok</p>"
+    )

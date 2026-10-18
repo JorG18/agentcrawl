@@ -116,6 +116,7 @@ class _TreeBuilder(HTMLParser):
             self.stack.append(node)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        _close_implied(self.stack, tag)
         node = Node(tag, {name: value or "" for name, value in attrs}, parent=self.stack[-1])
         self.stack[-1].children.append(node)
 

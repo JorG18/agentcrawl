@@ -102,5 +102,18 @@ def test_links_resolve_against_final_url_and_base_href(monkeypatch) -> None:
     )
     crawler = AgentCrawl({"browser_fallback": False})
 
-    assert crawler.scrape("https://example.com/docs").links == ["https://example.com/en/docs/intro"]
-    assert crawler.scrape("https://example.com/v1/").links == ["https://example.com/v2/page"]
+    redirected = crawler.scrape("https://example.com/docs")
+    based = crawler.scrape("https://example.com/v1/")
+
+    assert redirected.links == ["https://example.com/en/docs/intro"]
+    assert redirected.metadata["source_url"] == "https://example.com/docs"  # what was asked for
+    assert based.links == ["https://example.com/v2/page"]
+    assert "https://example.com/v2/page" in based.markdown  # Markdown agrees with links
+
+
+def test_self_closing_hr_closes_an_open_paragraph() -> None:
+    from agentcrawl.parsing import _HTMLTreeParser
+
+    parser = _HTMLTreeParser()
+    parser.feed("<p>one<hr/>two<p>three")
+    assert [getattr(c, "tag", c) for c in parser.root.children] == ["p", "hr", "two", "p"]
