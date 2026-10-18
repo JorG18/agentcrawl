@@ -34,6 +34,15 @@ def test_doctor_reports_installation(capsys, monkeypatch) -> None:
     assert "api_key_configured" in payload["summary"]
 
 
+def test_doctor_passes_with_local_files_disabled(capsys, monkeypatch) -> None:
+    # The Docker image sets AGENTCRAWL_ALLOW_LOCAL_FILES=false; its smoke test runs doctor.
+    monkeypatch.delenv("AGENTCRAWL_BASE_URL", raising=False)
+    monkeypatch.setenv("AGENTCRAWL_ALLOW_LOCAL_FILES", "false")
+
+    assert main(["doctor"]) == 0
+    assert json.loads(capsys.readouterr().out)["checks"]["local_scrape"]["ok"] is True
+
+
 def test_doctor_exits_nonzero_when_a_check_fails(capsys, monkeypatch) -> None:
     monkeypatch.delenv("AGENTCRAWL_BASE_URL", raising=False)
     monkeypatch.setattr(

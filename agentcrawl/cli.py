@@ -18,9 +18,10 @@ from typing import Any
 
 from . import __version__
 from .crawler import SUPPORTED_FORMATS, AgentCrawl
-from .config import config_from_env
+from .config import CrawlConfig, config_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
 from .exceptions import FetchError
+from .parsing import html_to_markdown
 from .remote_client import AgentCrawlClient
 from .serializers import to_jsonable
 from .storage import SQLiteStore
@@ -654,11 +655,18 @@ def _check_command(command: str) -> dict[str, Any]:
 
 
 def _check_local_scrape() -> dict[str, Any]:
+    html = "<main><h1>AgentCrawl Doctor</h1></main>"
     try:
+        config = config_from_env(allow_local_files_default=True)
+        if not config["allow_local_files"]:
+            # Deployments that turn local files off (the Docker image) still
+            # get the extractor checked, without reading a file.
+            markdown = html_to_markdown(html, CrawlConfig.from_dict(config), only_main_content=True)
+            return _check_bool("AgentCrawl Doctor" in markdown)
         with tempfile.TemporaryDirectory() as directory:
             page = Path(directory) / "doctor.html"
-            page.write_text("<main><h1>AgentCrawl Doctor</h1></main>", encoding="utf-8")
-            document = AgentCrawl(config_from_env(allow_local_files_default=True)).scrape(str(page))
+            page.write_text(html, encoding="utf-8")
+            document = AgentCrawl(config).scrape(str(page))
         markdown = getattr(document, "markdown", "")
         return _check_bool("AgentCrawl Doctor" in markdown)
     except Exception as exc:
