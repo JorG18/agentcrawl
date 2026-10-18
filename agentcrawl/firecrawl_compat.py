@@ -285,6 +285,8 @@ async def search(
     options = body.get("scrapeOptions")
     fields = _scrape_fields(options) if options else {}
     fields.pop("config", None)
+    if body.get("zeroDataRetention"):
+        fields["cache"] = False  # no cached copy of the result pages
     if fields.pop("json_options", None):
         raise _refuse("the json format is for scrape and batch scrape, not search")
     result = v1.search(
@@ -309,9 +311,9 @@ async def search(
 @router.post("/crawl")
 async def crawl(request: Request, api_key: str | None = Depends(v1.server.require_key)) -> Any:
     body = await _body(request)
-    if body.get("zeroDataRetention"):
+    if body.get("zeroDataRetention") or (body.get("scrapeOptions") or {}).get("zeroDataRetention"):
         # Crawl and batch results are kept as a job until fetched or deleted.
-        raise _refuse("zeroDataRetention is supported on /v2/scrape only")
+        raise _refuse("zeroDataRetention is supported on /v2/scrape and /v2/search only")
     fields: dict[str, Any] = {}
     for key, value in body.items():
         if key in {"url", *_IGNORED} or value is None:
@@ -350,9 +352,9 @@ async def batch_scrape(
     request: Request, api_key: str | None = Depends(v1.server.require_key)
 ) -> Any:
     body = await _body(request)
-    if body.get("zeroDataRetention"):
+    if body.get("zeroDataRetention") or (body.get("scrapeOptions") or {}).get("zeroDataRetention"):
         # Crawl and batch results are kept as a job until fetched or deleted.
-        raise _refuse("zeroDataRetention is supported on /v2/scrape only")
+        raise _refuse("zeroDataRetention is supported on /v2/scrape and /v2/search only")
     urls = [str(url) for url in body.get("urls") or []]
     if not urls or len(urls) > v1._MAX_BATCH_URLS:
         raise _refuse(f"urls must hold 1 to {v1._MAX_BATCH_URLS} URLs")

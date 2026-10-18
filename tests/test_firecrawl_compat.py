@@ -263,6 +263,7 @@ def test_zero_data_retention_is_refused_where_results_are_stored(tmp_path: Path)
     for path, body in (
         ("/v2/crawl", {"url": page, "zeroDataRetention": True}),
         ("/v2/batch/scrape", {"urls": [page], "zeroDataRetention": True}),
+        ("/v2/crawl", {"url": page, "scrapeOptions": {"zeroDataRetention": True}}),
     ):
         response = client.post(path, json=body)
         assert response.status_code == 400, path

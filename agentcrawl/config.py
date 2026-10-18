@@ -562,8 +562,10 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
         ("AGENTCRAWL_CRAWL_RETRY_MAX_DELAY", "crawl_retry_max_delay", float),
     ):
         value = os.getenv(variable, "").strip()
-        if value:
-            config[key] = cast(value)
-    if os.getenv("AGENTCRAWL_HEADLESS", "").strip():
-        config["headless"] = _env_flag("AGENTCRAWL_HEADLESS", True)
+        try:
+            if value:
+                config[key] = cast(value)
+        except ValueError:
+            pass  # malformed: keep the default, as the variables above do
+    config["headless"] = _env_flag("AGENTCRAWL_HEADLESS", True)
     return config

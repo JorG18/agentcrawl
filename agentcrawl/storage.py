@@ -408,14 +408,7 @@ class SQLiteStore:
             "select request_json from jobs where id = ?",
             (job_id,),
         ).fetchone()
-        stored = json.loads(row["request_json"]) if row is not None else None
-        if stored is not None and "_requested_max_pages" in stored:
-            requested = stored.pop("_requested_max_pages")
-            if requested:
-                stored["max_pages"] = requested[0]
-            else:
-                stored.pop("max_pages", None)
-        if stored is None or stored != request:
+        if row is None or json.loads(row["request_json"]) != request:
             raise ValueError("Idempotency-Key was already used for a different request.")
 
     def acquire_schedule_lease(
@@ -969,20 +962,12 @@ class SQLiteStore:
             retry_urls = [failure["url"] for failure in failures]
             request = json.loads(job["request_json"])
             root = normalize_url(str(request["url"]), str(request["url"]))
-            # Remember what the caller asked for: the same idempotent request
-            # sent again must still match after the retry raised max_pages.
-            # ([] = the request had no max_pages key at all.)
-            if "_requested_max_pages" not in request:
-                request["_requested_max_pages"] = (
-                    [request["max_pages"]] if "max_pages" in request else []
-                )
-            request["max_pages"] = max(
-                int(request.get("max_pages") or 0),
-                len(visited) + len(retry_urls),
-            )
             checkpoint = {
                 "version": 2,
                 "root": root,
+                # Room for every page already read plus the re-queued ones; the
+                # stored request keeps the caller's max_pages (idempotency).
+                "min_pages": len(visited) + len(retry_urls),
                 "queue": [
                     {"url": url, "depth": 0, "attempt": 0, "ready_at": 0.0} for url in retry_urls
                 ],

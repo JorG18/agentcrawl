@@ -144,10 +144,11 @@ def test_job_events_and_queue_metrics_are_scoped_per_key(tmp_path: Path) -> None
     assert dashboard_summary(server.store)["crawl_queue"]["ready"] == 3
 
 
-def test_server_and_local_mode_read_the_same_variables(monkeypatch) -> None:
+def test_server_and_local_mode_read_the_same_variables(monkeypatch, tmp_path) -> None:
     from agentcrawl.config import config_from_env
     from agentcrawl.server import AgentCrawlServer
 
+    monkeypatch.setenv("AGENTCRAWL_DB", str(tmp_path / "env.db"))
     monkeypatch.setenv("AGENTCRAWL_BROWSER_ENGINE", "patchright")
     monkeypatch.setenv("AGENTCRAWL_PAGE_BUDGET_MS", "1000")
     monkeypatch.setenv("AGENTCRAWL_CDP_URL", "http://127.0.0.1:9333")
@@ -166,3 +167,14 @@ def test_server_and_local_mode_read_the_same_variables(monkeypatch) -> None:
     }.items():
         assert served[key] == value and local[key] == value, key
     assert served["browser_strict_network"] is True  # the server's own default still wins
+
+
+def test_a_malformed_engine_variable_keeps_the_default(monkeypatch) -> None:
+    from agentcrawl.config import config_from_env
+
+    monkeypatch.setenv("AGENTCRAWL_CRAWL_DEPTH", "two")
+    monkeypatch.setenv("AGENTCRAWL_HTTP_RETRIES", "2.0")
+
+    config = config_from_env()  # used to raise ValueError on every MCP call
+
+    assert "crawl_depth" not in config and "http_retries" not in config

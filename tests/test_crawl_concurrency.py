@@ -206,3 +206,22 @@ def test_crawl_rate_limit_slowdown_survives_resume(monkeypatch) -> None:
 
     assert {A, D, E, F} <= set(resumed.visited_urls)
     assert peak == 1
+
+
+def test_resume_min_pages_raises_the_page_limit(monkeypatch) -> None:
+    monkeypatch.setattr(
+        AgentCrawl,
+        "scrape",
+        lambda self, source, formats=None, only_main_content=None: _doc(source),
+    )
+    resume = {
+        "root": ROOT,
+        "queue": [{"url": A, "depth": 1}],
+        "queued": [ROOT, A],
+        "visited": [ROOT],
+        "min_pages": 2,
+    }
+
+    run = _crawler(1).crawl(ROOT, max_pages=1, resume_state=resume)
+
+    assert A in [doc.url for doc in run.documents]
