@@ -342,12 +342,10 @@ def _safe_urlopen(
 
 
 def _env_proxy_for(url: str) -> bool:
-    # Either scheme counts: a redirect may switch http <-> https mid-fetch.
+    # Conservative: any HTTP(S) proxy counts, even if NO_PROXY covers ``url``,
+    # because a redirect can leave NO_PROXY (or switch scheme) mid-fetch.
     proxies = urllib.request.getproxies()
-    host = urllib.parse.urlsplit(url).netloc.rpartition("@")[2]
-    return bool(proxies.get("http") or proxies.get("https")) and not urllib.request.proxy_bypass(
-        host
-    )
+    return bool(proxies.get("http") or proxies.get("https"))
 
 
 def _browser_backend_available(backend: str) -> bool:
@@ -1589,10 +1587,17 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             # Bodies must be read before the context closes.
             capture["api"] = api_collector.finish(_budget_ms(config.timeout_ms))
         html = page.content()
-        if not guard.strict and str(getattr(page, "url", "")).startswith("http"):
+        refused = (
+            guard.check(page.url)
+            if guard.enforcing
+            and not guard.strict
+            and str(getattr(page, "url", "")).startswith("http")
+            else None
+        )
+        if refused:
             # Outside strict mode the page may have navigated on its own since
             # the check above; the HTML must come from an allowed address.
-            validate_remote_url(page.url, allow_private_network=config.allow_private_network)
+            raise FetchError(refused, error_type="config_error")
         if config.browser_session:
             # Keep a rolling login alive: sites refresh cookies on use.
             from .sessions import save_storage_state

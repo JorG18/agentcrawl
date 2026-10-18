@@ -173,6 +173,9 @@ def _inline_child_frames(
             html = str(child.evaluate(_BODY_HTML_JS) or "")
             # Checked again after the read: the frame may have navigated meanwhile.
             if _frame_refused(guard, child.url or ""):
+                # Its nested frames went into the dropped HTML: not inlined after all.
+                inlined -= deeper
+                budget[0] += deeper
                 skipped += 1
                 continue
             if not html.strip() or len(html) > MAX_IFRAME_HTML_CHARS:

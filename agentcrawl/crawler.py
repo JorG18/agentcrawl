@@ -1128,14 +1128,18 @@ class AgentCrawl:
 
     def _summary(self, document: ScrapeDocument) -> str | None:
         """A short summary by the configured LLM; a failure is noted, not fatal."""
+        from .extraction import _UNTRUSTED_RULE, _unfenced
         from .llm import get_llm, invoke_llm
 
         try:
             reply = invoke_llm(
                 get_llm(self.config),
                 "Summarise this page for someone deciding whether to read it in full, "
-                "keeping names, numbers and dates exactly as written.\n\n"
-                + document.markdown[:60_000],
+                "keeping names, numbers and dates exactly as written. "
+                + _UNTRUSTED_RULE
+                + "\n\n<page_text>\n"
+                + _unfenced(document.markdown[:60_000])
+                + "\n</page_text>",
             )
         except Exception as exc:  # the page itself was read fine
             document.metadata["summary_error"] = sanitize_error_message(str(exc))
