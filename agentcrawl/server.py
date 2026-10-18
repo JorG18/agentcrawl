@@ -29,7 +29,7 @@ import uuid
 
 try:
     from fastapi import Depends, FastAPI, Header, HTTPException, Query
-    from fastapi.responses import HTMLResponse
+    from fastapi.responses import HTMLResponse, JSONResponse
     from pydantic import BaseModel, Field, ConfigDict, field_validator
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError("Install agentcrawl[server] to run the API server.") from exc
@@ -77,6 +77,11 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
         "respect_robots_txt",
     }
 )
+
+
+# Tighter than CrawlConfig's sanity ranges: one API key must not ask for a
+# million-page job or 1 GB pages (scrape_many reads 8 at a time).
+_OVERRIDE_CEILINGS = {"crawl_max_pages": 10_000, "max_response_bytes": 50_000_000}
 
 
 # Ceiling on the per-domain bookkeeping the server keeps in memory. A crawl
@@ -495,6 +500,11 @@ class AgentCrawlServer:
             CrawlConfig.from_dict(override)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        for key, ceiling in _OVERRIDE_CEILINGS.items():
+            if key in override and int(override[key]) > ceiling:
+                raise HTTPException(
+                    status_code=400, detail=f"config.{key} must be at most {ceiling} over the API."
+                )
         # Camofox drives its own browser in another process, so neither the
         # SSRF guard nor the airgap can see the requests its page makes. A
         # caller may only route through it when the operator configured it.
@@ -716,6 +726,22 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AgentCrawl", version=__version__, lifespan=lifespan)
+
+# Bodies are parsed before authentication runs, so the size cap comes first.
+_MAX_REQUEST_BYTES = int(os.getenv("AGENTCRAWL_MAX_REQUEST_BYTES", "1000000"))
+
+
+@app.middleware("http")
+async def _limit_request_body(request: Any, call_next: Any) -> Any:
+    # shortcut: checks Content-Length only; a chunked body without one is left
+    # to the reverse proxy (SECURITY.md), add a streaming cap if that is not enough.
+    length = request.headers.get("content-length", "")
+    if length.isdigit() and int(length) > _MAX_REQUEST_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={"detail": f"Request body over {_MAX_REQUEST_BYTES} bytes."},
+        )
+    return await call_next(request)
 
 
 @app.get("/health")

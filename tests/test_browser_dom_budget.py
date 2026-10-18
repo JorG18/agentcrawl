@@ -48,3 +48,20 @@ def test_flatten_without_deadline_reads_every_frame():
     report = flatten_page(FakePage(frames=3))
     assert report["iframes"] == 3
     assert "budget_spent" not in report
+
+
+def test_a_frame_that_landed_on_a_refused_url_is_not_inlined():
+    # SSRF: outside strict mode an iframe's redirect hops are not checked, so
+    # the frame's final URL is checked before its content joins the page.
+    class Guard:
+        enforcing = True
+
+        def check(self, url):
+            return "private address" if "internal" in url else None
+
+    page = FakePage(frames=2)
+    page.main_frame.child_frames[1].url = "http://internal.example/secret"
+
+    report = flatten_page(page, guard=Guard())
+
+    assert report["iframes"] == 1 and report["iframes_skipped"] == 1

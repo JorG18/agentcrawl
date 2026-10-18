@@ -115,3 +115,25 @@ def test_slow_drip_body_hits_the_total_read_deadline() -> None:
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+@pytest.mark.parametrize(
+    "override", [{"crawl_max_pages": 1_000_000}, {"max_response_bytes": 1_000_000_000}]
+)
+def test_api_overrides_have_tighter_ceilings(client: TestClient, override) -> None:
+    response = client.post(
+        "/v1/crawl",
+        json={"url": "https://example.com/", "wait": False, "config": override},
+        headers={"Authorization": f"Bearer {KEY}"},
+    )
+    assert response.status_code == 400
+    assert "at most" in response.json()["detail"]
+
+
+def test_oversized_body_is_refused_before_auth(client: TestClient) -> None:
+    response = client.post(
+        "/v1/scrape",
+        content=b'{"url": "https://example.com/", "pad": "' + b"x" * 1_100_000 + b'"}',
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 413

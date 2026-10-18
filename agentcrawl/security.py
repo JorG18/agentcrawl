@@ -112,12 +112,24 @@ def resolve_public_addresses(hostname: str, port: int | None) -> list[tuple]:
         infos = [(family, socket.SOCK_STREAM, 6, "", (str(ip_literal), port or 0))]
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
-        if not ip.is_global:
+        if not ip.is_global or not _embedded_ipv4_is_global(ip):
             raise FetchError(
                 f"Private or non-global target address is not allowed: {ip}" + _PRIVATE_HINT,
                 error_type="config_error",
             )
     return infos
+
+
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
+
+
+def _embedded_ipv4_is_global(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """NAT64 (64:ff9b::a.b.c.d) and IPv4-compatible (::a.b.c.d) addresses reach
+    the IPv4 address inside them, which ``is_global`` does not look at."""
+    if ip.version == 6 and (ip in _NAT64 or ip in _IPV4_COMPATIBLE):
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF).is_global
+    return True
 
 
 # -- DNS pinning ---------------------------------------------------------------

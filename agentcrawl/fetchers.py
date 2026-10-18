@@ -341,6 +341,13 @@ def _safe_urlopen(
     return opener.open(request, timeout=timeout)
 
 
+def _env_proxy_for(url: str) -> bool:
+    parts = urllib.parse.urlsplit(url)
+    return bool(urllib.request.getproxies().get(parts.scheme)) and not urllib.request.proxy_bypass(
+        parts.hostname or ""
+    )
+
+
 def _browser_backend_available(backend: str) -> bool:
     """Whether ``backend`` could plausibly run on this machine right now.
 
@@ -447,7 +454,10 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     # for those the key stays absent rather than claiming False.
     if is_probably_url(source):
         metadata["dns_pinned"] = (
-            metadata.get("fetcher") == "http" and not config.allow_private_network
+            metadata.get("fetcher") == "http"
+            and not config.allow_private_network
+            # An HTTP(S)_PROXY from the environment resolves the host itself.
+            and not _env_proxy_for(source)
         )
     if metadata.get("fetcher") in {"playwright", "camofox"}:
         if isinstance(capture.get("status"), int):
@@ -1569,6 +1579,7 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
                 shadow_dom=config.browser_shadow_dom,
                 deadline=time.monotonic()
                 + _budget_ms(config.timeout_ms, _tail_reserve_ms(config)) / 1000,
+                guard=guard,
             )
             if capture is not None:
                 capture["dom"] = {k: v for k, v in dom_report.items() if v}

@@ -88,7 +88,12 @@ MAX_SHADOW_HOSTS = 5_000
 
 
 def flatten_page(
-    page: Any, *, iframes: bool = True, shadow_dom: bool = True, deadline: float | None = None
+    page: Any,
+    *,
+    iframes: bool = True,
+    shadow_dom: bool = True,
+    deadline: float | None = None,
+    guard: Any = None,
 ) -> dict[str, Any]:
     """Rewrite ``page`` so its serialization includes shadow roots and iframes.
 
@@ -102,7 +107,7 @@ def flatten_page(
         main = page.main_frame
         if iframes:
             inlined, skipped = _inline_child_frames(
-                main, shadow_dom=shadow_dom, depth=0, deadline=deadline
+                main, shadow_dom=shadow_dom, depth=0, deadline=deadline, guard=guard
             )
             report["iframes"] = inlined
             if skipped:
@@ -123,6 +128,7 @@ def _inline_child_frames(
     depth: int,
     budget: list[int] | None = None,
     deadline: float | None = None,
+    guard: Any = None,
 ) -> tuple[int, int]:
     budget = budget if budget is not None else [MAX_IFRAMES]
     inlined = skipped = 0
@@ -136,7 +142,10 @@ def _inline_child_frames(
             src = child.url or ""
             box = element.bounding_box()
             if (
-                _AD_FRAME_RE.search(src)
+                # Outside strict mode the frame's redirect hops went unchecked:
+                # never paste a frame that landed on a refused (private) URL.
+                (guard is not None and guard.enforcing and guard.check(src))
+                or _AD_FRAME_RE.search(src)
                 or box is None
                 or box["width"] < MIN_IFRAME_SIDE_PX
                 or box["height"] < MIN_IFRAME_SIDE_PX
@@ -145,7 +154,12 @@ def _inline_child_frames(
                 continue
             # Nested frames first, so their content travels with this one.
             deeper, deeper_skipped = _inline_child_frames(
-                child, shadow_dom=shadow_dom, depth=depth + 1, budget=budget, deadline=deadline
+                child,
+                shadow_dom=shadow_dom,
+                depth=depth + 1,
+                budget=budget,
+                deadline=deadline,
+                guard=guard,
             )
             inlined += deeper
             skipped += deeper_skipped
