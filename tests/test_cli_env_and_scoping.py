@@ -178,3 +178,16 @@ def test_a_malformed_engine_variable_keeps_the_default(monkeypatch) -> None:
     config = config_from_env()  # used to raise ValueError on every MCP call
 
     assert "crawl_depth" not in config and "http_retries" not in config
+
+
+def test_server_refuses_to_start_with_a_bad_engine_and_ignores_cdp(monkeypatch, tmp_path) -> None:
+    import pytest
+
+    from agentcrawl.server import AgentCrawlServer
+
+    monkeypatch.setenv("AGENTCRAWL_DB", str(tmp_path / "s.db"))
+    monkeypatch.setenv("AGENTCRAWL_BROWSER_ENGINE", "chromium")
+    with pytest.raises(ValueError):
+        AgentCrawlServer()
+    monkeypatch.setenv("AGENTCRAWL_BROWSER_ENGINE", "cdp")
+    assert "browser_engine" not in AgentCrawlServer().default_config

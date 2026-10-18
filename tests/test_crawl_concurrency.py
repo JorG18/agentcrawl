@@ -225,3 +225,22 @@ def test_resume_min_pages_raises_the_page_limit(monkeypatch) -> None:
     run = _crawler(1).crawl(ROOT, max_pages=1, resume_state=resume)
 
     assert A in [doc.url for doc in run.documents]
+
+
+def test_resume_min_pages_without_max_pages_does_not_widen_the_crawl(monkeypatch) -> None:
+    monkeypatch.setattr(
+        AgentCrawl,
+        "scrape",
+        lambda self, source, formats=None, only_main_content=None: _doc(source, [B, C, D]),
+    )
+    resume = {
+        "root": ROOT,
+        "queue": [{"url": A, "depth": 0}],
+        "queued": [ROOT, A],
+        "visited": [ROOT],
+        "min_pages": 2,
+    }
+
+    run = _crawler(1).crawl(ROOT, resume_state=resume)
+
+    assert len(run.documents) <= 2  # only the retried page, not up to crawl_max_pages

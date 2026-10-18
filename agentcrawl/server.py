@@ -366,6 +366,12 @@ class AgentCrawlServer:
             "crawl_retry_max_delay": float(os.getenv("AGENTCRAWL_CRAWL_RETRY_MAX_DELAY", "60.0")),
             "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
         }
+        # cdp drives the operator's own Chrome (profile, home IP): a local-mode
+        # engine, never one every API key shares. The server ignores it as before.
+        if self.default_config.get("browser_engine") == "cdp":
+            del self.default_config["browser_engine"]
+        # A bad env value fails here, once and clearly, not as a 500 on every request.
+        CrawlConfig.from_dict(self.default_config)
 
     def require_key(self, authorization: str | None = Header(default=None)) -> str | None:
         if not self.auth_enabled:

@@ -267,3 +267,9 @@ def test_zero_data_retention_is_refused_where_results_are_stored(tmp_path: Path)
     ):
         response = client.post(path, json=body)
         assert response.status_code == 400, path
+    assert client.post("/v2/crawl", json={"url": page, "scrapeOptions": []}).status_code == 400
+    # Only a real true asks for zero retention; the string "false" does not.
+    assert (
+        client.post("/v2/crawl", json={"url": page, "zeroDataRetention": "false"}).status_code
+        != 400
+    )
