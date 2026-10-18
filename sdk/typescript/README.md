@@ -1,7 +1,7 @@
 # AgentCrawl TypeScript client
 
 A minimal, zero-dependency client for the AgentCrawl HTTP API
-(`agentcrawl-server` or the Docker image). It uses the global `fetch`, so it
+(`agentcrawl serve` or the Docker image). It uses the global `fetch`, so it
 runs on Node, Deno, Bun and in browsers.
 
 ```ts

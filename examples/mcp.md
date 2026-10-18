@@ -44,4 +44,4 @@ Use this when the MCP server should call a self-hosted AgentCrawl API:
 }
 ```
 
-Expected tools include `scrape_url`, `map_site`, `crawl_site`, job controls, failure inspection, usage, and cache tools.
+By default (the `core` profile) the tools are `scrape_url`, `scrape_many`, `map_site`, `crawl_site` and `extract_structured`; `search_web` appears when `AGENTCRAWL_SEARCH_ENGINE` or `AGENTCRAWL_BASE_URL` is set, and `get_job` with `AGENTCRAWL_BASE_URL`. Job controls, failure inspection, usage and cache tools need `AGENTCRAWL_MCP_PROFILE=full`.

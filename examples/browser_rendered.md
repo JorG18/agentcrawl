@@ -23,7 +23,7 @@ crawler = AgentCrawl(
     }
 )
 
-document = crawler.scrape("https://pypi.org/project/agentcrawl-ai/")
+document = crawler.scrape("https://docs.python.org/3/library/json.html")
 assert isinstance(document, ScrapeDocument)
 print(document.markdown)
 ```

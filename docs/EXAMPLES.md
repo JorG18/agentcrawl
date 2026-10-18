@@ -19,7 +19,7 @@ AgentCrawl works as a local Python library, CLI tool, HTTP API, Docker service, 
 
 ```bash
 python -m pip install "agentcrawl-ai[browser]"
-agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
+agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
 For deterministic local testing from a repository checkout:
@@ -34,7 +34,7 @@ AGENTCRAWL_ALLOW_LOCAL_FILES=true agentcrawl scrape tests/fixtures/quality/docum
 from agentcrawl import AgentCrawl, ScrapeDocument
 
 crawler = AgentCrawl({"fetcher": "http"})
-document = crawler.scrape("https://pypi.org/project/agentcrawl-ai/")
+document = crawler.scrape("https://docs.python.org/3/library/json.html")
 assert isinstance(document, ScrapeDocument)
 print(document.markdown)
 ```
@@ -42,30 +42,30 @@ print(document.markdown)
 ### HTTP API
 
 ```bash
-export AGENTCRAWL_API_KEYS="exampl...-key"
-python -m pip install "agentcrawl-ai[browser]"
+export AGENTCRAWL_API_KEYS="change-me-example-key"
+python -m pip install "agentcrawl-ai[server,browser]"
 agentcrawl serve --host 127.0.0.1 --port 8000
 ```
 
 ```bash
 curl http://127.0.0.1:8000/v1/scrape \
-  -H "authorization: Bearer exampl...key" \
+  -H "authorization: Bearer change-me-example-key" \
   -H "content-type: application/json" \
-  -d '{"url":"https://pypi.org/project/agentcrawl-ai/","formats":["markdown","links","metadata"]}'
+  -d '{"url":"https://docs.python.org/3/library/json.html","formats":["markdown","links","metadata"]}'
 ```
 
 ### Docker
 
 ```bash
 docker run --rm -p 8000:8000 \
-  -e AGENTCRAWL_API_KEYS="exampl...-key" \
+  -e AGENTCRAWL_API_KEYS="change-me-example-key" \
   ghcr.io/jorg18/agentcrawl:latest
 ```
 
 ### MCP
 
 ```bash
-python -m pip install "agentcrawl-ai[browser]"
+python -m pip install "agentcrawl-ai[mcp,browser]"
 agentcrawl doctor
 agentcrawl setup                 # Claude Code, Codex, Gemini CLI, Cursor, VS Code; asks first
 agentcrawl doctor --client all   # aligned / stale / missing per client
@@ -89,7 +89,7 @@ Any other client, configured by hand:
 Use the remote API for crawls designed to survive retries and remain inspectable later.
 
 ```bash
-agentcrawl --remote crawl https://pypi.org/project/agentcrawl-ai/ --max-pages 25 --max-depth 2
+agentcrawl --remote crawl https://docs.python.org/3/library/json.html --max-pages 25 --max-depth 2
 agentcrawl --remote job JOB_ID --offset 0 --limit 100
 ```
 
@@ -97,10 +97,10 @@ HTTP clients can use an idempotency key to avoid duplicate jobs during retries:
 
 ```bash
 curl http://127.0.0.1:8000/v1/crawl \
-  -H "authorization: Bearer exampl...key" \
+  -H "authorization: Bearer change-me-example-key" \
   -H "content-type: application/json" \
   -H "Idempotency-Key: docs-crawl-2026-06-06" \
-  -d '{"url":"https://pypi.org/project/agentcrawl-ai/","max_pages":25,"max_depth":2}'
+  -d '{"url":"https://docs.python.org/3/library/json.html","max_pages":25,"max_depth":2}'
 ```
 
 ## Local documents
@@ -109,11 +109,11 @@ curl http://127.0.0.1:8000/v1/crawl \
 agentcrawl scrape ./notes.md
 agentcrawl scrape ./data.json
 agentcrawl scrape ./feed.xml
-python -m pip install "agentcrawl-ai[browser]"
+python -m pip install "agentcrawl-ai[docs]"
 agentcrawl scrape ./report.pdf
 ```
 
-Supported Community inputs: HTML, Markdown, text, JSON, XML/RSS/Atom, and local PDFs with the `docs` extra.
+Supported Community inputs: HTML, Markdown, text, JSON, XML/RSS/Atom, CSV/TSV, DOCX, XLSX and PPTX, and PDFs with the `docs` extra.
 
 ## Extraction quality notes
 

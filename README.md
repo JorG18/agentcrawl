@@ -256,7 +256,7 @@ JSON
 agentcrawl extract-css https://shop.example.com/catalog --schema products.json
 ```
 
-Scraping a local dev server (localhost/127.x) is refused by default by the SSRF guard. Allow it on purpose with `--allow-private-network` or `AGENTCRAWL_ALLOW_PRIVATE_NETWORK=true`; the CLI's local mode reads the same `AGENTCRAWL_*` variables as MCP (`--airgap`, `--allowlist`, `--audit`, `--timeout-ms`, `--no-robots`, `--no-browser-fallback` override them). `scrape`, `scrape-many`, `extract-css`, `map` and `crawl` exit 1 when the result has errors.
+Scraping a local dev server (localhost/127.x) is refused by default by the SSRF guard. Allow it on purpose with `--allow-private-network` or `AGENTCRAWL_ALLOW_PRIVATE_NETWORK=true`; the CLI's local mode reads the same `AGENTCRAWL_*` variables as MCP (`--airgap`, `--allowlist`, `--audit`, `--timeout-ms`, `--no-robots`, `--no-browser-fallback` override them). `scrape`, `scrape-many`, `search`, `extract-css`, `map` and `crawl` exit 1 when the result has errors.
 
 The CSS schema supports `text`, `attribute`, `html`, `regex`, `nested` and `list` fields; the selector subset is documented in `agentcrawl/css_extract.py`, and anything outside it is rejected instead of silently matching nothing.
 

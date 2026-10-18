@@ -1,5 +1,5 @@
 /**
- * Minimal TypeScript client for the AgentCrawl HTTP API (`agentcrawl-server`).
+ * Minimal TypeScript client for the AgentCrawl HTTP API (`agentcrawl serve`).
  *
  * Zero dependencies: it uses the global `fetch`, so it runs on Node 18+, Deno,
  * Bun and browsers. Every method maps to one `/v1/*` endpoint and returns the

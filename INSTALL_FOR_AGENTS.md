@@ -135,7 +135,7 @@ crawl_site
 extract_structured
 ```
 
-`search_web` appears when `AGENTCRAWL_SEARCH_ENGINE` is set, and `get_job` when
+`search_web` appears when `AGENTCRAWL_SEARCH_ENGINE` or `AGENTCRAWL_BASE_URL` is set, and `get_job` when
 `AGENTCRAWL_BASE_URL` points at a server. Operator tools (`check_changes`,
 `job_events`, `cancel_job`, `inspect_failures`, `retry_failures`, `usage`,
 `cache_stats`, `clear_cache`) need `AGENTCRAWL_MCP_PROFILE=full` in the server's

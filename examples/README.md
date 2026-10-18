@@ -11,4 +11,4 @@ These examples mirror the workflows linked from [docs/EXAMPLES.md](../docs/EXAMP
 | [mcp.md](mcp.md) | You want an agent client to use AgentCrawl tools. |
 | [browser_rendered.md](browser_rendered.md) | A page needs local JavaScript rendering. |
 
-Use `https://pypi.org/project/agentcrawl-ai/` for normal smoke examples. Keep `https://example.com` for boundary/challenge documentation only.
+Use `https://docs.python.org/3/library/json.html` for normal smoke examples (PyPI now answers plain HTTP with a client challenge). Keep `https://example.com` for boundary/challenge documentation only.

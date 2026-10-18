@@ -11,7 +11,7 @@ pip install agentcrawl-ai
 ## Scrape one URL
 
 ```bash
-agentcrawl scrape https://pypi.org/project/agentcrawl-ai/
+agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
 Expected result: Markdown/text from the AgentCrawl PyPI project page.
@@ -21,7 +21,7 @@ Expected result: Markdown/text from the AgentCrawl PyPI project page.
 ## Include specific formats
 
 ```bash
-agentcrawl scrape https://pypi.org/project/agentcrawl-ai/ --format markdown --format links --format metadata
+agentcrawl scrape https://docs.python.org/3/library/json.html --format markdown --format links --format metadata
 ```
 
 ## Local files
