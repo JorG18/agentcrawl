@@ -72,6 +72,46 @@ class HTMLFactsParser(HTMLParser):
             self._jsonld_parts.append(data)
 
 
+class _BaseHrefParser(HTMLParser):
+    """Finds the first <base href> the way a browser does: comments and script
+    text are not tags, and only the real ``href`` attribute counts."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.href: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "base":
+            href = dict(attrs).get("href")
+            if href:
+                self.href = href
+                raise _BaseFound
+        elif tag == "body":
+            raise _BaseFound  # <base> belongs in <head>; stop reading here
+
+
+class _BaseFound(Exception):
+    pass
+
+
+def document_base_url(html: str, url: str) -> str:
+    """The URL relative links resolve against: the first http(s) ``<base href>``, else ``url``."""
+    if "<base" not in html[:200_000].lower():
+        return url
+    parser = _BaseHrefParser()
+    try:
+        parser.feed(html[:200_000])
+    except _BaseFound:
+        pass
+    except Exception:  # noqa: BLE001 - a malformed head keeps the page URL
+        return url
+    if not parser.href:
+        return url
+    base = urllib.parse.urljoin(url, parser.href.strip())
+    # Browsers ignore a javascript:/data:/mailto: base; so do we.
+    return base if base.startswith(("http://", "https://")) else url
+
+
 def extract_html_facts(html: str, base_url: str) -> tuple[list[str], dict[str, str]]:
     parser = HTMLFactsParser(base_url)
     try:

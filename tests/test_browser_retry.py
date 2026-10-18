@@ -33,8 +33,6 @@ def test_retry_returns_none_when_source_is_not_remote() -> None:
         FIXTURE,
         blocked_reason="client challenge",
         original_config=cfg,
-        only_main_content=True,
-        requested=["markdown"],
     )
     assert out is None
 
@@ -153,3 +151,31 @@ def test_browser_retry_error_keeps_its_challenge_attempts(monkeypatch) -> None:
         "https://example.test/challenge"
     )
     assert doc.metadata["challenge_attempts"] == [{"engine": "patchright", "status": 403}]
+
+
+def test_rescued_page_takes_the_normal_scrape_path(monkeypatch) -> None:
+    # section, max_tokens and markdown_sha256 used to be skipped on a rescued page.
+    real = (
+        "<html><body><main><h1>A</h1><p>"
+        + "alpha " * 300
+        + "</p><h2>B</h2><p>"
+        + "beta " * 300
+        + "</p></main></body></html>"
+    )
+
+    def fake_fetch(source, config):
+        if config.fetcher == "http":
+            return (_challenge_html(), {"fetcher": "http", "final_url": source})
+        return (real, {"fetcher": config.fetcher, "final_url": source})
+
+    monkeypatch.setattr("agentcrawl.crawler.fetch_source", fake_fetch)
+    monkeypatch.setattr("agentcrawl.browser_retry.fetch_source", fake_fetch)
+    crawler = AgentCrawl({"browser_fallback": True, "browser_backend": "playwright"})
+
+    short = crawler.scrape("https://example.test/", max_tokens=50)
+    section = crawler.scrape("https://example.test/", section="B")
+
+    assert short.metadata["browser_retry"] is True
+    assert short.metadata["markdown_truncated"] is True and len(short.markdown) <= 200
+    assert "markdown_sha256" in short.metadata
+    assert "beta" in section.markdown and "alpha" not in section.markdown

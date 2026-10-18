@@ -112,12 +112,32 @@ def resolve_public_addresses(hostname: str, port: int | None) -> list[tuple]:
         infos = [(family, socket.SOCK_STREAM, 6, "", (str(ip_literal), port or 0))]
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
-        if not ip.is_global:
+        if not ip.is_global or not _embedded_ipv4_is_global(ip):
             raise FetchError(
                 f"Private or non-global target address is not allowed: {ip}" + _PRIVATE_HINT,
                 error_type="config_error",
             )
     return infos
+
+
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_NAT64_LOCAL = ipaddress.ip_network("64:ff9b:1::/48")  # RFC 8215: local use only
+_IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
+
+
+def _embedded_ipv4_is_global(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """NAT64 (64:ff9b::a.b.c.d), IPv4-compatible (::a.b.c.d) and 6to4
+    (2002:aabb:ccdd::) addresses reach the IPv4 address inside them, which
+    ``is_global`` does not look at on every supported Python patch release."""
+    if ip.version != 6:
+        return True
+    if ip in _NAT64_LOCAL:
+        return False
+    if ip in _NAT64 or ip in _IPV4_COMPATIBLE:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF).is_global
+    if ip.sixtofour is not None:
+        return ip.sixtofour.is_global
+    return True
 
 
 # -- DNS pinning ---------------------------------------------------------------

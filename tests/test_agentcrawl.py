@@ -179,7 +179,7 @@ def test_map_discovers_sitemap_declared_in_robots_txt(monkeypatch) -> None:
 
     monkeypatch.setattr(crawler_module, "_guarded_urlopen", fake_guarded_urlopen)
     monkeypatch.setattr(
-        crawler_module, "_read_sitemap", lambda _url, _config: [f"{root}from-sitemap"]
+        crawler_module, "_read_sitemap", lambda _url, _config, **_kw: [f"{root}from-sitemap"]
     )
     monkeypatch.setattr(
         AgentCrawl, "scrape", lambda self, source: ScrapeDocument(url=source, markdown="", text="")
