@@ -5,19 +5,26 @@ from contextlib import asynccontextmanager, contextmanager
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 import json
+import logging
 import os
 import queue
 import secrets
 import threading
 import time
 import urllib.parse
-from typing import Any, NamedTuple
+from typing import Annotated, Any, NamedTuple
 
 from . import __version__
-from .config import DEFAULT_USER_AGENT, CrawlConfig, _env_flag, local_files_root_from_env
+from .config import (
+    DEFAULT_USER_AGENT,
+    CrawlConfig,
+    _env_flag,
+    config_from_env,
+    local_files_root_from_env,
+)
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
-from .crawler import AgentCrawl, check_json_pages
+from .crawler import AgentCrawl, check_formats, check_json_pages
 from .css_extract import validate_css_schema
 from .html_tools import validate_url_patterns
 from .search import search_web
@@ -29,8 +36,8 @@ import uuid
 
 try:
     from fastapi import Depends, FastAPI, Header, HTTPException, Query
-    from fastapi.responses import HTMLResponse
-    from pydantic import BaseModel, Field, ConfigDict, field_validator
+    from fastapi.responses import HTMLResponse, JSONResponse
+    from pydantic import AfterValidator, BaseModel, Field, ConfigDict, field_validator
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError("Install agentcrawl[server] to run the API server.") from exc
 
@@ -79,6 +86,12 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
 )
 
 
+# Tighter than CrawlConfig's sanity ranges: one API key must not ask for a
+# million-page job or 1 GB pages (scrape_many reads 8 at a time).
+_MAX_API_PAGES = 10_000
+_OVERRIDE_CEILINGS = {"crawl_max_pages": _MAX_API_PAGES, "max_response_bytes": 50_000_000}
+
+
 # Ceiling on the per-domain bookkeeping the server keeps in memory. A crawl
 # worker touches one domain type at a time and the state is only a pacing hint,
 # so trimming is safe; without it, a long-running server accumulated one entry
@@ -109,9 +122,13 @@ class JsonOptions(BaseModel):
         return {"schema": self.schema_, "prompt": self.prompt}
 
 
+# Every request model that takes formats refuses the ones that would be ignored.
+Formats = Annotated[list[str], AfterValidator(check_formats)]
+
+
 class ScrapeRequest(BaseModel):
     url: str = Field(min_length=1, max_length=8192)
-    formats: list[str] = Field(default_factory=lambda: ["markdown", "links", "metadata"])
+    formats: Formats = Field(default_factory=lambda: ["markdown", "links", "metadata"])
     only_main_content: bool | None = None
     # Relevance query: when the page exceeds max_input_chars, keep the blocks
     # that best match it (BM25) instead of the head of the page.
@@ -132,7 +149,7 @@ _MAX_BATCH_URLS = 100
 
 class ScrapeManyRequest(BaseModel):
     urls: list[str] = Field(min_length=1, max_length=_MAX_BATCH_URLS)
-    formats: list[str] = Field(default_factory=lambda: ["markdown", "links", "metadata"])
+    formats: Formats = Field(default_factory=lambda: ["markdown", "links", "metadata"])
     only_main_content: bool | None = None
     query: str | None = Field(default=None, max_length=1_000)
     json_options: JsonOptions | None = None
@@ -154,7 +171,7 @@ class SearchRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=20)
     # Read each result page too; the query doubles as its relevance query.
     scrape: bool = True
-    formats: list[str] = Field(default_factory=lambda: ["markdown", "metadata"])
+    formats: Formats = Field(default_factory=lambda: ["markdown", "metadata"])
     only_main_content: bool | None = None
     cache: bool = True
     cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
@@ -166,7 +183,7 @@ class MapRequest(BaseModel):
     # Bounded like CrawlRequest.max_pages: an unbounded value let a caller ask
     # for every URL a sitemap can hold (up to the 100k discovery cap) in one
     # response body, and a negative one silently returned an empty map.
-    max_urls: int | None = Field(default=None, ge=1, le=10_000)
+    max_urls: int | None = Field(default=None, ge=1, le=_MAX_API_PAGES)
     include: list[str] | None = None
     exclude: list[str] | None = None
     config: dict[str, Any] = Field(default_factory=dict)
@@ -179,7 +196,7 @@ class MapRequest(BaseModel):
 
 class CrawlRequest(BaseModel):
     url: str = Field(min_length=1, max_length=8192)
-    max_pages: int | None = Field(default=None, ge=1, le=10_000)
+    max_pages: int | None = Field(default=None, ge=1, le=_MAX_API_PAGES)
     max_depth: int | None = Field(default=None, ge=0, le=100)
     include: list[str] | None = None
     exclude: list[str] | None = None
@@ -287,6 +304,9 @@ class AgentCrawlServer:
             1, int(os.getenv("AGENTCRAWL_SCRAPE_MANY_CONCURRENCY", "8"))
         )
         self.sync_crawl_max_pages = max(1, int(os.getenv("AGENTCRAWL_SYNC_CRAWL_MAX_PAGES", "25")))
+        self.max_request_bytes = max(
+            1_024, int(os.getenv("AGENTCRAWL_MAX_REQUEST_BYTES", "1000000"))
+        )
         self.cache_enabled = os.getenv("AGENTCRAWL_CACHE_ENABLED", "true").lower() in {
             "1",
             "true",
@@ -322,7 +342,11 @@ class AgentCrawlServer:
         self._domain_semaphores: dict[str, threading.BoundedSemaphore] = {}
         self._domain_active: dict[str, int] = {}
         self._recover_lock = threading.Lock()
+        # The shared mapping first (browser engine, CDP URL, page budget, airgap,
+        # audit, ...), so the server reads every documented variable; the
+        # server's own defaults below win where they differ (strict network).
         self.default_config = {
+            **config_from_env(),
             "fetcher": os.getenv("AGENTCRAWL_FETCHER", "http"),
             "browser_backend": os.getenv("AGENTCRAWL_BROWSER_BACKEND", "playwright"),
             "camofox_base_url": os.getenv("AGENTCRAWL_CAMOFOX_URL", "http://127.0.0.1:9377"),
@@ -356,6 +380,12 @@ class AgentCrawlServer:
             "crawl_retry_max_delay": float(os.getenv("AGENTCRAWL_CRAWL_RETRY_MAX_DELAY", "60.0")),
             "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
         }
+        # cdp drives the operator's own Chrome (profile, home IP): a local-mode
+        # engine, never one every API key shares. The server ignores it as before.
+        if self.default_config.get("browser_engine") == "cdp":
+            del self.default_config["browser_engine"]
+        # A bad env value fails here, once and clearly, not as a 500 on every request.
+        CrawlConfig.from_dict(self.default_config)
 
     def require_key(self, authorization: str | None = Header(default=None)) -> str | None:
         if not self.auth_enabled:
@@ -495,6 +525,11 @@ class AgentCrawlServer:
             CrawlConfig.from_dict(override)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        for key, ceiling in _OVERRIDE_CEILINGS.items():
+            if key in override and int(override[key]) > ceiling:
+                raise HTTPException(
+                    status_code=400, detail=f"config.{key} must be at most {ceiling} over the API."
+                )
         # Camofox drives its own browser in another process, so neither the
         # SSRF guard nor the airgap can see the requests its page makes. A
         # caller may only route through it when the operator configured it.
@@ -708,14 +743,80 @@ class AgentCrawlServer:
 server = AgentCrawlServer()
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
+# How often a running server looks for jobs whose worker died (expired lease),
+# so a crash and quick restart cannot leave a job "running" forever.
+_RECOVERY_INTERVAL_S = 60.0
+
+
+def _recover_dead_jobs() -> None:
     server.store.prepare_restart_recovery()
     server.recover_jobs()
-    yield
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _recover_dead_jobs()
+    stop = threading.Event()
+
+    def sweep() -> None:
+        while not stop.wait(_RECOVERY_INTERVAL_S):
+            try:
+                _recover_dead_jobs()
+            except Exception:  # noqa: BLE001 - a failed sweep retries next interval
+                logging.getLogger(__name__).exception("job recovery sweep failed")
+
+    threading.Thread(target=sweep, name="agentcrawl-recovery", daemon=True).start()
+    try:
+        yield
+    finally:
+        stop.set()
 
 
 app = FastAPI(title="AgentCrawl", version=__version__, lifespan=lifespan)
+
+
+class _BodyLimit:
+    """Bodies are parsed before authentication runs, so the size cap comes first.
+
+    Plain ASGI (no per-request task like ``BaseHTTPMiddleware``): a declared
+    Content-Length over the cap is refused outright, and a chunked body is cut
+    off once it streams past the cap.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        limit = server.max_request_bytes
+        length = dict(scope.get("headers") or []).get(b"content-length", b"")
+        if length.isdigit() and int(length) > limit:
+            await self._refuse(send, limit)
+            return
+        received = 0
+
+        async def capped_receive() -> Any:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    # The app sees a client disconnect and stops reading.
+                    return {"type": "http.disconnect"}
+            return message
+
+        await self.app(scope, capped_receive, send)
+
+    @staticmethod
+    async def _refuse(send: Any, limit: int) -> None:
+        await JSONResponse(
+            status_code=413, content={"detail": f"Request body over {limit} bytes."}
+        )({"type": "http"}, None, send)
+
+
+app.add_middleware(_BodyLimit)
 
 
 @app.get("/health")
@@ -1222,6 +1323,8 @@ def clear_cache(
 def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) -> None:
     acquired = False
     reschedule_at: float | None = None
+    claimed = False
+    heartbeat_stop = threading.Event()
     try:
         while not acquired:
             acquired = server._job_semaphore.acquire(timeout=0.5)
@@ -1233,6 +1336,18 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             return
         if not server.store.claim_job(job_id):
             return
+        claimed = True
+        # The worker running the job owns its lease and renews it on a timer,
+        # whatever a page is waiting on; the recovery sweep only requeues a job
+        # whose lease ran out, i.e. whose worker died.
+        lease = server.schedule_lease_seconds
+        server.store.renew_job_lease(job_id, server.instance_id, lease)
+
+        def heartbeat() -> None:
+            while not heartbeat_stop.wait(max(1.0, lease / 3)):
+                server.store.renew_job_lease(job_id, server.instance_id, lease)
+
+        threading.Thread(target=heartbeat, name=f"lease-{job_id}", daemon=True).start()
         result = _run_crawl(
             payload,
             progress_callback=lambda progress: server.store.update_job_progress(job_id, progress),
@@ -1290,6 +1405,9 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
     except Exception as exc:
         server.store.update_job(job_id, "failed", error=str(exc))
     finally:
+        heartbeat_stop.set()
+        if claimed:  # a duplicate queue entry that lost the claim must not drop the runner's lease
+            server.store.release_schedule_lease(job_id, server.instance_id)
         if acquired:
             server._job_semaphore.release()
         with server._job_threads_lock:

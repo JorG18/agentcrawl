@@ -10,11 +10,11 @@
 export type Format =
   | "markdown"
   | "html"
-  | "raw_html"
   | "text"
   | "links"
   | "metadata"
   | "chunks"
+  | "outline"
   | "json"
   | "summary"
   | "screenshot"
@@ -26,7 +26,9 @@ export type BrowserAction =
   | { type: "type"; selector: string; text: string }
   | { type: "press"; key: string; selector?: string }
   | { type: "scroll"; times?: number }
-  | { type: "wait"; ms: number };
+  | { type: "wait"; ms: number }
+  | { type: "scroll_to_end"; max_scrolls?: number; settle_ms?: number }
+  | { type: "virtual_scroll"; selector: string; max_scrolls?: number; settle_ms?: number };
 
 /** Per-request engine overrides the server accepts (see OPERATIONS.md). */
 export type CrawlConfig = Record<string, unknown> & {
@@ -44,6 +46,13 @@ export interface ScrapeOptions {
   cache?: boolean;
   cacheTtlSeconds?: number;
   config?: CrawlConfig;
+}
+
+/** Single-page options: one section of the page, or a token budget. */
+export interface ScrapePageOptions extends ScrapeOptions {
+  /** A heading from formats ["outline"]: returns that section only. */
+  section?: string;
+  maxTokens?: number;
 }
 
 export interface CrawlOptions {
@@ -92,8 +101,13 @@ export class AgentCrawlClient {
     this.fetchImpl = options.fetch ?? globalThis.fetch;
   }
 
-  scrape(url: string, options: ScrapeOptions = {}): Promise<Json> {
-    return this.post("/v1/scrape", { url, ...scrapeBody(options) });
+  scrape(url: string, options: ScrapePageOptions = {}): Promise<Json> {
+    return this.post("/v1/scrape", {
+      url,
+      ...scrapeBody(options),
+      section: options.section,
+      max_tokens: options.maxTokens,
+    });
   }
 
   scrapeMany(urls: string[], options: ScrapeOptions = {}): Promise<Json> {

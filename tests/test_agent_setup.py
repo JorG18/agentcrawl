@@ -333,7 +333,7 @@ def test_one_failing_cli_does_not_stop_the_rest(home, monkeypatch, capsys):
 
 def test_doctor_client_all_reports_fix(home, monkeypatch, capsys):
     _write(home / ".cursor" / "mcp.json", {"mcpServers": {"agentcrawl": _stale()}})
-    assert main(["doctor", "--client", "all"]) == 0
+    assert main(["doctor", "--client", "all"]) == 1  # a stale client is not "done"
     report = json.loads(capsys.readouterr().out)
     [cursor] = [entry for entry in report["clients"] if entry["client"] == "cursor"]
     assert cursor["state"] == "stale"

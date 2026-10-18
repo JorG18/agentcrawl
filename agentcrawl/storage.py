@@ -142,6 +142,9 @@ class SQLiteStore:
                         created_at real not null,
                         updated_at real not null
                     );
+                    -- Pages a job's documents in insertion (rowid) order without a sort.
+                    create index if not exists idx_crawl_documents_job
+                        on crawl_documents(job_id);
                     create index if not exists idx_crawl_failures_job_status
                         on crawl_failures(job_id, status);
                     create index if not exists idx_crawl_failures_url
@@ -238,38 +241,40 @@ class SQLiteStore:
         now = time.time()
         recovered = 0
         with self._connect() as conn:
+            # A live worker keeps its lease fresh; only a missing or expired
+            # lease means nobody will finish this job (safe to run periodically).
+            dead = """
+                (schedule_lock is null
+                 or schedule_lock_expires_at is null
+                 or schedule_lock_expires_at < ?)
+            """
             finalized_ids = [
                 str(row["id"])
                 for row in conn.execute(
-                    "select id from jobs where status = 'cancelling'"
+                    f"select id from jobs where status = 'cancelling' and {dead}", (now,)
                 ).fetchall()
             ]
             cursor = conn.execute(
-                """
+                f"""
                 update jobs
                 set status = 'queued',
-                    error = 'Recovered interrupted job after server restart.',
+                    error = 'Recovered interrupted job (its worker stopped).',
                     updated_at = ?
-                where status = 'running'
-                  and (
-                      schedule_lock is null
-                      or schedule_lock_expires_at is null
-                      or schedule_lock_expires_at < ?
-                  )
+                where status = 'running' and {dead}
                 """,
                 (now, now),
             )
             recovered = int(cursor.rowcount or 0)
             conn.execute(
-                """
+                f"""
                 update jobs
                 set status = 'cancelled',
-                    error = 'Cancellation completed during server restart.',
+                    error = 'Cancellation completed (its worker stopped).',
                     checkpoint_json = null,
                     updated_at = ?
-                where status = 'cancelling'
+                where status = 'cancelling' and {dead}
                 """,
-                (now,),
+                (now, now),
             )
             # Same cleanup contract as ``update_job(..., 'cancelled')``:
             # a job that ends cancelled loses its documents; recovered jobs
@@ -488,6 +493,24 @@ class SQLiteStore:
                 (time.time(), job_id, owner),
             )
 
+    def renew_job_lease(self, job_id: str, owner: str, lease_seconds: float) -> bool:
+        """Heartbeat for a ``running`` job: push its lease ``lease_seconds`` out.
+
+        A short, renewed lease lets restart recovery tell a dead worker from a
+        live one without waiting out the long scheduling lease.
+        """
+        # Only one worker can have claimed a running job (queued -> running is
+        # atomic), so that worker takes the lease over even if a peer holds it.
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                update jobs set schedule_lock = ?, schedule_lock_expires_at = ?
+                where id = ? and status = 'running'
+                """,
+                (owner, time.time() + lease_seconds, job_id),
+            )
+        return bool(cursor.rowcount)
+
     def claim_job(self, job_id: str) -> bool:
         with self._connect() as conn:
             cursor = conn.execute(
@@ -530,9 +553,9 @@ class SQLiteStore:
             for document in documents:
                 conn.execute(
                     """
-                    insert or replace into crawl_documents (
-                        job_id, url, document_json, created_at
-                    ) values (?, ?, ?, ?)
+                    insert into crawl_documents (job_id, url, document_json, created_at)
+                    values (?, ?, ?, ?)
+                    on conflict (job_id, url) do update set document_json = excluded.document_json
                     """,
                     (job_id, str(document["url"]), json.dumps(document), now),
                 )
@@ -686,9 +709,9 @@ class SQLiteStore:
                 document_url = str(document["url"])
                 conn.execute(
                     """
-                    insert or replace into crawl_documents (
-                        job_id, url, document_json, created_at
-                    ) values (?, ?, ?, ?)
+                    insert into crawl_documents (job_id, url, document_json, created_at)
+                    values (?, ?, ?, ?)
+                    on conflict (job_id, url) do update set document_json = excluded.document_json
                     """,
                     (job_id, document_url, json.dumps(document), now),
                 )
@@ -711,7 +734,7 @@ class SQLiteStore:
     ) -> list[dict[str, Any]]:
         query = """
             select document_json from crawl_documents
-            where job_id = ? order by created_at, url
+            where job_id = ? order by rowid
         """
         params: tuple[Any, ...] = (job_id,)
         if limit is not None:
@@ -962,13 +985,12 @@ class SQLiteStore:
             retry_urls = [failure["url"] for failure in failures]
             request = json.loads(job["request_json"])
             root = normalize_url(str(request["url"]), str(request["url"]))
-            request["max_pages"] = max(
-                int(request.get("max_pages") or 0),
-                len(visited) + len(retry_urls),
-            )
             checkpoint = {
                 "version": 2,
                 "root": root,
+                # Room for every page already read plus the re-queued ones; the
+                # stored request keeps the caller's max_pages (idempotency).
+                "min_pages": len(visited) + len(retry_urls),
                 "queue": [
                     {"url": url, "depth": 0, "attempt": 0, "ready_at": 0.0} for url in retry_urls
                 ],

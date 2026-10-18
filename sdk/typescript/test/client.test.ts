@@ -117,3 +117,18 @@ test("scrapeMany asks for json with the schema, never a model", async () => {
   assert.deepEqual(body.json_options, { schema });
   assert.deepEqual(body.formats, ["json"]);
 });
+
+test("scrape sends section and max_tokens for one page", async () => {
+  const client = new AgentCrawlClient({ baseUrl });
+
+  await client.scrape("https://example.com", {
+    formats: ["markdown", "outline"],
+    section: "Install",
+    maxTokens: 500,
+  });
+
+  const body = seen.at(-1)!.body;
+  assert.equal(body.section, "Install");
+  assert.equal(body.max_tokens, 500);
+  assert.deepEqual(body.formats, ["markdown", "outline"]);
+});

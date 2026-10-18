@@ -11,7 +11,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from agentcrawl import AgentCrawl
-from agentcrawl.browser_retry import attempt_browser_retry
 from agentcrawl.config import CrawlConfig
 from agentcrawl.crawler import _markdown_to_text
 from agentcrawl.parsing import (
@@ -91,20 +90,21 @@ def test_scrape_reports_no_truncation_for_a_small_page(tmp_path: Path) -> None:
 
 def test_browser_retry_document_carries_the_token_metrics(monkeypatch) -> None:
     html = "<html><body><article><h1>Hola</h1><p>" + "texto " * 60 + "</p></article></body></html>"
+    challenge = "<html><head><title>Just a moment...</title></head><body>Checking</body></html>"
+    monkeypatch.setattr(
+        "agentcrawl.crawler.fetch_source",
+        lambda source, config: (challenge, {"fetcher": "http", "final_url": source}),
+    )
     monkeypatch.setattr(
         "agentcrawl.browser_retry.fetch_source",
         lambda source, config: (html, {"fetcher": "playwright", "final_url": source}),
     )
 
-    document = attempt_browser_retry(
-        "https://example.com/page",
-        blocked_reason="client challenge",
-        original_config=CrawlConfig(),
-        only_main_content=None,
-        requested=["markdown"],
+    document = AgentCrawl({"browser_fallback": True, "browser_backend": "playwright"}).scrape(
+        "https://example.com/page"
     )
 
-    assert document is not None
+    assert document.metadata["browser_retry"] is True
     text = _markdown_to_text(document.markdown)
     assert document.metadata["estimated_tokens"] == max(1, len(text) // 4)
     assert document.metadata["raw_html_bytes"] == len(html.encode("utf-8"))

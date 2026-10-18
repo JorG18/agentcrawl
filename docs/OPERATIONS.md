@@ -137,7 +137,7 @@ Local MCP mode does not require an API server:
 agentcrawl mcp
 ```
 
-Local mode (MCP and the CLI without `--remote`) reads the same variables: `AGENTCRAWL_FETCHER`, `AGENTCRAWL_BROWSER_BACKEND`, `AGENTCRAWL_USER_AGENT`, `AGENTCRAWL_TIMEOUT_MS`, `AGENTCRAWL_ALLOW_PRIVATE_NETWORK`, `AGENTCRAWL_RESPECT_ROBOTS_TXT`, `AGENTCRAWL_BROWSER_FALLBACK`, `AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AIRGAP_ALLOWLIST`, `AGENTCRAWL_AUDIT`, `AGENTCRAWL_OCR`. CLI flags override them per command.
+Local mode (MCP and the CLI without `--remote`) and the server read the same engine variables (fetcher, browser backend and engine, CDP URL, Camofox URL and key, user agent, timeouts and page budget, retries, crawl defaults, private network, robots, browser fallback, airgap, audit, OCR). The server keeps its own default for `AGENTCRAWL_BROWSER_STRICT_NETWORK` (on). CLI flags override them per command.
 
 Browser sessions (0.4.5): a request cannot choose a saved login. The operator can run the whole server as one with `AGENTCRAWL_BROWSER_SESSION=<name>` (created with `agentcrawl login` on the host; files live in `AGENTCRAWL_SESSIONS_DIR`, default `~/.agentcrawl/sessions`, mode 0600). Every API key then reads pages as that user, so only do this on a server whose keys you all trust. `browser_iframes` and `browser_shadow_dom` (default on) are per-request overrides.
 
@@ -160,6 +160,7 @@ AGENTCRAWL_BASE_URL=https://agentcrawl.internal.example AGENTCRAWL_API_KEY=<clie
 | `AGENTCRAWL_PAGE_BUDGET_MS` | `45000` | One time budget per page covering every step (HTTP, browser, retries). A page that runs out of it fails with `error_type: "timeout"` and a `next_step`. `0` turns it off. |
 | `AGENTCRAWL_RATE_LIMIT_PER_MINUTE` | `60` | Units per key per minute. A request costs 1; `/v1/scrape_many` costs 1 per URL, `/v1/search` 1 plus 1 per result page when it scrapes, and a `wait=true` crawl 1 per page (capped at the window). Owner keys are exempt. |
 | `AGENTCRAWL_SYNC_CRAWL_MAX_PAGES` | `25` | Largest `wait=true` crawl; bigger crawls must run as durable jobs. |
+| `AGENTCRAWL_MAX_REQUEST_BYTES` | `1000000` | Largest request body (by `Content-Length`); larger ones get `413` before authentication, and a chunked body streaming past it is cut off with `400`. Request `config` overrides are also capped at `crawl_max_pages` 10,000 and `max_response_bytes` 50 MB. |
 | `AGENTCRAWL_SCRAPE_MANY_CONCURRENCY` | `8` | Parallel pages per `/v1/scrape_many` call; per-domain limits still apply. |
 | `AGENTCRAWL_SEARCH_ENGINE` | `none` | Enables `/v1/search`, MCP `search_web` and CLI `search`: `serper` with `SERPER_API_KEY`, or `duckduckgo` (no key, but it often answers automated clients with a bot check, reported as an error). Queries leave the host for that engine, so it is off by default and a request cannot choose it. |
 | `AGENTCRAWL_TIMEOUT_MS` | `30000` | Per socket operation. A whole body must also arrive within 3 × this value. |

@@ -123,3 +123,53 @@ def test_crawl_audits_its_robots_request_once(sites) -> None:
     audit = run.metadata["discovery_audit"]
     assert [record["url"] for record in audit["audit_records"]] == [root + "robots.txt"]
     assert audit["audit_records"][0]["status"] == 200
+
+
+def test_one_broken_child_sitemap_keeps_the_others(monkeypatch) -> None:
+    import urllib.error
+
+    from agentcrawl import crawler
+
+    ns = "http://www.sitemaps.org/schemas/sitemap/0.9"
+    docs = {
+        "https://example.com/sitemap.xml": f"<sitemapindex xmlns='{ns}'>"
+        "<sitemap><loc>https://example.com/gone.xml</loc></sitemap>"
+        "<sitemap><loc>https://example.com/a.xml</loc></sitemap></sitemapindex>",
+        "https://example.com/a.xml": f"<urlset xmlns='{ns}'><url><loc>https://example.com/p</loc></url></urlset>",
+    }
+
+    def fake(url, config):
+        if url in docs:
+            return docs[url]
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(crawler, "_discovery_read", fake)
+    errors: list[str] = []
+    urls = crawler._read_sitemap(
+        "https://example.com/sitemap.xml", crawler.CrawlConfig(), errors=errors
+    )
+    assert urls == ["https://example.com/p"]
+    assert errors and errors[0].startswith("https://example.com/gone.xml: ")
+
+
+def test_gzipped_sitemap_body_is_inflated(monkeypatch) -> None:
+    import gzip
+    import io
+
+    from agentcrawl import crawler
+
+    xml = b"<urlset><url><loc>https://example.com/p</loc></url></urlset>"
+
+    class Response(io.BytesIO):
+        status = 200
+
+        def geturl(self):
+            return "https://example.com/sitemap.xml.gz"
+
+    monkeypatch.setattr(
+        crawler, "_guarded_urlopen", lambda url, config: Response(gzip.compress(xml))
+    )
+    assert (
+        crawler._discovery_read("https://example.com/sitemap.xml.gz", crawler.CrawlConfig())
+        == xml.decode()
+    )
