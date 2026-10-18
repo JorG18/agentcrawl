@@ -244,3 +244,28 @@ def test_store_rolls_back_a_failed_write(tmp_path) -> None:
             )
             raise RuntimeError("boom")
     assert store.get_job("x") is None
+
+
+@pytest.mark.parametrize(
+    "request_body",
+    [
+        {"url": "https://e.com/", "max_pages": None},
+        {"url": "https://e.com/"},
+        {"url": "https://e.com/", "max_pages": 1},
+    ],
+)
+def test_idempotent_resend_still_matches_after_a_failure_retry(tmp_path, request_body) -> None:
+    store = SQLiteStore(tmp_path / "idem.db")
+    job, _ = store.create_or_get_job("crawl", dict(request_body), idempotency_key="k1")
+    store.update_job(
+        job,
+        "completed",
+        result={
+            "documents": [{"url": "https://e.com/"}],
+            "metadata": {"terminal_failures": [{"url": "https://e.com/x", "retryable": True}]},
+        },
+    )
+    assert store.retry_crawl_failures(job, retry_all=True)
+
+    again, _ = store.create_or_get_job("crawl", dict(request_body), idempotency_key="k1")
+    assert again == job
