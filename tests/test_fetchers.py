@@ -1176,3 +1176,15 @@ def test_dns_pinned_is_false_through_an_environment_proxy(monkeypatch) -> None:
     _html, metadata = fetch_source("https://example.com", CrawlConfig(fetcher="http"))
 
     assert metadata["dns_pinned"] is False
+
+
+def test_browser_final_url_follows_the_redirect(monkeypatch) -> None:
+    page, _browser, _chromium = install_fake_playwright(monkeypatch)
+    page.url = "https://example.com/en/docs/"
+
+    _html, metadata = fetch_source(
+        "https://example.com/docs",
+        CrawlConfig(fetcher="playwright", network_idle=False, browser_strict_network=False),
+    )
+
+    assert metadata["final_url"] == "https://example.com/en/docs/"

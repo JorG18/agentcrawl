@@ -5,6 +5,7 @@ import html as html_module
 import re
 import textwrap
 from dataclasses import dataclass, field
+from functools import lru_cache
 from html.parser import HTMLParser
 from typing import Any, Iterator
 
@@ -76,6 +77,48 @@ class _HTMLNode:
         return ""
 
 
+# HTML lets these end tags be omitted (<li>a<li>b, <td>1<td>2, <p>x<div>):
+# a start tag closes the open element it implies, searching no further up
+# than the given boundary. Without this each item nests in the previous one.
+_P_CLOSERS = frozenset(
+    "address article aside blockquote details dialog div dl fieldset figcaption figure "
+    "footer form h1 h2 h3 h4 h5 h6 header hr main menu nav ol p pre section table ul".split()
+)
+# An open <li> inside a table cell or object is out of reach (HTML "scope").
+_DEFAULT_SCOPE = frozenset({"table", "td", "th", "caption", "object", "template"})
+_IMPLIED_END = {
+    "li": ({"li"}, {"ul", "ol", "menu", *_DEFAULT_SCOPE}),
+    "dt": ({"dt", "dd"}, {"dl", *_DEFAULT_SCOPE}),
+    "dd": ({"dt", "dd"}, {"dl", *_DEFAULT_SCOPE}),
+    "tr": ({"tr", "td", "th"}, {"table", "thead", "tbody", "tfoot"}),
+    "td": ({"td", "th"}, {"tr", "table"}),
+    "th": ({"td", "th"}, {"tr", "table"}),
+    "thead": ({"thead", "tbody", "tfoot", "tr", "td", "th"}, {"table"}),
+    "tbody": ({"thead", "tbody", "tfoot", "tr", "td", "th"}, {"table"}),
+    "tfoot": ({"thead", "tbody", "tfoot", "tr", "td", "th"}, {"table"}),
+    "option": ({"option"}, {"select", "datalist", "optgroup"}),
+}
+_P_BOUNDARIES = frozenset({"table", "td", "th", "li", "button", "object", "template"})
+
+
+def _close_implied(stack: list, tag: str) -> None:
+    if tag in _P_CLOSERS:
+        closes, boundaries = {"p"}, _P_BOUNDARIES
+    elif tag in _IMPLIED_END:
+        closes, boundaries = _IMPLIED_END[tag]
+    else:
+        return
+    # The outermost match wins: <tr> closes both the open <td> and its <tr>.
+    found = 0
+    for index in range(len(stack) - 1, 0, -1):
+        if stack[index].tag in boundaries:
+            break
+        if stack[index].tag in closes:
+            found = index
+    if found:
+        del stack[found:]
+
+
 class _HTMLTreeParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -84,11 +127,13 @@ class _HTMLTreeParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         node = _HTMLNode(tag.lower(), attrs)
+        _close_implied(self._stack, node.tag)
         self._stack[-1].children.append(node)
         if node.tag not in _VOID_TAGS:
             self._stack.append(node)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        _close_implied(self._stack, tag.lower())  # <hr/> closes a <p> like <hr>
         self._stack[-1].children.append(_HTMLNode(tag.lower(), attrs))
 
     def handle_endtag(self, tag: str) -> None:
@@ -245,7 +290,17 @@ _MIN_SELECTED_SHARE = 0.25
 _MIN_PAGE_CHARS_FOR_FALLBACK = 500
 
 
+# The thin-page check and the Markdown conversion extract the same HTML back
+# to back; a small cache keeps the second one free.
+@lru_cache(maxsize=4)
 def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
+    try:
+        return _extract_content_tree(html, only_main_content=only_main_content)
+    except RecursionError:  # markup nested deeper than the tree walk can follow
+        return _legacy_strip_boilerplate(html) if only_main_content else html
+
+
+def _extract_content_tree(html: str, *, only_main_content: bool) -> str:
     parser = _HTMLTreeParser()
     try:
         parser.feed(html)
@@ -280,6 +335,16 @@ def _html_text_chars(html: str) -> int:
 
 
 def extraction_provenance(html: str, *, only_main_content: bool = True) -> dict[str, Any]:
+    try:
+        return _extraction_provenance_tree(html, only_main_content=only_main_content)
+    except RecursionError:
+        return {
+            "extraction_strategy": "legacy_strip_boilerplate",
+            "selected_content_hint": "legacy_regex",
+        }
+
+
+def _extraction_provenance_tree(html: str, *, only_main_content: bool) -> dict[str, Any]:
     parser = _HTMLTreeParser()
     try:
         parser.feed(html)
