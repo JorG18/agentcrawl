@@ -142,3 +142,27 @@ def test_job_events_and_queue_metrics_are_scoped_per_key(tmp_path: Path) -> None
     assert summary_b["job_events"]["retry_scheduled"] == 1
     assert summary_b["crawl_queue"]["ready"] == 1  # key-b's one queued job, not all 3
     assert dashboard_summary(server.store)["crawl_queue"]["ready"] == 3
+
+
+def test_server_and_local_mode_read_the_same_variables(monkeypatch) -> None:
+    from agentcrawl.config import config_from_env
+    from agentcrawl.server import AgentCrawlServer
+
+    monkeypatch.setenv("AGENTCRAWL_BROWSER_ENGINE", "patchright")
+    monkeypatch.setenv("AGENTCRAWL_PAGE_BUDGET_MS", "1000")
+    monkeypatch.setenv("AGENTCRAWL_CDP_URL", "http://127.0.0.1:9333")
+    monkeypatch.setenv("AGENTCRAWL_CAMOFOX_URL", "http://127.0.0.1:9999")
+    monkeypatch.setenv("AGENTCRAWL_CAMOFOX_ACCESS_KEY", "k")
+
+    served = AgentCrawlServer().default_config
+    local = config_from_env()
+
+    for key, value in {
+        "browser_engine": "patchright",
+        "page_budget_ms": 1000,
+        "cdp_url": "http://127.0.0.1:9333",
+        "camofox_base_url": "http://127.0.0.1:9999",
+        "camofox_access_key": "k",
+    }.items():
+        assert served[key] == value and local[key] == value, key
+    assert served["browser_strict_network"] is True  # the server's own default still wins

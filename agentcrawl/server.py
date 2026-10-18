@@ -14,7 +14,13 @@ import urllib.parse
 from typing import Any, NamedTuple
 
 from . import __version__
-from .config import DEFAULT_USER_AGENT, CrawlConfig, _env_flag, local_files_root_from_env
+from .config import (
+    DEFAULT_USER_AGENT,
+    CrawlConfig,
+    _env_flag,
+    config_from_env,
+    local_files_root_from_env,
+)
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
 from .crawler import AgentCrawl, check_json_pages
@@ -322,7 +328,11 @@ class AgentCrawlServer:
         self._domain_semaphores: dict[str, threading.BoundedSemaphore] = {}
         self._domain_active: dict[str, int] = {}
         self._recover_lock = threading.Lock()
+        # The shared mapping first (browser engine, CDP URL, page budget, airgap,
+        # audit, ...), so the server reads every documented variable; the
+        # server's own defaults below win where they differ (strict network).
         self.default_config = {
+            **config_from_env(),
             "fetcher": os.getenv("AGENTCRAWL_FETCHER", "http"),
             "browser_backend": os.getenv("AGENTCRAWL_BROWSER_BACKEND", "playwright"),
             "camofox_base_url": os.getenv("AGENTCRAWL_CAMOFOX_URL", "http://127.0.0.1:9377"),
