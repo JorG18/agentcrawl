@@ -33,6 +33,7 @@ from .errors import (
 )
 from .exceptions import FetchError
 from .fetchers import (
+    _decompress_body,
     _read_bounded,
     _safe_urlopen,
     fetch_source,
@@ -151,6 +152,8 @@ def _discovery_read(url: str, config: CrawlConfig) -> str:
             bytes_count=len(body),
             target_host=target_host,
         )
+    if body[:2] == b"\x1f\x8b":  # sitemap.xml.gz served without Content-Encoding
+        body = _decompress_body(body, "gzip", _DISCOVERY_MAX_BYTES, url=url)
     return body.decode("utf-8", errors="replace")
 
 
@@ -253,40 +256,44 @@ class AgentCrawl:
                         source,
                         blocked_reason=blocked_reason,
                         original_config=self.config,
-                        only_main_content=only_main_content,
-                        requested=requested,
-                        query=query,
                         diagnostics=retry_diagnostics,
                     )
                 if retry is not None:
-                    if formats is None:
-                        return retry
-                    return _format_document(
-                        retry, requested, query=query, chunk_tokens=self.config.chunk_tokens
+                    # Rescued: the browser's page takes the normal path below
+                    # (section, max_tokens, hash, json, summary).
+                    html, retry_metadata = retry
+                    fetch_metadata = {
+                        **retry_metadata,
+                        "browser_retry": True,
+                        "browser_retry_reason": blocked_reason,
+                    }
+                else:
+                    document = ScrapeDocument(
+                        url=source,
+                        markdown="",
+                        text="",
+                        metadata={
+                            **fetch_metadata,
+                            **retry_diagnostics,
+                            "error_type": "client_challenge",
+                            "next_step": next_step("client_challenge"),
+                            "error_message": sanitize_error_message(
+                                f"Blocked or challenge page detected: {blocked_reason}"
+                            ),
+                            "blocked_reason": blocked_reason,
+                            "challenge_signals": list(verdict.signals),
+                            "source_url": source,
+                            "final_url": str(fetch_metadata.get("final_url") or source),
+                        },
+                        errors=[f"Blocked or challenge page detected: {blocked_reason}"],
                     )
-                document = ScrapeDocument(
-                    url=source,
-                    markdown="",
-                    text="",
-                    metadata={
-                        **fetch_metadata,
-                        **retry_diagnostics,
-                        "error_type": "client_challenge",
-                        "next_step": next_step("client_challenge"),
-                        "error_message": sanitize_error_message(
-                            f"Blocked or challenge page detected: {blocked_reason}"
-                        ),
-                        "blocked_reason": blocked_reason,
-                        "challenge_signals": list(verdict.signals),
-                        "source_url": source,
-                        "final_url": str(fetch_metadata.get("final_url") or source),
-                    },
-                    errors=[f"Blocked or challenge page detected: {blocked_reason}"],
-                )
-                if formats is None:
-                    return document
-                return _format_document(document, requested)
-            links, metadata = extract_html_facts(html, source)
+                    if formats is None:
+                        return document
+                    return _format_document(document, requested)
+            # Links resolve against the page after redirects, like the Markdown.
+            links, metadata = extract_html_facts(
+                html, str(fetch_metadata.get("final_url") or source)
+            )
             main_content = True if only_main_content is None else only_main_content
             markdown = markdown_from_fetched_content(html, fetch_metadata)
             if markdown is None:
@@ -1562,7 +1569,12 @@ def _read_sitemap(
             # Deeper nesting than we trust: skip this entry. Bounded depth
             # is also what terminates cyclic sitemap-index references.
             continue
-        urls.extend(_read_sitemap(url, config, _depth=_depth + 1, _budget=_budget))
+        try:
+            urls.extend(_read_sitemap(url, config, _depth=_depth + 1, _budget=_budget))
+        except AirgapViolation:
+            raise
+        except Exception:  # noqa: BLE001 - one broken child must not drop its siblings
+            continue
     return urls
 
 

@@ -43,3 +43,32 @@ def test_latin1_label_decodes_like_a_browser() -> None:
 def test_default_user_agent_points_somewhere_real() -> None:
     assert "github.com/JorG18/agentcrawl" in DEFAULT_USER_AGENT
     assert "agentcrawl.local" not in DEFAULT_USER_AGENT
+
+
+def test_multi_member_gzip_keeps_every_member() -> None:
+    import gzip
+
+    from agentcrawl.fetchers import _decompress_body
+
+    body = gzip.compress(b"<p>part one</p>") + gzip.compress(b"<p>part two</p>")
+    assert _decompress_body(body, "gzip", 10**6) == b"<p>part one</p><p>part two</p>"
+
+
+def test_multi_member_gzip_still_honours_the_limit() -> None:
+    import gzip
+
+    import pytest
+
+    from agentcrawl.exceptions import FetchError
+    from agentcrawl.fetchers import _decompress_body
+
+    body = gzip.compress(b"a" * 60) + gzip.compress(b"b" * 60)
+    with pytest.raises(FetchError, match="limit"):
+        _decompress_body(body, "gzip", 100)
+
+
+def test_meta_utf16_on_an_ascii_page_is_read_as_utf8() -> None:
+    from agentcrawl.fetchers import _decode_http_body
+
+    page = '<html><head><meta charset="utf-16"></head><body>Héllo world</body></html>'
+    assert "Héllo world" in _decode_http_body(page.encode("utf-8"), None)

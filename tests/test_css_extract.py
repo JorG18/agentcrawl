@@ -207,3 +207,10 @@ def test_mcp_and_cli_extract_locally(tmp_path: Path, monkeypatch, capsys) -> Non
 
     assert cli_main(["extract-css", str(page), "--schema", str(schema_file)]) == 0
     assert "Estante Roble" in capsys.readouterr().out
+
+
+def test_unclosed_items_and_cells_are_siblings() -> None:
+    root = parse_html("<ul><li>x<li>y<li>z</ul><table><tr><td>A<td>1<tr><td>B<td>2</table>")
+
+    assert [li.text() for li in select(root, "ul > li")] == ["x", "y", "z"]
+    assert [len(select(tr, "td")) for tr in select(root, "tr")] == [2, 2]

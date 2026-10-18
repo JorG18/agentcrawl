@@ -40,6 +40,8 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
 
+from .parsing import _close_implied
+
 _VOID = frozenset("area base br col embed hr img input link meta param source track wbr".split())
 _SKIP_TEXT = frozenset({"script", "style", "template", "noscript"})
 _MAX_DEPTH = 8  # nested/list recursion in a schema
@@ -107,6 +109,7 @@ class _TreeBuilder(HTMLParser):
         self.stack: list[Node] = [self.root]
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        _close_implied(self.stack, tag)  # <li>a<li>b are siblings, not nested
         node = Node(tag, {name: value or "" for name, value in attrs}, parent=self.stack[-1])
         self.stack[-1].children.append(node)
         if tag not in _VOID:

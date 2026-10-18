@@ -1161,3 +1161,15 @@ def test_network_idle_leaves_a_reserve_for_reading_the_page(monkeypatch) -> None
 
     [idle] = [s for s in page.load_states if s["state"] == "networkidle"]
     assert idle["timeout"] <= 9_000  # 10 % of the budget kept for the tail
+
+
+def test_browser_final_url_follows_the_redirect(monkeypatch) -> None:
+    page, _browser, _chromium = install_fake_playwright(monkeypatch)
+    page.url = "https://example.com/en/docs/"
+
+    _html, metadata = fetch_source(
+        "https://example.com/docs",
+        CrawlConfig(fetcher="playwright", network_idle=False, browser_strict_network=False),
+    )
+
+    assert metadata["final_url"] == "https://example.com/en/docs/"

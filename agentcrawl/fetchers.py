@@ -450,6 +450,8 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
             metadata.get("fetcher") == "http" and not config.allow_private_network
         )
     if metadata.get("fetcher") in {"playwright", "camofox"}:
+        if capture.get("final_url"):
+            metadata["final_url"] = capture["final_url"]
         if isinstance(capture.get("status"), int):
             metadata["browser_status"] = capture["status"]
             if capture["status"] in (404, 410):
@@ -576,6 +578,8 @@ def _render_if_js_shell(
     if needs_javascript(content):
         reason = "javascript_required"
         http_chars = 0
+    elif not _browser_backend_available(config.browser_backend):
+        return content, metadata  # nothing to render with: skip the extraction below
     else:
         http_chars = _thin_extraction_chars(content, metadata)
         if http_chars is None:
@@ -1113,6 +1117,11 @@ def _decompress_body(data: bytes, encoding: str, limit: int, *, url: str = "") -
         return data
     try:
         out = inflater.decompress(data, limit + 1)
+        # A gzip body may hold several members back to back; keep them all.
+        while encoding != "deflate" and inflater.eof and inflater.unused_data and len(out) <= limit:
+            rest = inflater.unused_data
+            inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            out += inflater.decompress(rest, limit + 1 - len(out))
     except zlib.error as exc:
         raise FetchError(
             f"Could not decode {encoding} response from {url}: {exc}", error_type="fetch_error"
@@ -1148,6 +1157,9 @@ def _decode_http_body(data: bytes, charset: str | None) -> str:
         match = _META_CHARSET_RE.search(data[:4096])
         if match:
             charset = match.group(1).decode("ascii", "ignore")
+            # A meta tag readable as ASCII cannot be UTF-16: browsers read it as UTF-8.
+            if charset.lower().startswith("utf-16"):
+                charset = "utf-8"
     if charset:
         if charset.lower() in {"iso-8859-1", "latin-1", "latin1", "us-ascii", "ascii"}:
             charset = "cp1252"  # what browsers actually use for these labels
@@ -1518,6 +1530,9 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             if waited:
                 capture["challenge_waited_ms"] = waited
             capture["browser_version"] = str(getattr(browser, "version", "") or "")
+            final_url = str(getattr(page, "url", "") or "")
+            if final_url.startswith(("http://", "https://")):
+                capture["final_url"] = final_url  # after redirects, for the link base
             capture["challenge_title"] = _safe_title(page)[:80]
             capture["turnstile_frame"] = _turnstile_frame_state(page)
         if config.browser_wait_for_selector:
