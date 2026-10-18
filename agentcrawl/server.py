@@ -17,7 +17,7 @@ from . import __version__
 from .config import DEFAULT_USER_AGENT, CrawlConfig, _env_flag, local_files_root_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
-from .crawler import AgentCrawl, check_json_pages
+from .crawler import AgentCrawl, check_formats, check_json_pages
 from .css_extract import validate_css_schema
 from .html_tools import validate_url_patterns
 from .search import search_web
@@ -126,6 +126,11 @@ class ScrapeRequest(BaseModel):
     cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
     config: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("formats")
+    @classmethod
+    def _known_formats(cls, value: list[str]) -> list[str]:
+        return check_formats(value) or value
+
 
 _MAX_BATCH_URLS = 100
 
@@ -148,6 +153,11 @@ class ScrapeManyRequest(BaseModel):
                 raise ValueError("each url must be 1-8192 characters")
         return value
 
+    @field_validator("formats")
+    @classmethod
+    def _known_formats(cls, value: list[str]) -> list[str]:
+        return check_formats(value) or value
+
 
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=1_000)
@@ -159,6 +169,11 @@ class SearchRequest(BaseModel):
     cache: bool = True
     cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
     config: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("formats")
+    @classmethod
+    def _known_formats(cls, value: list[str]) -> list[str]:
+        return check_formats(value) or value
 
 
 class MapRequest(BaseModel):

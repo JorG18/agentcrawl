@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .crawler import AgentCrawl
+from .crawler import SUPPORTED_FORMATS, AgentCrawl
 from .config import config_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
 from .exceptions import FetchError
@@ -86,7 +86,9 @@ def main(argv: list[str] | None = None) -> int:
 
     scrape = sub.add_parser("scrape", parents=[engine])
     scrape.add_argument("url")
-    scrape.add_argument("--format", action="append", dest="formats", default=None)
+    scrape.add_argument(
+        "--format", action="append", dest="formats", default=None, choices=sorted(SUPPORTED_FORMATS)
+    )
     scrape.add_argument("--no-cache", action="store_true")
     scrape.add_argument("--cache-ttl", type=int, default=None)
     scrape.add_argument("--full-page", action="store_true")
@@ -112,7 +114,9 @@ def main(argv: list[str] | None = None) -> int:
     scrape_many.add_argument(
         "--file", help="Read URLs from a file, one per line ('-' for stdin); '#' starts a comment."
     )
-    scrape_many.add_argument("--format", action="append", dest="formats", default=None)
+    scrape_many.add_argument(
+        "--format", action="append", dest="formats", default=None, choices=sorted(SUPPORTED_FORMATS)
+    )
     scrape_many.add_argument("--no-cache", action="store_true")
     scrape_many.add_argument("--full-page", action="store_true")
     scrape_many.add_argument("--query")
@@ -126,7 +130,9 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("--limit", type=int, default=5, help="Results, 1 to 20.")
     search.add_argument("--no-scrape", action="store_true", help="Titles, URLs and snippets only.")
     search.add_argument("--full-page", action="store_true")
-    search.add_argument("--format", action="append", dest="formats", default=None)
+    search.add_argument(
+        "--format", action="append", dest="formats", default=None, choices=sorted(SUPPORTED_FORMATS)
+    )
 
     extract_css = sub.add_parser(
         "extract-css",
