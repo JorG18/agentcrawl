@@ -65,7 +65,10 @@ def live_quality(run_dir: Path, manifest: Path = MANIFEST, prefix: str = "") -> 
                 r.text_recall == 1.0 and r.structure_recall in (None, 1.0) and r.leakage == 0.0
                 for r in rows
             ),
-            "real_tokens": sum(r.real_tokens or 0 for r in rows),
+            # None (printed n/a) without tiktoken, not a misleading 0.
+            "real_tokens": None
+            if any(r.real_tokens is None for r in rows)
+            else sum(r.real_tokens for r in rows),
             "quality": round(statistics.mean(r.text_recall * (1 - r.leakage) for r in rows), 3)
             if rows
             else None,
@@ -98,7 +101,8 @@ def markdown(summary: dict[str, dict]) -> str:
     for tool, row in sorted(summary.items(), key=lambda kv: -(kv[1]["quality"] or 0)):
         lines.append(
             f"| {tool} | {row['got']}/{row['pages']} | {row['text_recall']} | {row['noise']} "
-            f"| {row['clean']} | {row['real_tokens']} | {row['quality']} |"
+            f"| {row['clean']} | {'n/a' if row['real_tokens'] is None else row['real_tokens']} "
+            f"| {row['quality']} |"
         )
     return "\n".join(lines)
 

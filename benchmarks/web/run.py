@@ -67,12 +67,6 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeo
     raise RuntimeError("HTTP 429: still rate-limited after retries")
 
 
-def _get_json(url: str, headers: dict[str, str], timeout: float) -> Any:
-    request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
 # --------------------------------------------------------------------------
 # Tools
 # --------------------------------------------------------------------------

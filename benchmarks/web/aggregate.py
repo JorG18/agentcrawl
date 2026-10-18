@@ -42,7 +42,10 @@ def _content(result: dict[str, Any] | None) -> bool:
 
 def _not_attempted(result: dict[str, Any]) -> bool:
     """Skipped (no key, beyond --limit) or refused for lack of credits (HTTP 402)."""
-    return bool(result.get("skipped")) or "HTTP 402" in (result.get("error") or "")
+    # The hosted adapters' own prefix: a page whose text mentions 402 was still tried.
+    return bool(result.get("skipped")) or (result.get("error") or "").startswith(
+        "RuntimeError: HTTP 402"
+    )
 
 
 def pooled(runs: list[dict[str, dict[str, dict[str, Any]]]]) -> dict[str, Any]:

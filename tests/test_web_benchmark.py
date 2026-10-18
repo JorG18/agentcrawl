@@ -388,7 +388,7 @@ def test_public_benchmark_runs_only_the_published_tools() -> None:
 
     published = {"agentcrawl", "crawl4ai", "scrapling", "firecrawl"}
     assert set(TOOLS) == published
-    for path in Path("benchmarks/results").rglob("*.json"):
+    for path in (Path(__file__).resolve().parents[1] / "benchmarks/results").rglob("*.json"):
         data = json.loads(path.read_text("utf-8"))
         tools = data.get("tools", {}) if isinstance(data, dict) else {}
         assert set(tools) <= published, path
@@ -456,3 +456,50 @@ def test_live_quality_leaves_out_skipped_pages(tmp_path) -> None:
     row = live_quality(tmp_path / "run", manifest)["t"]
 
     assert (row["pages"], row["got"]) == (0, 0)
+
+
+def test_a_402_inside_a_page_error_is_still_an_attempt() -> None:
+    # Only the hosted adapter's own "RuntimeError: HTTP 402" means the credits ran out.
+    from benchmarks.web.aggregate import _not_attempted
+
+    assert _not_attempted({"error": 'RuntimeError: HTTP 402: {"error":"Insufficient credits"}'})
+    assert not _not_attempted({"error": "site answered HTTP 402 Payment Required"})
+
+
+def test_live_quality_says_na_without_tiktoken(tmp_path, monkeypatch) -> None:
+    import gzip
+    import json
+
+    from benchmarks import compare
+    from benchmarks.web import live_quality as lq
+
+    monkeypatch.setattr(compare, "count_real_tokens", lambda text: None)
+    manifest = tmp_path / "neutral.json"
+    manifest.write_text(
+        json.dumps({"pages": [{"id": "p1", "url": "https://x.test/", "expected": ["Hi"]}]})
+    )
+    (tmp_path / "run").mkdir()
+    with gzip.open(tmp_path / "run" / "t.jsonl.gz", "wt") as f:
+        f.write(json.dumps({"tool": "t", "id": "p1", "markdown": "Hi"}) + "\n")
+
+    summary = lq.live_quality(tmp_path / "run", manifest)
+
+    assert summary["t"]["real_tokens"] is None
+    assert "| n/a |" in lq.markdown(summary)
+
+
+def test_report_refuses_a_sample_without_random_or_hard_pages(tmp_path) -> None:
+    import json
+
+    import pytest
+
+    from benchmarks.web.report import main
+
+    sample = tmp_path / "sample.json"
+    sample.write_text(
+        json.dumps({"pages": [{"id": "p1", "url": "https://x.test/", "block": "other"}]})
+    )
+    (tmp_path / "t.jsonl.gz").write_bytes(b"")
+
+    with pytest.raises(SystemExit):
+        main([str(tmp_path / "t.jsonl.gz"), "--sample", str(sample), "--out", str(tmp_path / "r")])
