@@ -11,7 +11,8 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 ### Changed
 
 - **Unknown formats are refused** (library `ValueError`, API `422`, CLI usage error) instead of returning a document with nothing in it. `raw_html` was never supported (the TypeScript `Format` type listed it).
-- **API limits:** request bodies over `AGENTCRAWL_MAX_REQUEST_BYTES` (1 MB) are refused before authentication; `config` overrides are capped at `crawl_max_pages` 10,000 and `max_response_bytes` 50 MB.
+- **API limits:** request bodies over `AGENTCRAWL_MAX_REQUEST_BYTES` (1 MB) are refused before authentication; `config` overrides are capped at `crawl_max_pages` 10,000, `max_response_bytes` 50 MB, `timeout_ms`/`page_budget_ms` 5 min (`page_budget_ms` 0 refused), `browser_wait_ms` 60 s, retry delays 60 s and `http_retries`/`crawl_url_retries` 5; at most 20 `include`/`exclude` patterns.
+- **`regex` is a core dependency**: `include`/`exclude` matches are limited to 50 ms each.
 - **`agentcrawl doctor`** exits 1 when a check fails; `doctor --client` exits 1 for a stale client.
 - **The server reads every documented `AGENTCRAWL_*` engine variable** (it ignored `AGENTCRAWL_BROWSER_ENGINE`, `AGENTCRAWL_CDP_URL`, `AGENTCRAWL_PAGE_BUDGET_MS`, `AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AUDIT`), and local mode reads the Camofox, retry and crawl variables the server documented.
 - **`/v2`:** options the engine cannot honour are refused instead of dropped (`scrapeOptions.formats` other than markdown/html/links on crawl, `onlyMainContent: false` on crawl, `sitemap` other than `include` on map); `storeInCache: false` and `zeroDataRetention: true` skip the cache, and `zeroDataRetention` is refused on crawl and batch.
@@ -22,6 +23,9 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 - **SSRF read-back through iframes (default browser mode).** Outside `browser_strict_network` Chromium follows an iframe's redirects itself; a public frame redirecting to a loopback, private or metadata address had that page's HTML copied into the Markdown. Frames (and the page) whose URL the guard refuses when their HTML is read are no longer returned. The request itself still happens outside strict mode (SECURITY.md).
 - NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`), 6to4 and IPv4-compatible IPv6 addresses are checked by the IPv4 address they carry.
 - Page text and HTML sent to the LLM (extraction, schema generation, summaries) are fenced as untrusted data.
+- **ReDoS:** an `include`/`exclude` pattern such as `(a|aa)+$` froze the whole server (Python's `re` holds the GIL while it backtracks). Matching now times out; a timed-out exclude still excludes.
+- Hidden text no longer reaches the Markdown when hidden by a valueless `hidden` attribute or `display:none !important` (`hidden="until-found"` stays: it is collapsed content).
+- URL credentials (`user:pass@`, e.g. a proxy) are redacted from error messages.
 
 ### Fixed
 
@@ -29,6 +33,7 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 - **Links** resolve against the final URL after redirects (also in the browser) and the page's `<base href>`, the same in `links`, the Markdown and CSS extraction; `metadata.source_url` stays the URL you asked for.
 - **A page rescued by the browser retry** takes the normal path: `section`, `max_tokens`, `json`, `summary` and `markdown_sha256` were skipped (and `diff()` raised).
 - **Sitemaps:** one broken child no longer drops the whole index (it is reported in `errors`); gzipped sitemaps are read.
+- A `robots.txt` starting with a UTF-8 BOM had its first group (often `User-agent: *`) ignored.
 - `<meta charset="utf-16">` on an ASCII page is read as UTF-8; every member of a multi-member gzip body is kept.
 - **Crawl jobs:** the running worker renews its lease on a timer and a sweep every 60 s requeues jobs whose worker died, so a crash and quick restart no longer leaves a job `running` (or `cancelling`) forever; a duplicate queue entry can no longer drop the runner's lease. Re-saved documents keep their place, and documents saved together keep crawl order.
 - An idempotent `POST /v1/crawl` sent again after a failure retry no longer gets `409`.

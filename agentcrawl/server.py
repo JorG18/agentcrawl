@@ -89,7 +89,19 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
 # Tighter than CrawlConfig's sanity ranges: one API key must not ask for a
 # million-page job or 1 GB pages (scrape_many reads 8 at a time).
 _MAX_API_PAGES = 10_000
-_OVERRIDE_CEILINGS = {"crawl_max_pages": _MAX_API_PAGES, "max_response_bytes": 50_000_000}
+_OVERRIDE_CEILINGS = {
+    "crawl_max_pages": _MAX_API_PAGES,
+    "max_response_bytes": 50_000_000,
+    # Waits, sleeps and retries hold a worker: CrawlConfig allows an hour or a day.
+    "timeout_ms": 300_000,
+    "page_budget_ms": 300_000,
+    "browser_wait_ms": 60_000,
+    "http_retry_delay": 60,
+    "crawl_retry_delay": 60,
+    "crawl_retry_max_delay": 60,
+    "http_retries": 5,
+    "crawl_url_retries": 5,
+}
 
 
 # Ceiling on the per-domain bookkeeping the server keeps in memory. A crawl
@@ -526,10 +538,20 @@ class AgentCrawlServer:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         for key, ceiling in _OVERRIDE_CEILINGS.items():
-            if key in override and int(override[key]) > ceiling:
+            if key in override and override[key] > ceiling:
                 raise HTTPException(
                     status_code=400, detail=f"config.{key} must be at most {ceiling} over the API."
                 )
+        if override.get("page_budget_ms") == 0:
+            # 0 turns the page budget off, which would undo the ceilings above.
+            raise HTTPException(
+                status_code=400, detail="config.page_budget_ms must be at least 1 over the API."
+            )
+        for key in ("crawl_include", "crawl_exclude"):
+            try:
+                validate_url_patterns(override.get(key))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=f"config.{key}: {exc}") from exc
         # Camofox drives its own browser in another process, so neither the
         # SSRF guard nor the airgap can see the requests its page makes. A
         # caller may only route through it when the operator configured it.

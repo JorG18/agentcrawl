@@ -12,6 +12,12 @@ _STATUS_ERROR_TYPES = {403: "blocked", 404: "not_found", 410: "not_found", 429: 
 ERROR_MESSAGE_MAX_CHARS = 300
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]|\x1b\[[0-9;]*[A-Za-z]")
 _SPACE_RE = re.compile(r"\s+")
+_USERINFO_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s?#]+@")
+
+
+def redact_credentials(text: str) -> str:
+    """Hide the ``user:password@`` part of any URL in ``text`` (proxy errors)."""
+    return _USERINFO_RE.sub(r"\1***@", text)
 
 
 def sanitize_error_message(message: str | None) -> str:
@@ -20,6 +26,7 @@ def sanitize_error_message(message: str | None) -> str:
         return ""
     text = _CONTROL_RE.sub(" ", str(message))
     text = _SPACE_RE.sub(" ", text).strip()
+    text = redact_credentials(text)
     if len(text) > ERROR_MESSAGE_MAX_CHARS:
         text = text[: ERROR_MESSAGE_MAX_CHARS - 1].rstrip() + "…"
     return text

@@ -29,6 +29,7 @@ from .errors import (
     coverage_of,
     error_metadata,
     next_step,
+    redact_credentials,
     sanitize_error_message,
 )
 from .exceptions import FetchError
@@ -160,7 +161,8 @@ def _discovery_read(url: str, config: CrawlConfig) -> str:
         )
     if body[:2] == b"\x1f\x8b":  # sitemap.xml.gz served without Content-Encoding
         body = _decompress_body(body, "gzip", _DISCOVERY_MAX_BYTES, url=url)
-    return body.decode("utf-8", errors="replace")
+    # utf-8-sig: a leading BOM would glue itself to "User-agent" and void the first group.
+    return body.decode("utf-8-sig", errors="replace")
 
 
 class AgentCrawl:
@@ -590,7 +592,7 @@ class AgentCrawl:
                         markdown="",
                         text="",
                         metadata=dict(error_metadata(exc)),
-                        errors=[str(exc)],
+                        errors=[redact_credentials(str(exc))],
                     )
                     return document if formats is None else _format_document(document, formats)
 
@@ -695,7 +697,7 @@ class AgentCrawl:
                 except Exception as exc:
                     message = str(exc)
                     if "HTTP Error 404" not in message:
-                        errors.append(f"{sitemap_url}: {exc}")
+                        errors.append(redact_credentials(f"{sitemap_url}: {exc}"))
             # A site's llms.txt is its own curated list of pages worth reading.
             llms_txt_url, llms_txt_urls = _llms_txt_urls(source, self.config)
             discovered.update(llms_txt_urls)
@@ -1631,7 +1633,7 @@ def _read_sitemap(
             raise
         except Exception as exc:  # one broken child must not drop its siblings
             if errors is not None:
-                errors.append(f"{url}: {exc}")
+                errors.append(redact_credentials(f"{url}: {exc}"))
     return urls
 
 
