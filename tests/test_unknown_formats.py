@@ -47,3 +47,14 @@ def test_cli_rejects_an_unknown_format(tmp_path: Path, capsys) -> None:
         main(["scrape", _page(tmp_path), "--format", "raw_html"])
     assert exit_info.value.code == 2
     assert "raw_html" in capsys.readouterr().err
+
+
+def test_scrape_many_refuses_an_unknown_format_once() -> None:
+    import pytest
+
+    from agentcrawl import AgentCrawl
+
+    with pytest.raises(ValueError, match="markdwon"):
+        AgentCrawl().scrape_many(
+            ["https://example.com/a", "https://example.com/b"], formats=["markdwon"]
+        )

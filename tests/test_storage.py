@@ -246,14 +246,16 @@ def test_store_rolls_back_a_failed_write(tmp_path) -> None:
     assert store.get_job("x") is None
 
 
-def test_renew_job_lease_only_moves_the_owners_running_lease(tmp_path) -> None:
+def test_the_running_worker_takes_over_the_lease(tmp_path) -> None:
+    # A peer may have re-leased the job while it waited in our queue; the
+    # worker that claimed it is the only one running it, so it owns the lease.
     store = SQLiteStore(tmp_path / "renew.db")
     job = store.create_job("crawl", {"url": "https://example.com"})
-    store.acquire_schedule_lease(job, "pid-a", lease_seconds=300)
+    store.acquire_schedule_lease(job, "pid-b", lease_seconds=300)
     assert not store.renew_job_lease(job, "pid-a", 60)  # still queued
     assert store.claim_job(job)
-    assert not store.renew_job_lease(job, "pid-b", 60)  # not the owner
     assert store.renew_job_lease(job, "pid-a", 60)
+    store.release_schedule_lease(job, "pid-b")  # the peer's stale entry: no effect now
     assert store.prepare_restart_recovery() == 0  # fresh heartbeat: alive
 
 

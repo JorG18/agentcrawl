@@ -93,10 +93,14 @@ def _url_patterns(value: Any) -> Any:
     """
     if not isinstance(value, list):
         return value
-    return [
-        r"^https?://[^/]+" + p[1:] if isinstance(p, str) and p.startswith("^/") else p
-        for p in value
-    ]
+    return [_path_pattern(p) if isinstance(p, str) and p.startswith("^/") else p for p in value]
+
+
+def _path_pattern(pattern: str) -> str:
+    # Firecrawl's "$" ends the path; here the query string may follow it.
+    if pattern.endswith("$") and not pattern.endswith("\\$"):
+        pattern = pattern[:-1] + r"(?:[?#].*)?$"
+    return r"^https?://[^/]+" + pattern[1:]
 
 
 def _formats(raw: Any) -> list[str]:
@@ -287,7 +291,10 @@ async def map_site(request: Request, api_key: str | None = Depends(v1.server.req
     if body.get("sitemap") not in (None, "include"):
         raise _refuse(f"sitemap={body['sitemap']!r} is not supported by AgentCrawl")
     try:
-        map_request = v1.MapRequest(url=body.get("url") or "", max_urls=body.get("limit"))
+        limit = body.get("limit")
+        map_request = v1.MapRequest(
+            url=body.get("url") or "", max_urls=None if limit is None else _int(limit, "limit")
+        )
     except ValueError as exc:
         raise _refuse(str(exc)) from exc
     result = v1.map_site(map_request, api_key)

@@ -277,3 +277,16 @@ def test_restore_force_discards_the_stale_wal(tmp_path) -> None:
     assert main(["restore", "--backup-db", str(backup), "--db", str(live), "--force"]) == 0
     rows = sqlite3.connect(live).execute("select id from jobs").fetchall()
     assert rows == [("from-backup",)]
+
+
+def test_restore_force_replaces_a_corrupt_database(tmp_path) -> None:
+    import sqlite3
+
+    live, backup = tmp_path / "live.db", tmp_path / "backup.db"
+    with sqlite3.connect(backup) as conn:
+        conn.execute("create table jobs(id text)")
+        conn.execute("insert into jobs values('from-backup')")
+    live.write_bytes(b"not a database at all" * 100)
+
+    assert main(["restore", "--backup-db", str(backup), "--db", str(live), "--force"]) == 0
+    assert sqlite3.connect(live).execute("select id from jobs").fetchall() == [("from-backup",)]

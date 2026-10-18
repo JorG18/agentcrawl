@@ -777,8 +777,15 @@ def _restore(backup_db: str, db_path: str, *, force: bool = False) -> dict[str, 
     # SQLite's backup API writes through the target's own journal: a stale
     # -wal or -journal left by a crash is applied first and then overwritten,
     # instead of replaying over a file copied behind SQLite's back.
-    with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
-        src.backup(dst)
+    try:
+        with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
+            src.backup(dst)
+    except sqlite3.DatabaseError:
+        # The target is not a database (corrupt): the case restore exists for.
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            Path(f"{target}{suffix}").unlink(missing_ok=True)
+        with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
+            src.backup(dst)
     os.chmod(target, 0o600)
     return {
         "ok": True,

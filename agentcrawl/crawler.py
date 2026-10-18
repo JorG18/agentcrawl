@@ -546,6 +546,7 @@ class AgentCrawl:
         source_list = list(sources)
         if not source_list:
             return []
+        check_formats(formats)  # once, before any fetch, not one error per URL
         check_json_pages(formats, len(source_list), self.config)
         workers = max(1, min(max_workers or self.config.parallelism, len(source_list)))
         host_limits: dict[str, threading.BoundedSemaphore] = {}

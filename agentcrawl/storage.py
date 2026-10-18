@@ -258,7 +258,7 @@ class SQLiteStore:
                 f"""
                 update jobs
                 set status = 'queued',
-                    error = 'Recovered interrupted job after server restart.',
+                    error = 'Recovered interrupted job (its worker stopped).',
                     updated_at = ?
                 where status = 'running' and {dead}
                 """,
@@ -269,7 +269,7 @@ class SQLiteStore:
                 f"""
                 update jobs
                 set status = 'cancelled',
-                    error = 'Cancellation completed during server restart.',
+                    error = 'Cancellation completed (its worker stopped).',
                     checkpoint_json = null,
                     updated_at = ?
                 where status = 'cancelling' and {dead}
@@ -499,13 +499,15 @@ class SQLiteStore:
         A short, renewed lease lets restart recovery tell a dead worker from a
         live one without waiting out the long scheduling lease.
         """
+        # Only one worker can have claimed a running job (queued -> running is
+        # atomic), so that worker takes the lease over even if a peer holds it.
         with self._connect() as conn:
             cursor = conn.execute(
                 """
-                update jobs set schedule_lock_expires_at = ?
-                where id = ? and status = 'running' and schedule_lock = ?
+                update jobs set schedule_lock = ?, schedule_lock_expires_at = ?
+                where id = ? and status = 'running'
                 """,
-                (time.time() + lease_seconds, job_id, owner),
+                (owner, time.time() + lease_seconds, job_id),
             )
         return bool(cursor.rowcount)
 

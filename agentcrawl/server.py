@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager, contextmanager
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 import json
+import logging
 import os
 import queue
 import secrets
@@ -732,7 +733,7 @@ async def lifespan(_app: FastAPI):
             try:
                 _recover_dead_jobs()
             except Exception:  # noqa: BLE001 - a failed sweep retries next interval
-                pass
+                logging.getLogger(__name__).exception("job recovery sweep failed")
 
     threading.Thread(target=sweep, name="agentcrawl-recovery", daemon=True).start()
     try:
@@ -1248,6 +1249,8 @@ def clear_cache(
 def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) -> None:
     acquired = False
     reschedule_at: float | None = None
+    claimed = False
+    heartbeat_stop = threading.Event()
     try:
         while not acquired:
             acquired = server._job_semaphore.acquire(timeout=0.5)
@@ -1259,21 +1262,21 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             return
         if not server.store.claim_job(job_id):
             return
+        claimed = True
+        # The worker running the job owns its lease and renews it on a timer,
+        # whatever a page is waiting on; the recovery sweep only requeues a job
+        # whose lease ran out, i.e. whose worker died.
+        lease = server.schedule_lease_seconds
+        server.store.renew_job_lease(job_id, server.instance_id, lease)
 
         def heartbeat() -> None:
-            # Renewed on every progress tick; recovery treats a lease that
-            # ran out as a dead worker (one page never takes this long).
-            server.store.renew_job_lease(job_id, server.instance_id, server.schedule_lease_seconds)
+            while not heartbeat_stop.wait(max(1.0, lease / 3)):
+                server.store.renew_job_lease(job_id, server.instance_id, lease)
 
-        heartbeat()
-
-        def on_progress(progress: dict[str, Any]) -> None:
-            server.store.update_job_progress(job_id, progress)
-            heartbeat()
-
+        threading.Thread(target=heartbeat, name=f"lease-{job_id}", daemon=True).start()
         result = _run_crawl(
             payload,
-            progress_callback=on_progress,
+            progress_callback=lambda progress: server.store.update_job_progress(job_id, progress),
             should_cancel=lambda: server.store.job_cancel_requested(job_id),
             resume_state=_resume_state(job_id),
             checkpoint_callback=lambda checkpoint, progress, document: (
@@ -1328,7 +1331,9 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
     except Exception as exc:
         server.store.update_job(job_id, "failed", error=str(exc))
     finally:
-        server.store.release_schedule_lease(job_id, server.instance_id)
+        heartbeat_stop.set()
+        if claimed:  # a duplicate queue entry that lost the claim must not drop the runner's lease
+            server.store.release_schedule_lease(job_id, server.instance_id)
         if acquired:
             server._job_semaphore.release()
         with server._job_threads_lock:

@@ -284,6 +284,7 @@ def test_anchored_firecrawl_paths_match_urls() -> None:
 
     (pattern,) = _url_patterns(["^/blog/.*$"])
     assert re.search(pattern, "https://site.com/blog/x")
+    assert re.search(pattern, "https://site.com/blog/x?page=2")  # "$" ends the path
     assert not re.search(pattern, "https://site.com/news/blog/x")
 
 
@@ -300,6 +301,7 @@ def test_anchored_firecrawl_paths_match_urls() -> None:
         ("/v2/crawl", {"maxDiscoveryDepth": "deep"}),
         ("/v2/scrape", {"timeout": True}),
         ("/v2/crawl", {"limit": 2.9}),
+        ("/v2/map", {"limit": True}),
     ],
 )
 def test_bad_numeric_options_are_a_400_not_a_500(offline_v2, path, body) -> None:

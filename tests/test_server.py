@@ -895,23 +895,38 @@ def _lock_columns(path: Path, job_id: str) -> tuple:
 
 
 def test_run_crawl_job_heartbeats_then_releases_its_lease(tmp_path: Path, monkeypatch) -> None:
-    """A running job holds a short lease renewed by progress and dropped on
-    exit, so a restart right after a crash recovers it instead of waiting out
-    the 5 min scheduling lease."""
+    """The running job's lease is renewed on a timer, not only between pages,
+    and dropped on exit."""
     database = tmp_path / "lease.db"
     server.store = SQLiteStore(database)
+    monkeypatch.setattr(server, "schedule_lease_seconds", 3.0)  # renewed every 1 s
     job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
     assert server.store.acquire_schedule_lease(job_id, server.instance_id, lease_seconds=300)
     seen: list[float] = []
 
     def fake_run_crawl(payload, progress_callback, **kwargs):
-        seen.append(_lock_columns(database, job_id)[1] - time.time())
-        progress_callback({"visited": 1})
+        first = _lock_columns(database, job_id)[1]
+        time.sleep(1.5)  # one slow page, no progress tick
+        seen.append(_lock_columns(database, job_id)[1] - first)
         return {"documents": [], "metadata": {}}
 
     monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
     _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
 
-    assert seen[0] < 120  # a claimed job only holds a short lease
+    assert seen[0] > 0.5  # renewed while the page was still running
     assert server.store.get_job(job_id)["status"] == "completed"
     assert _lock_columns(database, job_id) == (None, None)
+
+
+def test_a_duplicate_entry_that_loses_the_claim_keeps_the_runners_lease(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = tmp_path / "dup.db"
+    server.store = SQLiteStore(database)
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+    assert server.store.acquire_schedule_lease(job_id, server.instance_id, lease_seconds=300)
+    assert server.store.claim_job(job_id)  # another entry is already running it
+
+    _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
+
+    assert _lock_columns(database, job_id)[0] == server.instance_id
