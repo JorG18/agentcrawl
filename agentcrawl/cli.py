@@ -386,12 +386,16 @@ def main(argv: list[str] | None = None) -> int:
         and _scrape_ok(result)
     ):
         _print_token_stats(result.get("metadata", {}))
+    # Remote mode answers {"data": {"failures": [...]}}; local mode a bare list.
+    failure_rows = result
+    if args.command == "failures" and isinstance(result, dict):
+        failure_rows = (result.get("data") or {}).get("failures") or []
     if (
         args.command == "failures"
         and getattr(args, "export_csv", None)
-        and isinstance(result, list)
+        and isinstance(failure_rows, list)
     ):
-        written = _export_failures_csv(result, args.export_csv)
+        written = _export_failures_csv(failure_rows, args.export_csv)
         payload: dict[str, Any] = {
             "exported_rows": written,
             "path": str(Path(args.export_csv).resolve()),
@@ -766,6 +770,8 @@ def _restore(backup_db: str, db_path: str, *, force: bool = False) -> dict[str, 
     if integrity != "ok":
         raise SystemExit(f"Backup integrity check failed: {integrity}")
     target.parent.mkdir(parents=True, exist_ok=True)
+    for suffix in ("-wal", "-shm"):  # a stale journal would replay over the restored file
+        Path(f"{target}{suffix}").unlink(missing_ok=True)
     shutil.copyfile(source, target)
     os.chmod(target, 0o600)
     return {

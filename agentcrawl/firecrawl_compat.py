@@ -113,7 +113,9 @@ def _actions(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if kind == "wait" and "selector" in action:
             steps.append({"type": "wait_for", "selector": action["selector"]})
         elif kind == "wait":
-            steps.append({"type": "wait", "ms": _int(action.get("milliseconds") or 1000, "milliseconds")})
+            steps.append(
+                {"type": "wait", "ms": _int(action.get("milliseconds") or 1000, "milliseconds")}
+            )
         elif kind == "click":
             focused = action.get("selector")
             steps.append({"type": "click", "selector": focused})
