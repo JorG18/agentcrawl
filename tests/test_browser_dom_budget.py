@@ -48,3 +48,63 @@ def test_flatten_without_deadline_reads_every_frame():
     report = flatten_page(FakePage(frames=3))
     assert report["iframes"] == 3
     assert "budget_spent" not in report
+
+
+def test_a_frame_that_landed_on_a_refused_url_is_not_inlined():
+    # SSRF: outside strict mode an iframe's redirect hops are not checked, so
+    # the frame's final URL is checked before its content joins the page.
+    class Guard:
+        enforcing = True
+        strict = False
+
+        def check(self, url):
+            return "private address" if "internal" in url else None
+
+    page = FakePage(frames=2)
+    page.main_frame.child_frames[1].url = "http://internal.example/secret"
+
+    report = flatten_page(page, guard=Guard())
+
+    assert report["iframes"] == 1 and report["iframes_skipped"] == 1
+
+
+def test_a_frame_that_navigates_to_a_refused_url_while_read_is_not_inlined():
+    class Guard:
+        enforcing = True
+        strict = False
+
+        def check(self, url):
+            return "private address" if "internal" in url else None
+
+    class MovingFrame(SlowFrame):
+        def evaluate(self, _js, _arg=None):
+            self.url = "http://internal.example/secret"  # navigates during the read
+            return "<p>secret</p>"
+
+    page = FakePage(frames=0)
+    page.main_frame.child_frames = [MovingFrame()]
+
+    report = flatten_page(page, guard=Guard())
+
+    assert report.get("iframes", 0) == 0 and report["iframes_skipped"] == 1
+
+
+def test_dropping_a_frame_after_its_read_does_not_count_its_nested_frames():
+    class Guard:
+        enforcing = True
+        strict = False
+
+        def check(self, url):
+            return "private address" if "internal" in url else None
+
+    class MovingFrame(SlowFrame):
+        def evaluate(self, _js, _arg=None):
+            self.url = "http://internal.example/secret"
+            return "<p>secret</p>"
+
+    page = FakePage(frames=0)
+    page.main_frame.child_frames = [MovingFrame([SlowFrame(), SlowFrame()])]
+
+    report = flatten_page(page, guard=Guard())
+
+    assert report.get("iframes", 0) == 0

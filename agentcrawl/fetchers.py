@@ -341,6 +341,13 @@ def _safe_urlopen(
     return opener.open(request, timeout=timeout)
 
 
+def _env_proxy_for(url: str) -> bool:
+    # Conservative: any HTTP(S) proxy counts, even if NO_PROXY covers ``url``,
+    # because a redirect can leave NO_PROXY (or switch scheme) mid-fetch.
+    proxies = urllib.request.getproxies()
+    return bool(proxies.get("http") or proxies.get("https"))
+
+
 def _browser_backend_available(backend: str) -> bool:
     """Whether ``backend`` could plausibly run on this machine right now.
 
@@ -447,7 +454,10 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     # for those the key stays absent rather than claiming False.
     if is_probably_url(source):
         metadata["dns_pinned"] = (
-            metadata.get("fetcher") == "http" and not config.allow_private_network
+            metadata.get("fetcher") == "http"
+            and not config.allow_private_network
+            # An HTTP(S)_PROXY from the environment resolves the host itself.
+            and not _env_proxy_for(source)
         )
     if metadata.get("fetcher") in {"playwright", "camofox"}:
         if capture.get("final_url"):
@@ -1586,6 +1596,7 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
                 shadow_dom=config.browser_shadow_dom,
                 deadline=time.monotonic()
                 + _budget_ms(config.timeout_ms, _tail_reserve_ms(config)) / 1000,
+                guard=guard,
             )
             if capture is not None:
                 capture["dom"] = {k: v for k, v in dom_report.items() if v}
@@ -1593,6 +1604,17 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             # Bodies must be read before the context closes.
             capture["api"] = api_collector.finish(_budget_ms(config.timeout_ms))
         html = page.content()
+        refused = (
+            guard.check(page.url)
+            if guard.enforcing
+            and not guard.strict
+            and str(getattr(page, "url", "")).startswith("http")
+            else None
+        )
+        if refused:
+            # Outside strict mode the page may have navigated on its own since
+            # the check above; the HTML must come from an allowed address.
+            raise FetchError(refused, error_type="config_error")
         final_url = str(getattr(page, "url", "") or "")
         if capture is not None and final_url.startswith(("http://", "https://")):
             capture["final_url"] = final_url  # where the HTML came from: the link base

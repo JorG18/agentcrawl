@@ -1163,6 +1163,21 @@ def test_network_idle_leaves_a_reserve_for_reading_the_page(monkeypatch) -> None
     assert idle["timeout"] <= 9_000  # 10 % of the budget kept for the tail
 
 
+def test_dns_pinned_is_false_through_an_environment_proxy(monkeypatch) -> None:
+    monkeypatch.setattr(
+        fetchers,
+        "_fetch_http",
+        lambda url, config: ("<html>ok</html>", {"fetcher": "http", "final_url": url}),
+    )
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.internal:3128")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+
+    _html, metadata = fetch_source("https://example.com", CrawlConfig(fetcher="http"))
+
+    assert metadata["dns_pinned"] is False
+
+
 def test_browser_final_url_follows_the_redirect(monkeypatch) -> None:
     page, _browser, _chromium = install_fake_playwright(monkeypatch)
     page.url = "https://example.com/en/docs/"
