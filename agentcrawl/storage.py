@@ -488,6 +488,22 @@ class SQLiteStore:
                 (time.time(), job_id, owner),
             )
 
+    def renew_job_lease(self, job_id: str, owner: str, lease_seconds: float) -> bool:
+        """Heartbeat for a ``running`` job: push its lease ``lease_seconds`` out.
+
+        A short, renewed lease lets restart recovery tell a dead worker from a
+        live one without waiting out the long scheduling lease.
+        """
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                update jobs set schedule_lock_expires_at = ?
+                where id = ? and status = 'running' and schedule_lock = ?
+                """,
+                (time.time() + lease_seconds, job_id, owner),
+            )
+        return bool(cursor.rowcount)
+
     def claim_job(self, job_id: str) -> bool:
         with self._connect() as conn:
             cursor = conn.execute(

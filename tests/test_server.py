@@ -885,3 +885,33 @@ def test_openapi_version_matches_the_package_version() -> None:
 
     assert app.version == __version__
     assert app.version != "0.1.0" or __version__ == "0.1.0"
+
+
+def _lock_columns(path: Path, job_id: str) -> tuple:
+    with sqlite3.connect(path) as conn:
+        return conn.execute(
+            "select schedule_lock, schedule_lock_expires_at from jobs where id = ?", (job_id,)
+        ).fetchone()
+
+
+def test_run_crawl_job_heartbeats_then_releases_its_lease(tmp_path: Path, monkeypatch) -> None:
+    """A running job holds a short lease renewed by progress and dropped on
+    exit, so a restart right after a crash recovers it instead of waiting out
+    the 5 min scheduling lease."""
+    database = tmp_path / "lease.db"
+    server.store = SQLiteStore(database)
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+    assert server.store.acquire_schedule_lease(job_id, server.instance_id, lease_seconds=300)
+    seen: list[float] = []
+
+    def fake_run_crawl(payload, progress_callback, **kwargs):
+        seen.append(_lock_columns(database, job_id)[1] - time.time())
+        progress_callback({"visited": 1})
+        return {"documents": [], "metadata": {}}
+
+    monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
+    _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
+
+    assert seen[0] < 120  # a claimed job only holds a short lease
+    assert server.store.get_job(job_id)["status"] == "completed"
+    assert _lock_columns(database, job_id) == (None, None)
