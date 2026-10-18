@@ -34,6 +34,16 @@ def test_doctor_reports_installation(capsys, monkeypatch) -> None:
     assert "api_key_configured" in payload["summary"]
 
 
+def test_doctor_exits_nonzero_when_a_check_fails(capsys, monkeypatch) -> None:
+    monkeypatch.delenv("AGENTCRAWL_BASE_URL", raising=False)
+    monkeypatch.setattr(
+        "agentcrawl.cli._check_local_scrape", lambda: {"ok": False, "detail": "broken"}
+    )
+
+    assert main(["doctor"]) == 1
+    assert json.loads(capsys.readouterr().out)["summary"]["ok"] is False
+
+
 def test_cli_version_flag_prints_package_version(capsys) -> None:
     try:
         main(["--version"])
@@ -216,10 +226,67 @@ def test_backup_and_restore_close_their_connections(tmp_path: Path, monkeypatch,
     restored = tmp_path / "restored.db"
     assert main(["restore", "--backup-db", backup_db, "--db", str(restored)]) == 0
 
-    assert len(opened) == 4
+    assert len(opened) == 6  # restore copies through SQLite's backup API (2 more)
     for conn in opened:
         try:
             conn.execute("select 1")
         except sqlite3.ProgrammingError:
             continue  # closed, as it should be
         raise AssertionError("connection left open")
+
+
+def test_failures_export_works_in_remote_mode(tmp_path, monkeypatch) -> None:
+    from agentcrawl import cli
+
+    monkeypatch.setattr(
+        cli.AgentCrawlClient,
+        "failures",
+        lambda self, **k: {
+            "success": True,
+            "data": {"failures": [{"id": "f1", "url": "https://e.com/x"}], "returned": 1},
+        },
+    )
+    out = tmp_path / "out.csv"
+    assert cli.main(["--remote", "failures", "--export", str(out)]) == 0
+    assert "https://e.com/x" in out.read_text(encoding="utf-8")
+
+
+def test_restore_force_discards_the_stale_wal(tmp_path) -> None:
+    import sqlite3
+    import subprocess
+    import sys
+
+    live, backup = tmp_path / "live.db", tmp_path / "backup.db"
+    with sqlite3.connect(backup) as conn:
+        conn.execute("create table jobs(id text)")
+        conn.execute("insert into jobs values('from-backup')")
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sqlite3,os,sys\n"
+            "c=sqlite3.connect(sys.argv[1]); c.execute('pragma journal_mode=wal')\n"
+            "c.execute('pragma wal_autocheckpoint=0'); c.execute('create table jobs(id text)')\n"
+            "c.commit(); c.execute(\"insert into jobs values('stale-live')\"); c.commit()\n"
+            "os._exit(0)",
+            str(live),
+        ],
+        check=True,
+    )
+    assert Path(f"{live}-wal").exists()
+    assert main(["restore", "--backup-db", str(backup), "--db", str(live), "--force"]) == 0
+    rows = sqlite3.connect(live).execute("select id from jobs").fetchall()
+    assert rows == [("from-backup",)]
+
+
+def test_restore_force_replaces_a_corrupt_database(tmp_path) -> None:
+    import sqlite3
+
+    live, backup = tmp_path / "live.db", tmp_path / "backup.db"
+    with sqlite3.connect(backup) as conn:
+        conn.execute("create table jobs(id text)")
+        conn.execute("insert into jobs values('from-backup')")
+    live.write_bytes(b"not a database at all" * 100)
+
+    assert main(["restore", "--backup-db", str(backup), "--db", str(live), "--force"]) == 0
+    assert sqlite3.connect(live).execute("select id from jobs").fetchall() == [("from-backup",)]

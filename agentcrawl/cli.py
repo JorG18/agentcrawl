@@ -17,13 +17,17 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .crawler import AgentCrawl
+from .crawler import SUPPORTED_FORMATS, AgentCrawl
 from .config import config_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
 from .exceptions import FetchError
 from .remote_client import AgentCrawlClient
 from .serializers import to_jsonable
 from .storage import SQLiteStore
+
+
+# json needs a schema or prompt the CLI cannot pass; use the API or library.
+_CLI_FORMATS = sorted(SUPPORTED_FORMATS - {"json"})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,7 +90,9 @@ def main(argv: list[str] | None = None) -> int:
 
     scrape = sub.add_parser("scrape", parents=[engine])
     scrape.add_argument("url")
-    scrape.add_argument("--format", action="append", dest="formats", default=None)
+    scrape.add_argument(
+        "--format", action="append", dest="formats", default=None, choices=_CLI_FORMATS
+    )
     scrape.add_argument("--no-cache", action="store_true")
     scrape.add_argument("--cache-ttl", type=int, default=None)
     scrape.add_argument("--full-page", action="store_true")
@@ -112,7 +118,9 @@ def main(argv: list[str] | None = None) -> int:
     scrape_many.add_argument(
         "--file", help="Read URLs from a file, one per line ('-' for stdin); '#' starts a comment."
     )
-    scrape_many.add_argument("--format", action="append", dest="formats", default=None)
+    scrape_many.add_argument(
+        "--format", action="append", dest="formats", default=None, choices=_CLI_FORMATS
+    )
     scrape_many.add_argument("--no-cache", action="store_true")
     scrape_many.add_argument("--full-page", action="store_true")
     scrape_many.add_argument("--query")
@@ -126,7 +134,9 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("--limit", type=int, default=5, help="Results, 1 to 20.")
     search.add_argument("--no-scrape", action="store_true", help="Titles, URLs and snippets only.")
     search.add_argument("--full-page", action="store_true")
-    search.add_argument("--format", action="append", dest="formats", default=None)
+    search.add_argument(
+        "--format", action="append", dest="formats", default=None, choices=_CLI_FORMATS
+    )
 
     extract_css = sub.add_parser(
         "extract-css",
@@ -291,7 +301,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         report = _doctor_clients(args.client) if args.client else _doctor()
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 0
+        if args.client:
+            # "missing" is normal under ``--client all`` (not every client is installed).
+            bad = {"stale", "unreadable"} | ({"missing"} if args.client != "all" else set())
+            return int(any(entry["state"] in bad for entry in report["clients"]))
+        return 0 if report["summary"]["ok"] else 1
     if args.command == "setup":
         return _setup(args)
     if args.command in {"login", "sessions", "logout"}:
@@ -376,12 +390,16 @@ def main(argv: list[str] | None = None) -> int:
         and _scrape_ok(result)
     ):
         _print_token_stats(result.get("metadata", {}))
+    # Remote mode answers {"data": {"failures": [...]}}; local mode a bare list.
+    failure_rows = result
+    if args.command == "failures" and isinstance(result, dict):
+        failure_rows = (result.get("data") or {}).get("failures") or []
     if (
         args.command == "failures"
         and getattr(args, "export_csv", None)
-        and isinstance(result, list)
+        and isinstance(failure_rows, list)
     ):
-        written = _export_failures_csv(result, args.export_csv)
+        written = _export_failures_csv(failure_rows, args.export_csv)
         payload: dict[str, Any] = {
             "exported_rows": written,
             "path": str(Path(args.export_csv).resolve()),
@@ -756,7 +774,18 @@ def _restore(backup_db: str, db_path: str, *, force: bool = False) -> dict[str, 
     if integrity != "ok":
         raise SystemExit(f"Backup integrity check failed: {integrity}")
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, target)
+    # SQLite's backup API writes through the target's own journal: a stale
+    # -wal or -journal left by a crash is applied first and then overwritten,
+    # instead of replaying over a file copied behind SQLite's back.
+    try:
+        with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
+            src.backup(dst)
+    except sqlite3.DatabaseError:
+        # The target is not a database (corrupt): the case restore exists for.
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            Path(f"{target}{suffix}").unlink(missing_ok=True)
+        with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
+            src.backup(dst)
     os.chmod(target, 0o600)
     return {
         "ok": True,
