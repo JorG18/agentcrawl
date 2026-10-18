@@ -12,7 +12,7 @@ _STATUS_ERROR_TYPES = {403: "blocked", 404: "not_found", 410: "not_found", 429: 
 ERROR_MESSAGE_MAX_CHARS = 300
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]|\x1b\[[0-9;]*[A-Za-z]")
 _SPACE_RE = re.compile(r"\s+")
-_USERINFO_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s@]+@")
+_USERINFO_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s?#]+@")
 
 
 def sanitize_error_message(message: str | None) -> str:

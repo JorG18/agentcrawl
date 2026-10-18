@@ -92,13 +92,15 @@ _MAX_API_PAGES = 10_000
 _OVERRIDE_CEILINGS = {
     "crawl_max_pages": _MAX_API_PAGES,
     "max_response_bytes": 50_000_000,
-    # Waits and sleeps hold a worker: CrawlConfig allows up to an hour or a day.
+    # Waits, sleeps and retries hold a worker: CrawlConfig allows an hour or a day.
     "timeout_ms": 300_000,
     "page_budget_ms": 300_000,
     "browser_wait_ms": 60_000,
     "http_retry_delay": 60,
     "crawl_retry_delay": 600,
     "crawl_retry_max_delay": 600,
+    "http_retries": 5,
+    "crawl_url_retries": 5,
 }
 
 
@@ -540,6 +542,11 @@ class AgentCrawlServer:
                 raise HTTPException(
                     status_code=400, detail=f"config.{key} must be at most {ceiling} over the API."
                 )
+        if override.get("page_budget_ms") == 0:
+            # 0 turns the page budget off, which would undo the ceilings above.
+            raise HTTPException(
+                status_code=400, detail="config.page_budget_ms must be at least 1 over the API."
+            )
         for key in ("crawl_include", "crawl_exclude"):
             try:
                 validate_url_patterns(override.get(key))

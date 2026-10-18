@@ -657,12 +657,13 @@ def _is_hidden(node: _HTMLNode, *, classes: bool = True) -> bool:
 
 
 _ZERO_SIZE_RE = re.compile(r"0+(?:\.0+)?(?:px|pt|em|rem|%)?$")
+_IMPORTANT_RE = re.compile(r"\s*!\s*important\s*$")
 
 
 def _style(node: _HTMLNode) -> dict[str, str]:
     declarations = (part.partition(":") for part in node.attr("style").lower().split(";"))
     # "display: none !important" still hides: drop the priority before comparing.
-    values = ((name, value.split("!")[0].strip()) for name, _, value in declarations)
+    values = ((name, _IMPORTANT_RE.sub("", value).strip()) for name, _, value in declarations)
     return {name.strip(): value for name, value in values if value}
 
 

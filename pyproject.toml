@@ -70,6 +70,7 @@ ollama = [
 server = [
   "fastapi>=0.125.0,<1.0.0",
   "pydantic>=2.13.4,<3.0.0",
+  "regex>=2024.11.6",
   "uvicorn[standard]>=0.38.0,<1.0.0",
 ]
 mcp = [

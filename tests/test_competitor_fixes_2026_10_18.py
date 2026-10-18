@@ -4,8 +4,8 @@
   rules were ignored.
 - ``<div hidden>`` (no value) and ``display:none !important`` text reached
   the model.
-- Nested-quantifier patterns (``(a+)+``) in ``include``/``exclude`` froze the
-  server (``re`` holds the GIL while it backtracks).
+- A backtracking pattern (``(a+)+``) in ``include``/``exclude`` froze the
+  server (``re`` holds the GIL while it backtracks); matches now time out.
 - API config overrides could hold a worker for an hour (waits) or a day
   (retry sleeps).
 - Proxy credentials could appear in error messages.
@@ -15,12 +15,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
 from agentcrawl.config import CrawlConfig
 from agentcrawl.errors import sanitize_error_message
-from agentcrawl.html_tools import validate_url_patterns
+from agentcrawl.html_tools import url_allowed, validate_url_patterns
 from agentcrawl.parsing import html_to_markdown
 from agentcrawl.server import app, server
 from agentcrawl.storage import SQLiteStore
@@ -76,18 +78,24 @@ def test_hidden_until_found_is_content() -> None:
     assert "Collapsed answer text" in markdown
 
 
-@pytest.mark.parametrize("pattern", [r"(a+)+$", r"(.*)*", r"(?:ab*){2,}", r"(?=(x+)+)"])
-def test_nested_repeat_patterns_are_refused(pattern: str) -> None:
-    with pytest.raises(ValueError, match="repeats a group"):
-        validate_url_patterns([pattern])
+def test_backtracking_pattern_times_out_instead_of_freezing() -> None:
+    started = time.monotonic()
+    allowed = url_allowed("https://x.com/" + "a" * 40 + "!", [r"^https://x.com/(a+)+$"], [])
+    assert not allowed
+    assert time.monotonic() - started < 2
 
 
 @pytest.mark.parametrize(
     "pattern",
-    [r"^https?://[^/]+/blog/.*$", r"/docs/(v\d+)/", r"(foo|bar)+", r"^/a(?:[?#].*)?$"],
+    [r"^https?://[^/]+/blog/.*$", r"(\w+\.)+com", r"/docs/(v\d+/)*", r"(?:a{2,3}){2,}x"],
 )
 def test_ordinary_patterns_still_pass(pattern: str) -> None:
     assert validate_url_patterns([pattern]) == [pattern]
+
+
+def test_patterns_that_only_fail_to_compile_are_refused() -> None:
+    with pytest.raises(ValueError, match="Invalid regular expression"):
+        validate_url_patterns([r"(?<=a+)x"])
 
 
 @pytest.fixture
@@ -106,7 +114,10 @@ def client(tmp_path: Path) -> TestClient:
         {"browser_wait_ms": 600_000},
         {"http_retry_delay": 86_400},
         {"crawl_retry_max_delay": 86_400.0},
-        {"crawl_include": [r"(a+)+$"]},
+        {"page_budget_ms": 0},
+        {"http_retries": 20},
+        {"crawl_url_retries": 20},
+        {"crawl_include": [r"(?<=a+)x"]},
     ],
 )
 def test_api_refuses_overrides_that_hold_a_worker(client: TestClient, override: dict) -> None:
@@ -123,3 +134,10 @@ def test_error_messages_hide_url_credentials() -> None:
     message = sanitize_error_message("ProxyError: http://user:p%40ss@proxy.example:8080 refused")
     assert "p%40ss" not in message and "user:" not in message
     assert "http://***@proxy.example:8080" in message
+    assert "ss@" not in sanitize_error_message("http://user:p@ss@proxy:8080 refused")
+    assert "https://host?next=a@b" in sanitize_error_message("failed https://host?next=a@b")
+
+
+def test_important_only_strips_the_priority() -> None:
+    markdown = _markdown('<p style="background:url(a!b.png)">Visible with bang</p>')
+    assert "Visible with bang" in markdown
