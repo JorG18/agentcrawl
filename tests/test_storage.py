@@ -286,3 +286,55 @@ def test_failure_retry_keeps_the_callers_request_and_makes_room(tmp_path) -> Non
 
     assert store.get_job(job)["request"] == {"url": "https://e.com/", "max_pages": 1}
     assert store.get_job_checkpoint(job)["min_pages"] == 2
+
+
+def test_the_running_worker_takes_over_the_lease(tmp_path) -> None:
+    # A peer may have re-leased the job while it waited in our queue; the
+    # worker that claimed it is the only one running it, so it owns the lease.
+    store = SQLiteStore(tmp_path / "renew.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    store.acquire_schedule_lease(job, "pid-b", lease_seconds=300)
+    assert not store.renew_job_lease(job, "pid-a", 60)  # still queued
+    assert store.claim_job(job)
+    assert store.renew_job_lease(job, "pid-a", 60)
+    store.release_schedule_lease(job, "pid-b")  # the peer's stale entry: no effect now
+    assert store.prepare_restart_recovery() == 0  # fresh heartbeat: alive
+
+
+def test_resaving_a_document_keeps_its_place_in_the_job(tmp_path) -> None:
+    # insert or replace reset created_at, so a re-saved page moved to the end
+    # and paging a resumed job skipped or repeated documents.
+    import time
+
+    store = SQLiteStore(tmp_path / "order.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    for url in ("https://example.com/a", "https://example.com/b"):
+        store.update_job(job, "running", result={"documents": [{"url": url, "v": 1}]})
+        time.sleep(0.01)
+    store.update_job(
+        job, "running", result={"documents": [{"url": "https://example.com/a", "v": 2}]}
+    )
+
+    docs = store.get_job_documents(job)
+    assert [(d["url"][-1], d["v"]) for d in docs] == [("a", 2), ("b", 1)]
+
+
+def test_documents_saved_together_keep_their_crawl_order(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "together.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    urls = ["https://example.com/z", "https://example.com/a", "https://example.com/m"]
+    store.update_job(job, "completed", result={"documents": [{"url": u} for u in urls]})
+
+    assert [d["url"] for d in store.get_job_documents(job)] == urls
+
+
+def test_recovery_leaves_a_live_cancelling_job_to_its_worker(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "cancelling.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.acquire_schedule_lease(job, "pid-alive", lease_seconds=300)
+    assert store.claim_job(job)
+    assert store.request_job_cancel(job)
+
+    store.prepare_restart_recovery()
+
+    assert store.get_job(job)["status"] == "cancelling"

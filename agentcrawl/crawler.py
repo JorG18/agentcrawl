@@ -218,7 +218,7 @@ class AgentCrawl:
         max_age: float,
         json_options: dict[str, Any] | None = None,
     ) -> ScrapeDocument | dict[str, Any]:
-        requested = formats or ["markdown"]
+        requested = check_formats(formats) or ["markdown"]
         from .browser_retry import attempt_browser_retry  # local import keeps scrape() cheap
 
         try:
@@ -546,6 +546,7 @@ class AgentCrawl:
         source_list = list(sources)
         if not source_list:
             return []
+        check_formats(formats)  # once, before any fetch, not one error per URL
         check_json_pages(formats, len(source_list), self.config)
         workers = max(1, min(max_workers or self.config.parallelism, len(source_list)))
         host_limits: dict[str, threading.BoundedSemaphore] = {}
@@ -1388,6 +1389,34 @@ def _remember_fetch(source: str, config: CrawlConfig, html: str, metadata: dict[
         _FETCH_CACHE[(source, repr(config))] = (time.monotonic(), html, dict(metadata))
         while len(_FETCH_CACHE) > _FETCH_CACHE_SIZE:
             _FETCH_CACHE.pop(next(iter(_FETCH_CACHE)))
+
+
+SUPPORTED_FORMATS = frozenset(
+    {
+        "markdown",
+        "text",
+        "html",
+        "links",
+        "metadata",
+        "screenshot",
+        "api",
+        "chunks",
+        "outline",
+        "summary",
+        "json",
+    }
+)
+
+
+def check_formats(formats: list[str] | None) -> list[str] | None:
+    """Raise ``ValueError`` naming any format that would be silently ignored."""
+    unknown = sorted(set(formats or ()) - SUPPORTED_FORMATS)
+    if unknown:
+        raise ValueError(
+            f"Unknown format {', '.join(map(repr, unknown))}; "
+            f"supported: {', '.join(sorted(SUPPORTED_FORMATS))}."
+        )
+    return formats
 
 
 def check_json_pages(formats: list[str] | None, pages: int, config: CrawlConfig) -> None:
