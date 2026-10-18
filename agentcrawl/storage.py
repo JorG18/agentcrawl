@@ -142,6 +142,9 @@ class SQLiteStore:
                         created_at real not null,
                         updated_at real not null
                     );
+                    -- Pages a job's documents in insertion order without a sort.
+                    create index if not exists idx_crawl_documents_job_created
+                        on crawl_documents(job_id, created_at, url);
                     create index if not exists idx_crawl_failures_job_status
                         on crawl_failures(job_id, status);
                     create index if not exists idx_crawl_failures_url
@@ -546,9 +549,9 @@ class SQLiteStore:
             for document in documents:
                 conn.execute(
                     """
-                    insert or replace into crawl_documents (
-                        job_id, url, document_json, created_at
-                    ) values (?, ?, ?, ?)
+                    insert into crawl_documents (job_id, url, document_json, created_at)
+                    values (?, ?, ?, ?)
+                    on conflict (job_id, url) do update set document_json = excluded.document_json
                     """,
                     (job_id, str(document["url"]), json.dumps(document), now),
                 )
@@ -702,9 +705,9 @@ class SQLiteStore:
                 document_url = str(document["url"])
                 conn.execute(
                     """
-                    insert or replace into crawl_documents (
-                        job_id, url, document_json, created_at
-                    ) values (?, ?, ?, ?)
+                    insert into crawl_documents (job_id, url, document_json, created_at)
+                    values (?, ?, ?, ?)
+                    on conflict (job_id, url) do update set document_json = excluded.document_json
                     """,
                     (job_id, document_url, json.dumps(document), now),
                 )

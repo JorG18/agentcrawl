@@ -255,3 +255,21 @@ def test_renew_job_lease_only_moves_the_owners_running_lease(tmp_path) -> None:
     assert not store.renew_job_lease(job, "pid-b", 60)  # not the owner
     assert store.renew_job_lease(job, "pid-a", 60)
     assert store.prepare_restart_recovery() == 0  # fresh heartbeat: alive
+
+
+def test_resaving_a_document_keeps_its_place_in_the_job(tmp_path) -> None:
+    # insert or replace reset created_at, so a re-saved page moved to the end
+    # and paging a resumed job skipped or repeated documents.
+    import time
+
+    store = SQLiteStore(tmp_path / "order.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    for url in ("https://example.com/a", "https://example.com/b"):
+        store.update_job(job, "running", result={"documents": [{"url": url, "v": 1}]})
+        time.sleep(0.01)
+    store.update_job(
+        job, "running", result={"documents": [{"url": "https://example.com/a", "v": 2}]}
+    )
+
+    docs = store.get_job_documents(job)
+    assert [(d["url"][-1], d["v"]) for d in docs] == [("a", 2), ("b", 1)]
