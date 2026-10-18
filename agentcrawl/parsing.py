@@ -76,6 +76,9 @@ class _HTMLNode:
                 return value
         return ""
 
+    def has_attr(self, name: str) -> bool:
+        return any(key.lower() == name for key, _ in self.attrs)
+
 
 # HTML lets these end tags be omitted (<li>a<li>b, <td>1<td>2, <p>x<div>):
 # a start tag closes the open element it implies, searching no further up
@@ -629,9 +632,12 @@ def _is_hidden(node: _HTMLNode, *, classes: bool = True) -> bool:
     visually_hidden = any(token in identity.replace("_", "-").split() for token in hidden_tokens)
     # A table header kept only for screen readers (GitHub Docs) still names the
     # columns; without it the Markdown table has no header row at all.
-    if node.tag in {"thead", "caption"} and visually_hidden and not node.attr("hidden"):
+    # <div hidden> has no value; hidden="until-found" is collapsed content the
+    # browser reveals on find-in-page, like the aria-hidden panels below.
+    hidden_attr = node.has_attr("hidden") and node.attr("hidden").lower() != "until-found"
+    if node.tag in {"thead", "caption"} and visually_hidden and not hidden_attr:
         return False
-    if node.attr("hidden"):
+    if hidden_attr:
         return True
     if node.attr("aria-hidden").lower() == "true":
         # Collapsed accordion and FAQ panels are aria-hidden until clicked;
@@ -655,7 +661,9 @@ _ZERO_SIZE_RE = re.compile(r"0+(?:\.0+)?(?:px|pt|em|rem|%)?$")
 
 def _style(node: _HTMLNode) -> dict[str, str]:
     declarations = (part.partition(":") for part in node.attr("style").lower().split(";"))
-    return {name.strip(): value.strip() for name, _, value in declarations if value.strip()}
+    # "display: none !important" still hides: drop the priority before comparing.
+    values = ((name, value.split("!")[0].strip()) for name, _, value in declarations)
+    return {name.strip(): value for name, value in values if value}
 
 
 def _legacy_strip_boilerplate(html: str) -> str:

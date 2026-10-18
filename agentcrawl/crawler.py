@@ -160,7 +160,8 @@ def _discovery_read(url: str, config: CrawlConfig) -> str:
         )
     if body[:2] == b"\x1f\x8b":  # sitemap.xml.gz served without Content-Encoding
         body = _decompress_body(body, "gzip", _DISCOVERY_MAX_BYTES, url=url)
-    return body.decode("utf-8", errors="replace")
+    # utf-8-sig: a leading BOM would glue itself to "User-agent" and void the first group.
+    return body.decode("utf-8-sig", errors="replace")
 
 
 class AgentCrawl:

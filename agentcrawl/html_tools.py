@@ -7,6 +7,11 @@ import re
 import urllib.parse
 from html.parser import HTMLParser
 
+try:
+    from re import _parser as _sre_parse  # Python 3.11+
+except ImportError:  # pragma: no cover - Python 3.10
+    import sre_parse as _sre_parse  # type: ignore[no-redef]
+
 
 class HTMLFactsParser(HTMLParser):
     def __init__(self, base_url: str):
@@ -277,10 +282,45 @@ def validate_url_patterns(patterns: list[str] | None) -> list[str] | None:
         if not isinstance(pattern, str):
             raise ValueError(f"Patterns must be strings, got {type(pattern).__name__}")
         try:
-            re.compile(pattern)
+            parsed = _sre_parse.parse(pattern)
         except re.error as exc:
             raise ValueError(f"Invalid regular expression {pattern!r}: {exc}") from exc
+        if _nested_repeat(parsed, inside_repeat=False):
+            # re holds the GIL while it backtracks: one (a+)+ froze the server.
+            raise ValueError(
+                f"Regular expression {pattern!r} repeats a group that already repeats "
+                "(like (a+)+); rewrite it without the nested repetition."
+            )
     return patterns
+
+
+_REPEATS = {_sre_parse.MAX_REPEAT, _sre_parse.MIN_REPEAT}
+
+
+def _nested_repeat(items, *, inside_repeat: bool) -> bool:
+    """True when an unbounded-ish repeat sits inside another repeat.
+
+    shortcut: catches the nested-quantifier ReDoS shape, not overlapping
+    alternations like (a|a)*; use an RE2-style engine if that ever matters.
+    """
+    for op, arg in items:
+        if op in _REPEATS:
+            _low, high, sub = arg
+            repeats = high > 1
+            if inside_repeat and repeats:
+                return True
+            if _nested_repeat(sub, inside_repeat=inside_repeat or repeats):
+                return True
+        elif op is _sre_parse.SUBPATTERN:
+            if _nested_repeat(arg[-1], inside_repeat=inside_repeat):
+                return True
+        elif op is _sre_parse.BRANCH:
+            if any(_nested_repeat(branch, inside_repeat=inside_repeat) for branch in arg[1]):
+                return True
+        elif op in {_sre_parse.ASSERT, _sre_parse.ASSERT_NOT}:
+            if _nested_repeat(arg[1], inside_repeat=inside_repeat):
+                return True
+    return False
 
 
 def _stable_query(query: str) -> str:
