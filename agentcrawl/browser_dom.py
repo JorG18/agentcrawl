@@ -121,6 +121,11 @@ def flatten_page(
     return report
 
 
+def _frame_refused(guard: Any, url: str) -> bool:
+    # Strict mode checked every hop before it was sent; nothing to redo there.
+    return bool(guard is not None and guard.enforcing and not guard.strict and guard.check(url))
+
+
 def _inline_child_frames(
     frame: Any,
     *,
@@ -144,7 +149,7 @@ def _inline_child_frames(
             if (
                 # Outside strict mode the frame's redirect hops went unchecked:
                 # never paste a frame that landed on a refused (private) URL.
-                (guard is not None and guard.enforcing and guard.check(src))
+                _frame_refused(guard, src)
                 or _AD_FRAME_RE.search(src)
                 or box is None
                 or box["width"] < MIN_IFRAME_SIDE_PX
@@ -166,6 +171,10 @@ def _inline_child_frames(
             if shadow_dom:
                 child.evaluate(_FLATTEN_SHADOW_JS, MAX_SHADOW_HOSTS)
             html = str(child.evaluate(_BODY_HTML_JS) or "")
+            # Checked again after the read: the frame may have navigated meanwhile.
+            if _frame_refused(guard, child.url or ""):
+                skipped += 1
+                continue
             if not html.strip() or len(html) > MAX_IFRAME_HTML_CHARS:
                 skipped += 1
                 continue

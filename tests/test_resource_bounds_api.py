@@ -137,3 +137,16 @@ def test_oversized_body_is_refused_before_auth(client: TestClient) -> None:
         headers={"content-type": "application/json"},
     )
     assert response.status_code == 413
+
+
+def test_chunked_body_over_the_cap_is_not_parsed(client: TestClient) -> None:
+    def chunks():
+        yield b'{"url": "https://example.com/", "pad": "'
+        for _ in range(12):
+            yield b"x" * 100_000
+        yield b'"}'
+
+    response = client.post(
+        "/v1/scrape", content=chunks(), headers={"content-type": "application/json"}
+    )
+    assert response.status_code == 400  # cut off mid-stream, never parsed

@@ -60,3 +60,11 @@ def test_ipv6_wrapping_a_public_ipv4_is_allowed() -> None:
     from agentcrawl.security import resolve_public_addresses
 
     assert resolve_public_addresses("64:ff9b::808:808", 80)
+
+
+@pytest.mark.parametrize("address", ["2002:a9fe:a9fe::1", "2002:7f00:1::", "64:ff9b:1::a9fe:a9fe"])
+def test_6to4_and_local_nat64_wrapping_private_space_are_refused(address) -> None:
+    from agentcrawl.security import resolve_public_addresses
+
+    with pytest.raises(FetchError):
+        resolve_public_addresses(address, 80)

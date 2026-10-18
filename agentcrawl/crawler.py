@@ -1153,6 +1153,7 @@ class AgentCrawl:
         pages at no token cost, and the ``data`` it extracted here.
         """
         from .css_extract import extract_with_schema, validate_css_schema
+        from .extraction import _unfenced
         from .llm import get_llm, invoke_llm
 
         llm = get_llm(self.config)
@@ -1161,7 +1162,9 @@ class AgentCrawl:
             return {"schema": None, "data": None, "errors": document["errors"]}
         html = document.get("html") or ""
         base_url = str((document.get("metadata") or {}).get("final_url") or source)
-        prompt = _SCHEMA_PROMPT.format(description=description, html=_html_for_prompt(html))
+        prompt = _SCHEMA_PROMPT.format(
+            description=description, html=_unfenced(_html_for_prompt(html))
+        )
         feedback = ""
         for attempt in range(1, max(1, max_attempts) + 1):
             reply = invoke_llm(llm, prompt + feedback)

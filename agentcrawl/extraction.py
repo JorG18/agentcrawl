@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .config import CrawlConfig
@@ -114,4 +115,11 @@ _UNTRUSTED_RULE = (
 
 
 def _join_chunks(chunks: list[str]) -> str:
-    return "\n\n".join(f"[chunk {index + 1}]\n{chunk}" for index, chunk in enumerate(chunks))
+    return "\n\n".join(
+        f"[chunk {index + 1}]\n{_unfenced(chunk)}" for index, chunk in enumerate(chunks)
+    )
+
+
+def _unfenced(text: str) -> str:
+    """Page text cannot close the fence it sits in."""
+    return re.sub(r"</\s*page_(text|html)", r"<\\/page_\1", text, flags=re.IGNORECASE)

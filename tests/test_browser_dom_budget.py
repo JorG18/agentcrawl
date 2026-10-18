@@ -55,6 +55,7 @@ def test_a_frame_that_landed_on_a_refused_url_is_not_inlined():
     # the frame's final URL is checked before its content joins the page.
     class Guard:
         enforcing = True
+        strict = False
 
         def check(self, url):
             return "private address" if "internal" in url else None
@@ -65,3 +66,24 @@ def test_a_frame_that_landed_on_a_refused_url_is_not_inlined():
     report = flatten_page(page, guard=Guard())
 
     assert report["iframes"] == 1 and report["iframes_skipped"] == 1
+
+
+def test_a_frame_that_navigates_to_a_refused_url_while_read_is_not_inlined():
+    class Guard:
+        enforcing = True
+        strict = False
+
+        def check(self, url):
+            return "private address" if "internal" in url else None
+
+    class MovingFrame(SlowFrame):
+        def evaluate(self, _js, _arg=None):
+            self.url = "http://internal.example/secret"  # navigates during the read
+            return "<p>secret</p>"
+
+    page = FakePage(frames=0)
+    page.main_frame.child_frames = [MovingFrame()]
+
+    report = flatten_page(page, guard=Guard())
+
+    assert report.get("iframes", 0) == 0 and report["iframes_skipped"] == 1

@@ -81,7 +81,8 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
 
 # Tighter than CrawlConfig's sanity ranges: one API key must not ask for a
 # million-page job or 1 GB pages (scrape_many reads 8 at a time).
-_OVERRIDE_CEILINGS = {"crawl_max_pages": 10_000, "max_response_bytes": 50_000_000}
+_MAX_API_PAGES = 10_000
+_OVERRIDE_CEILINGS = {"crawl_max_pages": _MAX_API_PAGES, "max_response_bytes": 50_000_000}
 
 
 # Ceiling on the per-domain bookkeeping the server keeps in memory. A crawl
@@ -171,7 +172,7 @@ class MapRequest(BaseModel):
     # Bounded like CrawlRequest.max_pages: an unbounded value let a caller ask
     # for every URL a sitemap can hold (up to the 100k discovery cap) in one
     # response body, and a negative one silently returned an empty map.
-    max_urls: int | None = Field(default=None, ge=1, le=10_000)
+    max_urls: int | None = Field(default=None, ge=1, le=_MAX_API_PAGES)
     include: list[str] | None = None
     exclude: list[str] | None = None
     config: dict[str, Any] = Field(default_factory=dict)
@@ -184,7 +185,7 @@ class MapRequest(BaseModel):
 
 class CrawlRequest(BaseModel):
     url: str = Field(min_length=1, max_length=8192)
-    max_pages: int | None = Field(default=None, ge=1, le=10_000)
+    max_pages: int | None = Field(default=None, ge=1, le=_MAX_API_PAGES)
     max_depth: int | None = Field(default=None, ge=0, le=100)
     include: list[str] | None = None
     exclude: list[str] | None = None
@@ -292,6 +293,9 @@ class AgentCrawlServer:
             1, int(os.getenv("AGENTCRAWL_SCRAPE_MANY_CONCURRENCY", "8"))
         )
         self.sync_crawl_max_pages = max(1, int(os.getenv("AGENTCRAWL_SYNC_CRAWL_MAX_PAGES", "25")))
+        self.max_request_bytes = max(
+            1_024, int(os.getenv("AGENTCRAWL_MAX_REQUEST_BYTES", "1000000"))
+        )
         self.cache_enabled = os.getenv("AGENTCRAWL_CACHE_ENABLED", "true").lower() in {
             "1",
             "true",
@@ -727,21 +731,49 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="AgentCrawl", version=__version__, lifespan=lifespan)
 
-# Bodies are parsed before authentication runs, so the size cap comes first.
-_MAX_REQUEST_BYTES = int(os.getenv("AGENTCRAWL_MAX_REQUEST_BYTES", "1000000"))
+
+class _BodyLimit:
+    """Bodies are parsed before authentication runs, so the size cap comes first.
+
+    Plain ASGI (no per-request task like ``BaseHTTPMiddleware``): a declared
+    Content-Length over the cap is refused outright, and a chunked body is cut
+    off once it streams past the cap.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        limit = server.max_request_bytes
+        length = dict(scope.get("headers") or []).get(b"content-length", b"")
+        if length.isdigit() and int(length) > limit:
+            await self._refuse(send, limit)
+            return
+        received = 0
+
+        async def capped_receive() -> Any:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    # The app sees a client disconnect and stops reading.
+                    return {"type": "http.disconnect"}
+            return message
+
+        await self.app(scope, capped_receive, send)
+
+    @staticmethod
+    async def _refuse(send: Any, limit: int) -> None:
+        await JSONResponse(
+            status_code=413, content={"detail": f"Request body over {limit} bytes."}
+        )({"type": "http"}, None, send)
 
 
-@app.middleware("http")
-async def _limit_request_body(request: Any, call_next: Any) -> Any:
-    # shortcut: checks Content-Length only; a chunked body without one is left
-    # to the reverse proxy (SECURITY.md), add a streaming cap if that is not enough.
-    length = request.headers.get("content-length", "")
-    if length.isdigit() and int(length) > _MAX_REQUEST_BYTES:
-        return JSONResponse(
-            status_code=413,
-            content={"detail": f"Request body over {_MAX_REQUEST_BYTES} bytes."},
-        )
-    return await call_next(request)
+app.add_middleware(_BodyLimit)
 
 
 @app.get("/health")
