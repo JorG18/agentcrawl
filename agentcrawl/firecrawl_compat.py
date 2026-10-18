@@ -75,10 +75,28 @@ def _refuse(reason: str) -> HTTPException:
 
 
 def _int(value: Any, name: str) -> int:
+    # int() would turn true into 1 and 2.9 into 2; those are refused instead.
+    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+        raise _refuse(f"{name} must be an integer")
     try:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise _refuse(f"{name} must be an integer") from exc
+
+
+def _url_patterns(value: Any) -> Any:
+    """Firecrawl matches paths ("^/blog/"); AgentCrawl searches the full URL.
+
+    An anchored path pattern is re-anchored after the scheme and host, so
+    ``^/blog/.*$`` keeps meaning "paths under /blog/". Unanchored ones already
+    match as a substring of the URL.
+    """
+    if not isinstance(value, list):
+        return value
+    return [
+        r"^https?://[^/]+" + p[1:] if isinstance(p, str) and p.startswith("^/") else p
+        for p in value
+    ]
 
 
 def _formats(raw: Any) -> list[str]:
@@ -268,8 +286,6 @@ async def map_site(request: Request, api_key: str | None = Depends(v1.server.req
             raise _refuse(f"option {key!r} is not supported by AgentCrawl")
     if body.get("sitemap") not in (None, "include"):
         raise _refuse(f"sitemap={body['sitemap']!r} is not supported by AgentCrawl")
-    if body.get("includeSubdomains"):
-        raise _refuse("includeSubdomains is not supported by AgentCrawl")
     try:
         map_request = v1.MapRequest(url=body.get("url") or "", max_urls=body.get("limit"))
     except ValueError as exc:
@@ -328,9 +344,9 @@ async def crawl(request: Request, api_key: str | None = Depends(v1.server.requir
         elif key == "maxDiscoveryDepth":
             fields["max_depth"] = _int(value, "maxDiscoveryDepth")
         elif key == "includePaths":
-            fields["include"] = value
+            fields["include"] = _url_patterns(value)
         elif key == "excludePaths":
-            fields["exclude"] = value
+            fields["exclude"] = _url_patterns(value)
         elif key == "prompt":
             fields["query"] = str(value)
         elif key == "scrapeOptions":

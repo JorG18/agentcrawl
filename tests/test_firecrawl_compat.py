@@ -273,7 +273,18 @@ def test_crawl_include_and_exclude_paths_are_regexes_passed_through(offline_v2) 
     assert response.status_code == 200
     request = server.store.get_job(response.json()["id"])["request"]
     assert request["include"] == ["/blog/.*"]
-    assert request["exclude"] == ["^/old"]
+    # Firecrawl matches paths: an anchored path is re-anchored after the host.
+    assert request["exclude"] == [r"^https?://[^/]+/old"]
+
+
+def test_anchored_firecrawl_paths_match_urls() -> None:
+    import re
+
+    from agentcrawl.firecrawl_compat import _url_patterns
+
+    (pattern,) = _url_patterns(["^/blog/.*$"])
+    assert re.search(pattern, "https://site.com/blog/x")
+    assert not re.search(pattern, "https://site.com/news/blog/x")
 
 
 @pytest.mark.parametrize(
@@ -287,6 +298,8 @@ def test_crawl_include_and_exclude_paths_are_regexes_passed_through(offline_v2) 
         ("/v2/scrape", {"actions": [{"type": "wait", "milliseconds": "z"}]}),
         ("/v2/crawl", {"limit": "ten"}),
         ("/v2/crawl", {"maxDiscoveryDepth": "deep"}),
+        ("/v2/scrape", {"timeout": True}),
+        ("/v2/crawl", {"limit": 2.9}),
     ],
 )
 def test_bad_numeric_options_are_a_400_not_a_500(offline_v2, path, body) -> None:
@@ -304,7 +317,6 @@ def test_bad_numeric_options_are_a_400_not_a_500(offline_v2, path, body) -> None
         ("/v2/crawl", {"scrapeOptions": {"formats": ["screenshot"]}}),
         ("/v2/map", {"sitemap": "only"}),
         ("/v2/map", {"sitemap": "skip"}),
-        ("/v2/map", {"includeSubdomains": True}),
     ],
 )
 def test_options_the_engine_cannot_honour_are_refused_not_dropped(offline_v2, path, body) -> None:

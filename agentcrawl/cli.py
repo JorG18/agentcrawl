@@ -26,6 +26,10 @@ from .serializers import to_jsonable
 from .storage import SQLiteStore
 
 
+# json needs a schema or prompt the CLI cannot pass; use the API or library.
+_CLI_FORMATS = sorted(SUPPORTED_FORMATS - {"json"})
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agentcrawl")
     parser.add_argument(
@@ -87,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     scrape = sub.add_parser("scrape", parents=[engine])
     scrape.add_argument("url")
     scrape.add_argument(
-        "--format", action="append", dest="formats", default=None, choices=sorted(SUPPORTED_FORMATS)
+        "--format", action="append", dest="formats", default=None, choices=_CLI_FORMATS
     )
     scrape.add_argument("--no-cache", action="store_true")
     scrape.add_argument("--cache-ttl", type=int, default=None)
@@ -115,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         "--file", help="Read URLs from a file, one per line ('-' for stdin); '#' starts a comment."
     )
     scrape_many.add_argument(
-        "--format", action="append", dest="formats", default=None, choices=sorted(SUPPORTED_FORMATS)
+        "--format", action="append", dest="formats", default=None, choices=_CLI_FORMATS
     )
     scrape_many.add_argument("--no-cache", action="store_true")
     scrape_many.add_argument("--full-page", action="store_true")
@@ -131,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("--no-scrape", action="store_true", help="Titles, URLs and snippets only.")
     search.add_argument("--full-page", action="store_true")
     search.add_argument(
-        "--format", action="append", dest="formats", default=None, choices=sorted(SUPPORTED_FORMATS)
+        "--format", action="append", dest="formats", default=None, choices=_CLI_FORMATS
     )
 
     extract_css = sub.add_parser(
@@ -770,9 +774,11 @@ def _restore(backup_db: str, db_path: str, *, force: bool = False) -> dict[str, 
     if integrity != "ok":
         raise SystemExit(f"Backup integrity check failed: {integrity}")
     target.parent.mkdir(parents=True, exist_ok=True)
-    for suffix in ("-wal", "-shm"):  # a stale journal would replay over the restored file
-        Path(f"{target}{suffix}").unlink(missing_ok=True)
-    shutil.copyfile(source, target)
+    # SQLite's backup API writes through the target's own journal: a stale
+    # -wal or -journal left by a crash is applied first and then overwritten,
+    # instead of replaying over a file copied behind SQLite's back.
+    with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
+        src.backup(dst)
     os.chmod(target, 0o600)
     return {
         "ok": True,

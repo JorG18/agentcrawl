@@ -273,3 +273,24 @@ def test_resaving_a_document_keeps_its_place_in_the_job(tmp_path) -> None:
 
     docs = store.get_job_documents(job)
     assert [(d["url"][-1], d["v"]) for d in docs] == [("a", 2), ("b", 1)]
+
+
+def test_documents_saved_together_keep_their_crawl_order(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "together.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    urls = ["https://example.com/z", "https://example.com/a", "https://example.com/m"]
+    store.update_job(job, "completed", result={"documents": [{"url": u} for u in urls]})
+
+    assert [d["url"] for d in store.get_job_documents(job)] == urls
+
+
+def test_recovery_leaves_a_live_cancelling_job_to_its_worker(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "cancelling.db")
+    job = store.create_job("crawl", {"url": "https://example.com"})
+    assert store.acquire_schedule_lease(job, "pid-alive", lease_seconds=300)
+    assert store.claim_job(job)
+    assert store.request_job_cancel(job)
+
+    store.prepare_restart_recovery()
+
+    assert store.get_job(job)["status"] == "cancelling"

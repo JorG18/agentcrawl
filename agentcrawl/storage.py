@@ -142,9 +142,9 @@ class SQLiteStore:
                         created_at real not null,
                         updated_at real not null
                     );
-                    -- Pages a job's documents in insertion order without a sort.
-                    create index if not exists idx_crawl_documents_job_created
-                        on crawl_documents(job_id, created_at, url);
+                    -- Pages a job's documents in insertion (rowid) order without a sort.
+                    create index if not exists idx_crawl_documents_job
+                        on crawl_documents(job_id);
                     create index if not exists idx_crawl_failures_job_status
                         on crawl_failures(job_id, status);
                     create index if not exists idx_crawl_failures_url
@@ -241,38 +241,40 @@ class SQLiteStore:
         now = time.time()
         recovered = 0
         with self._connect() as conn:
+            # A live worker keeps its lease fresh; only a missing or expired
+            # lease means nobody will finish this job (safe to run periodically).
+            dead = """
+                (schedule_lock is null
+                 or schedule_lock_expires_at is null
+                 or schedule_lock_expires_at < ?)
+            """
             finalized_ids = [
                 str(row["id"])
                 for row in conn.execute(
-                    "select id from jobs where status = 'cancelling'"
+                    f"select id from jobs where status = 'cancelling' and {dead}", (now,)
                 ).fetchall()
             ]
             cursor = conn.execute(
-                """
+                f"""
                 update jobs
                 set status = 'queued',
                     error = 'Recovered interrupted job after server restart.',
                     updated_at = ?
-                where status = 'running'
-                  and (
-                      schedule_lock is null
-                      or schedule_lock_expires_at is null
-                      or schedule_lock_expires_at < ?
-                  )
+                where status = 'running' and {dead}
                 """,
                 (now, now),
             )
             recovered = int(cursor.rowcount or 0)
             conn.execute(
-                """
+                f"""
                 update jobs
                 set status = 'cancelled',
                     error = 'Cancellation completed during server restart.',
                     checkpoint_json = null,
                     updated_at = ?
-                where status = 'cancelling'
+                where status = 'cancelling' and {dead}
                 """,
-                (now,),
+                (now, now),
             )
             # Same cleanup contract as ``update_job(..., 'cancelled')``:
             # a job that ends cancelled loses its documents; recovered jobs
@@ -730,7 +732,7 @@ class SQLiteStore:
     ) -> list[dict[str, Any]]:
         query = """
             select document_json from crawl_documents
-            where job_id = ? order by created_at, url
+            where job_id = ? order by rowid
         """
         params: tuple[Any, ...] = (job_id,)
         if limit is not None:

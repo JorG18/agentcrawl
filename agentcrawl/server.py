@@ -11,7 +11,7 @@ import secrets
 import threading
 import time
 import urllib.parse
-from typing import Any, NamedTuple
+from typing import Annotated, Any, NamedTuple
 
 from . import __version__
 from .config import DEFAULT_USER_AGENT, CrawlConfig, _env_flag, local_files_root_from_env
@@ -30,7 +30,7 @@ import uuid
 try:
     from fastapi import Depends, FastAPI, Header, HTTPException, Query
     from fastapi.responses import HTMLResponse
-    from pydantic import BaseModel, Field, ConfigDict, field_validator
+    from pydantic import AfterValidator, BaseModel, Field, ConfigDict, field_validator
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError("Install agentcrawl[server] to run the API server.") from exc
 
@@ -109,9 +109,13 @@ class JsonOptions(BaseModel):
         return {"schema": self.schema_, "prompt": self.prompt}
 
 
+# Every request model that takes formats refuses the ones that would be ignored.
+Formats = Annotated[list[str], AfterValidator(check_formats)]
+
+
 class ScrapeRequest(BaseModel):
     url: str = Field(min_length=1, max_length=8192)
-    formats: list[str] = Field(default_factory=lambda: ["markdown", "links", "metadata"])
+    formats: Formats = Field(default_factory=lambda: ["markdown", "links", "metadata"])
     only_main_content: bool | None = None
     # Relevance query: when the page exceeds max_input_chars, keep the blocks
     # that best match it (BM25) instead of the head of the page.
@@ -126,18 +130,13 @@ class ScrapeRequest(BaseModel):
     cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
     config: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("formats")
-    @classmethod
-    def _known_formats(cls, value: list[str]) -> list[str]:
-        return check_formats(value) or value
-
 
 _MAX_BATCH_URLS = 100
 
 
 class ScrapeManyRequest(BaseModel):
     urls: list[str] = Field(min_length=1, max_length=_MAX_BATCH_URLS)
-    formats: list[str] = Field(default_factory=lambda: ["markdown", "links", "metadata"])
+    formats: Formats = Field(default_factory=lambda: ["markdown", "links", "metadata"])
     only_main_content: bool | None = None
     query: str | None = Field(default=None, max_length=1_000)
     json_options: JsonOptions | None = None
@@ -153,27 +152,17 @@ class ScrapeManyRequest(BaseModel):
                 raise ValueError("each url must be 1-8192 characters")
         return value
 
-    @field_validator("formats")
-    @classmethod
-    def _known_formats(cls, value: list[str]) -> list[str]:
-        return check_formats(value) or value
-
 
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=1_000)
     limit: int = Field(default=5, ge=1, le=20)
     # Read each result page too; the query doubles as its relevance query.
     scrape: bool = True
-    formats: list[str] = Field(default_factory=lambda: ["markdown", "metadata"])
+    formats: Formats = Field(default_factory=lambda: ["markdown", "metadata"])
     only_main_content: bool | None = None
     cache: bool = True
     cache_ttl_seconds: int | None = Field(default=None, ge=1, le=2_592_000)
     config: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("formats")
-    @classmethod
-    def _known_formats(cls, value: list[str]) -> list[str]:
-        return check_formats(value) or value
 
 
 class MapRequest(BaseModel):
@@ -723,11 +712,33 @@ class AgentCrawlServer:
 server = AgentCrawlServer()
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
+# How often a running server looks for jobs whose worker died (expired lease),
+# so a crash and quick restart cannot leave a job "running" forever.
+_RECOVERY_INTERVAL_S = 60.0
+
+
+def _recover_dead_jobs() -> None:
     server.store.prepare_restart_recovery()
     server.recover_jobs()
-    yield
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _recover_dead_jobs()
+    stop = threading.Event()
+
+    def sweep() -> None:
+        while not stop.wait(_RECOVERY_INTERVAL_S):
+            try:
+                _recover_dead_jobs()
+            except Exception:  # noqa: BLE001 - a failed sweep retries next interval
+                pass
+
+    threading.Thread(target=sweep, name="agentcrawl-recovery", daemon=True).start()
+    try:
+        yield
+    finally:
+        stop.set()
 
 
 app = FastAPI(title="AgentCrawl", version=__version__, lifespan=lifespan)
@@ -1234,11 +1245,6 @@ def clear_cache(
     }
 
 
-# A running job's lease is renewed on every progress tick; a restart treats a
-# lease older than this as a dead worker (a page fetch can legitimately be slow).
-_RUN_LEASE_SECONDS = 90.0
-
-
 def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) -> None:
     acquired = False
     reschedule_at: float | None = None
@@ -1255,7 +1261,9 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             return
 
         def heartbeat() -> None:
-            server.store.renew_job_lease(job_id, server.instance_id, _RUN_LEASE_SECONDS)
+            # Renewed on every progress tick; recovery treats a lease that
+            # ran out as a dead worker (one page never takes this long).
+            server.store.renew_job_lease(job_id, server.instance_id, server.schedule_lease_seconds)
 
         heartbeat()
 

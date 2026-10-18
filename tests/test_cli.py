@@ -226,7 +226,7 @@ def test_backup_and_restore_close_their_connections(tmp_path: Path, monkeypatch,
     restored = tmp_path / "restored.db"
     assert main(["restore", "--backup-db", backup_db, "--db", str(restored)]) == 0
 
-    assert len(opened) == 4
+    assert len(opened) == 6  # restore copies through SQLite's backup API (2 more)
     for conn in opened:
         try:
             conn.execute("select 1")
