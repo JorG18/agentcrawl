@@ -985,13 +985,12 @@ class SQLiteStore:
             retry_urls = [failure["url"] for failure in failures]
             request = json.loads(job["request_json"])
             root = normalize_url(str(request["url"]), str(request["url"]))
-            request["max_pages"] = max(
-                int(request.get("max_pages") or 0),
-                len(visited) + len(retry_urls),
-            )
             checkpoint = {
                 "version": 2,
                 "root": root,
+                # Room for every page already read plus the re-queued ones; the
+                # stored request keeps the caller's max_pages (idempotency).
+                "min_pages": len(visited) + len(retry_urls),
                 "queue": [
                     {"url": url, "depth": 0, "attempt": 0, "ready_at": 0.0} for url in retry_urls
                 ],

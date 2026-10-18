@@ -250,6 +250,31 @@ def test_crawl_accepts_the_sdk_defaults(tmp_path: Path, run_jobs_inline) -> None
     assert refused.status_code == 400
 
 
+def test_no_cache_copy_when_the_caller_says_not_to_keep_one() -> None:
+    from agentcrawl.firecrawl_compat import _scrape_fields
+
+    assert _scrape_fields({"storeInCache": False, "maxAge": 14400000})["cache"] is False
+    assert _scrape_fields({"zeroDataRetention": True})["cache"] is False
+    assert "cache" not in _scrape_fields({"storeInCache": True, "zeroDataRetention": False})
+
+
+def test_zero_data_retention_is_refused_where_results_are_stored(tmp_path: Path) -> None:
+    client, page = _client(tmp_path)
+    for path, body in (
+        ("/v2/crawl", {"url": page, "zeroDataRetention": True}),
+        ("/v2/batch/scrape", {"urls": [page], "zeroDataRetention": True}),
+        ("/v2/crawl", {"url": page, "scrapeOptions": {"zeroDataRetention": True}}),
+    ):
+        response = client.post(path, json=body)
+        assert response.status_code == 400, path
+    assert client.post("/v2/crawl", json={"url": page, "scrapeOptions": []}).status_code == 400
+    # Only a real true asks for zero retention; the string "false" does not.
+    assert (
+        client.post("/v2/crawl", json={"url": page, "zeroDataRetention": "false"}).status_code
+        != 400
+    )
+
+
 @pytest.fixture
 def offline_v2(tmp_path: Path, monkeypatch):
     """A /v2 client that never schedules a job or resolves a host."""

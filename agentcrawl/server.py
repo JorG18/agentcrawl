@@ -15,7 +15,13 @@ import urllib.parse
 from typing import Annotated, Any, NamedTuple
 
 from . import __version__
-from .config import DEFAULT_USER_AGENT, CrawlConfig, _env_flag, local_files_root_from_env
+from .config import (
+    DEFAULT_USER_AGENT,
+    CrawlConfig,
+    _env_flag,
+    config_from_env,
+    local_files_root_from_env,
+)
 from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import classify_error
 from .crawler import AgentCrawl, check_formats, check_json_pages
@@ -336,7 +342,11 @@ class AgentCrawlServer:
         self._domain_semaphores: dict[str, threading.BoundedSemaphore] = {}
         self._domain_active: dict[str, int] = {}
         self._recover_lock = threading.Lock()
+        # The shared mapping first (browser engine, CDP URL, page budget, airgap,
+        # audit, ...), so the server reads every documented variable; the
+        # server's own defaults below win where they differ (strict network).
         self.default_config = {
+            **config_from_env(),
             "fetcher": os.getenv("AGENTCRAWL_FETCHER", "http"),
             "browser_backend": os.getenv("AGENTCRAWL_BROWSER_BACKEND", "playwright"),
             "camofox_base_url": os.getenv("AGENTCRAWL_CAMOFOX_URL", "http://127.0.0.1:9377"),
@@ -370,6 +380,12 @@ class AgentCrawlServer:
             "crawl_retry_max_delay": float(os.getenv("AGENTCRAWL_CRAWL_RETRY_MAX_DELAY", "60.0")),
             "respect_robots_txt": _env_flag("AGENTCRAWL_RESPECT_ROBOTS_TXT", True),
         }
+        # cdp drives the operator's own Chrome (profile, home IP): a local-mode
+        # engine, never one every API key shares. The server ignores it as before.
+        if self.default_config.get("browser_engine") == "cdp":
+            del self.default_config["browser_engine"]
+        # A bad env value fails here, once and clearly, not as a 500 on every request.
+        CrawlConfig.from_dict(self.default_config)
 
     def require_key(self, authorization: str | None = Header(default=None)) -> str | None:
         if not self.auth_enabled:

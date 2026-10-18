@@ -806,6 +806,10 @@ class AgentCrawl:
         if resume_state:
             if resume_state.get("root") != root:
                 raise ValueError("Crawl checkpoint does not match the requested root URL.")
+            # A failure retry needs room for the pages it re-queues; the stored
+            # request (what the caller sent) stays as it was.
+            if resume_state.get("min_pages"):
+                page_limit = max(max_pages or 0, int(resume_state["min_pages"]))
             queue = deque(_decode_queue_item(item) for item in resume_state.get("queue", []))
             queued = {str(url) for url in resume_state.get("queued", [])}
             visited = {str(url) for url in resume_state.get("visited", [])}
@@ -885,6 +889,7 @@ class AgentCrawl:
                         "retry_attempts": retry_attempts,
                         "irrelevant_streak": irrelevant_streak,
                         "concurrency": concurrency,
+                        "min_pages": page_limit,
                     },
                     progress,
                     document,

@@ -7,10 +7,13 @@ request goes through the ``/v1`` handlers, so authentication, SSRF checks,
 cache, politeness, rate limits and usage are the same, and nothing is sent to
 Firecrawl.
 
-Options AgentCrawl cannot honour are refused with ``400`` and the reason,
-never silently dropped. Two are accepted and deliberately not honoured:
-``skipTlsVerification`` (certificates are always verified) and ``mobile:
-false``.
+Options AgentCrawl cannot honour are refused with ``400`` and the reason.
+Some are accepted without effect (``_IGNORED``: ``origin``, ``integration``,
+``removeBase64Images``, ``blockAds``, ``fastMode``, ``parsers``,
+``skipTlsVerification`` -- certificates are always verified -- and ``mobile:
+false``). ``storeInCache: false`` and ``zeroDataRetention: true`` turn the
+cache off for that scrape; ``zeroDataRetention`` is refused on crawl and
+batch, whose results are stored as a job.
 """
 
 from __future__ import annotations
@@ -72,6 +75,14 @@ _JOB_STATUS = {
 
 def _refuse(reason: str) -> HTTPException:
     return HTTPException(status_code=400, detail=reason)
+
+
+def _refuse_zero_retention(body: dict[str, Any]) -> None:
+    """Crawl and batch results are kept as a job until fetched or deleted."""
+    options = body.get("scrapeOptions")
+    nested = options.get("zeroDataRetention") if isinstance(options, dict) else None
+    if body.get("zeroDataRetention") is True or nested is True:
+        raise _refuse("zeroDataRetention is supported on /v2/scrape and /v2/search only")
 
 
 def _int(value: Any, name: str) -> int:
@@ -167,6 +178,8 @@ def _actions(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _scrape_fields(body: dict[str, Any], *, skip: set[str] = frozenset()) -> dict[str, Any]:
     """Firecrawl scrape options -> keyword arguments of the v1 request models."""
+    if not isinstance(body, dict):
+        raise _refuse("scrape options must be a JSON object")
     config: dict[str, Any] = {}
     fields: dict[str, Any] = {"formats": _formats(body.get("formats"))}
     if "json" in fields["formats"]:
@@ -198,6 +211,8 @@ def _scrape_fields(body: dict[str, Any], *, skip: set[str] = frozenset()) -> dic
                 raise _refuse("mobile emulation is not supported by AgentCrawl")
         else:
             raise _refuse(f"option {key!r} is not supported by AgentCrawl")
+    if body.get("storeInCache") is False or body.get("zeroDataRetention") is True:
+        fields["cache"] = False  # no cached copy of a page the caller said not to keep
     if "screenshot" in fields["formats"]:
         config["fetcher"] = "playwright"
     if config:
@@ -318,6 +333,8 @@ async def search(
     options = body.get("scrapeOptions")
     fields = _scrape_fields(options) if options else {}
     fields.pop("config", None)
+    if body.get("zeroDataRetention") is True or body.get("storeInCache") is False:
+        fields["cache"] = False  # no cached copy of the result pages
     if fields.pop("json_options", None):
         raise _refuse("the json format is for scrape and batch scrape, not search")
     try:
@@ -342,6 +359,7 @@ async def search(
 @router.post("/crawl")
 async def crawl(request: Request, api_key: str | None = Depends(v1.server.require_key)) -> Any:
     body = await _body(request)
+    _refuse_zero_retention(body)
     fields: dict[str, Any] = {}
     for key, value in body.items():
         if key in {"url", *_IGNORED} or value is None:
@@ -386,6 +404,7 @@ async def batch_scrape(
     request: Request, api_key: str | None = Depends(v1.server.require_key)
 ) -> Any:
     body = await _body(request)
+    _refuse_zero_retention(body)
     urls = [str(url) for url in body.get("urls") or []]
     if not urls or len(urls) > v1._MAX_BATCH_URLS:
         raise _refuse(f"urls must hold 1 to {v1._MAX_BATCH_URLS} URLs")
