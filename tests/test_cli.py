@@ -34,6 +34,16 @@ def test_doctor_reports_installation(capsys, monkeypatch) -> None:
     assert "api_key_configured" in payload["summary"]
 
 
+def test_doctor_exits_nonzero_when_a_check_fails(capsys, monkeypatch) -> None:
+    monkeypatch.delenv("AGENTCRAWL_BASE_URL", raising=False)
+    monkeypatch.setattr(
+        "agentcrawl.cli._check_local_scrape", lambda: {"ok": False, "detail": "broken"}
+    )
+
+    assert main(["doctor"]) == 1
+    assert json.loads(capsys.readouterr().out)["summary"]["ok"] is False
+
+
 def test_cli_version_flag_prints_package_version(capsys) -> None:
     try:
         main(["--version"])

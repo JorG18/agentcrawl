@@ -297,7 +297,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         report = _doctor_clients(args.client) if args.client else _doctor()
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 0
+        if args.client:
+            # "missing" is normal under ``--client all`` (not every client is installed).
+            bad = {"stale", "unreadable"} | ({"missing"} if args.client != "all" else set())
+            return int(any(entry["state"] in bad for entry in report["clients"]))
+        return 0 if report["summary"]["ok"] else 1
     if args.command == "setup":
         return _setup(args)
     if args.command in {"login", "sessions", "logout"}:
