@@ -30,7 +30,7 @@ import uuid
 
 try:
     from fastapi import Depends, FastAPI, Header, HTTPException, Query
-    from fastapi.responses import HTMLResponse
+    from fastapi.responses import HTMLResponse, JSONResponse
     from pydantic import AfterValidator, BaseModel, Field, ConfigDict, field_validator
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError("Install agentcrawl[server] to run the API server.") from exc
@@ -78,6 +78,12 @@ _ALLOWED_CONFIG_OVERRIDES = frozenset(
         "respect_robots_txt",
     }
 )
+
+
+# Tighter than CrawlConfig's sanity ranges: one API key must not ask for a
+# million-page job or 1 GB pages (scrape_many reads 8 at a time).
+_MAX_API_PAGES = 10_000
+_OVERRIDE_CEILINGS = {"crawl_max_pages": _MAX_API_PAGES, "max_response_bytes": 50_000_000}
 
 
 # Ceiling on the per-domain bookkeeping the server keeps in memory. A crawl
@@ -171,7 +177,7 @@ class MapRequest(BaseModel):
     # Bounded like CrawlRequest.max_pages: an unbounded value let a caller ask
     # for every URL a sitemap can hold (up to the 100k discovery cap) in one
     # response body, and a negative one silently returned an empty map.
-    max_urls: int | None = Field(default=None, ge=1, le=10_000)
+    max_urls: int | None = Field(default=None, ge=1, le=_MAX_API_PAGES)
     include: list[str] | None = None
     exclude: list[str] | None = None
     config: dict[str, Any] = Field(default_factory=dict)
@@ -184,7 +190,7 @@ class MapRequest(BaseModel):
 
 class CrawlRequest(BaseModel):
     url: str = Field(min_length=1, max_length=8192)
-    max_pages: int | None = Field(default=None, ge=1, le=10_000)
+    max_pages: int | None = Field(default=None, ge=1, le=_MAX_API_PAGES)
     max_depth: int | None = Field(default=None, ge=0, le=100)
     include: list[str] | None = None
     exclude: list[str] | None = None
@@ -292,6 +298,9 @@ class AgentCrawlServer:
             1, int(os.getenv("AGENTCRAWL_SCRAPE_MANY_CONCURRENCY", "8"))
         )
         self.sync_crawl_max_pages = max(1, int(os.getenv("AGENTCRAWL_SYNC_CRAWL_MAX_PAGES", "25")))
+        self.max_request_bytes = max(
+            1_024, int(os.getenv("AGENTCRAWL_MAX_REQUEST_BYTES", "1000000"))
+        )
         self.cache_enabled = os.getenv("AGENTCRAWL_CACHE_ENABLED", "true").lower() in {
             "1",
             "true",
@@ -500,6 +509,11 @@ class AgentCrawlServer:
             CrawlConfig.from_dict(override)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        for key, ceiling in _OVERRIDE_CEILINGS.items():
+            if key in override and int(override[key]) > ceiling:
+                raise HTTPException(
+                    status_code=400, detail=f"config.{key} must be at most {ceiling} over the API."
+                )
         # Camofox drives its own browser in another process, so neither the
         # SSRF guard nor the airgap can see the requests its page makes. A
         # caller may only route through it when the operator configured it.
@@ -743,6 +757,50 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AgentCrawl", version=__version__, lifespan=lifespan)
+
+
+class _BodyLimit:
+    """Bodies are parsed before authentication runs, so the size cap comes first.
+
+    Plain ASGI (no per-request task like ``BaseHTTPMiddleware``): a declared
+    Content-Length over the cap is refused outright, and a chunked body is cut
+    off once it streams past the cap.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        limit = server.max_request_bytes
+        length = dict(scope.get("headers") or []).get(b"content-length", b"")
+        if length.isdigit() and int(length) > limit:
+            await self._refuse(send, limit)
+            return
+        received = 0
+
+        async def capped_receive() -> Any:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    # The app sees a client disconnect and stops reading.
+                    return {"type": "http.disconnect"}
+            return message
+
+        await self.app(scope, capped_receive, send)
+
+    @staticmethod
+    async def _refuse(send: Any, limit: int) -> None:
+        await JSONResponse(
+            status_code=413, content={"detail": f"Request body over {limit} bytes."}
+        )({"type": "http"}, None, send)
+
+
+app.add_middleware(_BodyLimit)
 
 
 @app.get("/health")

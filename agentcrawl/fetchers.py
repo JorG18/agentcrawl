@@ -341,6 +341,13 @@ def _safe_urlopen(
     return opener.open(request, timeout=timeout)
 
 
+def _env_proxy_for(url: str) -> bool:
+    # Conservative: any HTTP(S) proxy counts, even if NO_PROXY covers ``url``,
+    # because a redirect can leave NO_PROXY (or switch scheme) mid-fetch.
+    proxies = urllib.request.getproxies()
+    return bool(proxies.get("http") or proxies.get("https"))
+
+
 def _browser_backend_available(backend: str) -> bool:
     """Whether ``backend`` could plausibly run on this machine right now.
 
@@ -447,9 +454,14 @@ def fetch_source(source: str, config: CrawlConfig) -> tuple[str, dict[str, Any]]
     # for those the key stays absent rather than claiming False.
     if is_probably_url(source):
         metadata["dns_pinned"] = (
-            metadata.get("fetcher") == "http" and not config.allow_private_network
+            metadata.get("fetcher") == "http"
+            and not config.allow_private_network
+            # An HTTP(S)_PROXY from the environment resolves the host itself.
+            and not _env_proxy_for(source)
         )
     if metadata.get("fetcher") in {"playwright", "camofox"}:
+        if capture.get("final_url"):
+            metadata["final_url"] = capture["final_url"]
         if isinstance(capture.get("status"), int):
             metadata["browser_status"] = capture["status"]
             if capture["status"] in (404, 410):
@@ -573,7 +585,12 @@ def _render_if_js_shell(
 
     if not config.browser_fallback:
         return content, metadata
-    if needs_javascript(content):
+    js_shell = needs_javascript(content)
+    backend = config.browser_backend
+    if not _browser_backend_available(backend):
+        # Nothing to render with: say why the page is empty, skip the extraction.
+        return content, ({**metadata, "javascript_required": True} if js_shell else metadata)
+    if js_shell:
         reason = "javascript_required"
         http_chars = 0
     else:
@@ -581,11 +598,6 @@ def _render_if_js_shell(
         if http_chars is None:
             return content, metadata
         reason = "thin_extraction"
-    backend = config.browser_backend
-    if not _browser_backend_available(backend):
-        if reason == "javascript_required":
-            return content, {**metadata, "javascript_required": True}
-        return content, metadata
     audit_kwargs, browser_trail = _browser_audit_kwargs(config)
     try:
         html = _fetch_browser(source, config, **audit_kwargs)
@@ -627,7 +639,8 @@ def _extracted_chars(html: str) -> int:
     from .parsing import _html_text_chars, extract_content_html
 
     try:
-        return _html_text_chars(extract_content_html(html))
+        # Same call shape as html_to_markdown, so its cached result is reused.
+        return _html_text_chars(extract_content_html(html, only_main_content=True))
     except Exception:  # pragma: no cover - the parser falls back on its own
         return 0
 
@@ -1113,6 +1126,17 @@ def _decompress_body(data: bytes, encoding: str, limit: int, *, url: str = "") -
         return data
     try:
         out = inflater.decompress(data, limit + 1)
+        # A gzip body may hold several members back to back; keep them all.
+        # Trailing padding or junk after the last member is ignored, as before.
+        while (
+            encoding != "deflate"
+            and inflater.eof
+            and inflater.unused_data[:2] == b"\x1f\x8b"
+            and len(out) <= limit
+        ):
+            rest = inflater.unused_data
+            inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            out += inflater.decompress(rest, limit + 1 - len(out))
     except zlib.error as exc:
         raise FetchError(
             f"Could not decode {encoding} response from {url}: {exc}", error_type="fetch_error"
@@ -1148,6 +1172,9 @@ def _decode_http_body(data: bytes, charset: str | None) -> str:
         match = _META_CHARSET_RE.search(data[:4096])
         if match:
             charset = match.group(1).decode("ascii", "ignore")
+            # A meta tag readable as ASCII cannot be UTF-16: browsers read it as UTF-8.
+            if charset.lower().startswith("utf-16"):
+                charset = "utf-8"
     if charset:
         if charset.lower() in {"iso-8859-1", "latin-1", "latin1", "us-ascii", "ascii"}:
             charset = "cp1252"  # what browsers actually use for these labels
@@ -1569,6 +1596,7 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
                 shadow_dom=config.browser_shadow_dom,
                 deadline=time.monotonic()
                 + _budget_ms(config.timeout_ms, _tail_reserve_ms(config)) / 1000,
+                guard=guard,
             )
             if capture is not None:
                 capture["dom"] = {k: v for k, v in dom_report.items() if v}
@@ -1576,6 +1604,20 @@ def _render_page(browser: Any, url: str, config: CrawlConfig, guard: Any) -> str
             # Bodies must be read before the context closes.
             capture["api"] = api_collector.finish(_budget_ms(config.timeout_ms))
         html = page.content()
+        refused = (
+            guard.check(page.url)
+            if guard.enforcing
+            and not guard.strict
+            and str(getattr(page, "url", "")).startswith("http")
+            else None
+        )
+        if refused:
+            # Outside strict mode the page may have navigated on its own since
+            # the check above; the HTML must come from an allowed address.
+            raise FetchError(refused, error_type="config_error")
+        final_url = str(getattr(page, "url", "") or "")
+        if capture is not None and final_url.startswith(("http://", "https://")):
+            capture["final_url"] = final_url  # where the HTML came from: the link base
         if config.browser_session:
             # Keep a rolling login alive: sites refresh cookies on use.
             from .sessions import save_storage_state

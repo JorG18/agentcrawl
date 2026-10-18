@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from agentcrawl.config import CrawlConfig
 from agentcrawl.parsing import html_to_markdown
 
@@ -52,3 +54,92 @@ def test_long_cookie_heavy_block_is_not_dropped_as_boilerplate() -> None:
     )
     markdown = _md(html)
     assert "Cookie policy walkthrough" in markdown
+
+
+def test_unclosed_list_items_do_not_nest() -> None:
+    # HTML lets </li> be omitted; 400 such items crashed with RecursionError.
+    items = "".join(f"<li>item number {i} with some words" for i in range(400))
+    md = _md(f"<html><body><main><h1>List</h1><ul>{items}</ul></main></body></html>")
+    assert "item number 0 " in md and "item number 399 " in md
+
+
+def test_unclosed_table_cells_and_paragraphs_do_not_nest() -> None:
+    from agentcrawl.parsing import _HTMLTreeParser
+
+    parser = _HTMLTreeParser()
+    parser.feed("<table><tr><td>A<td>1<tr><td>B<td>2</table><p>one<p>two<div>x</div>")
+    table, p1, p2 = parser.root.children[:3]
+    rows = [c for c in table.children if not isinstance(c, str)]
+    assert [len(r.children) for r in rows] == [2, 2]
+    assert (p1.tag, p1.children, p2.tag) == ("p", ["one"], "p")
+    assert [c.tag for c in parser.root.children[3:]] == ["div"]
+
+
+def test_very_deep_markup_falls_back_instead_of_crashing() -> None:
+    md = _md(
+        "<html><body>" + "<div>" * 1500 + "deep text here" + "</div>" * 1500 + "</body></html>"
+    )
+    assert "deep text here" in md
+
+
+def test_links_resolve_against_final_url_and_base_href(monkeypatch) -> None:
+    from agentcrawl import AgentCrawl
+
+    pages = {
+        "https://example.com/docs": (
+            '<html><body><main><a href="intro">Intro</a></main></body></html>',
+            "https://example.com/en/docs/",
+        ),
+        "https://example.com/v1/": (
+            '<html><head><base href="/v2/"></head><body><a href="page">P</a></body></html>',
+            "https://example.com/v1/",
+        ),
+    }
+    monkeypatch.setattr(
+        "agentcrawl.crawler.fetch_source",
+        lambda source, config: (
+            pages[source][0],
+            {"fetcher": "http", "final_url": pages[source][1]},
+        ),
+    )
+    crawler = AgentCrawl({"browser_fallback": False})
+
+    redirected = crawler.scrape("https://example.com/docs")
+    based = crawler.scrape("https://example.com/v1/")
+
+    assert redirected.links == ["https://example.com/en/docs/intro"]
+    assert redirected.metadata["source_url"] == "https://example.com/docs"  # what was asked for
+    assert based.links == ["https://example.com/v2/page"]
+    assert "https://example.com/v2/page" in based.markdown  # Markdown agrees with links
+
+
+def test_self_closing_hr_closes_an_open_paragraph() -> None:
+    from agentcrawl.parsing import _HTMLTreeParser
+
+    parser = _HTMLTreeParser()
+    parser.feed("<p>one<hr/>two<p>three")
+    assert [getattr(c, "tag", c) for c in parser.root.children] == ["p", "hr", "two", "p"]
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        ('<!-- <base href="https://evil.test/"> --><a href=x>', "https://a.test/p/"),
+        ('<script>var s="<base href=/cdn/>"</script>', "https://a.test/p/"),
+        ('<base data-href="/zzz/" href="/ok/">', "https://a.test/ok/"),
+        ('<base href="javascript:void(0)">', "https://a.test/p/"),
+        ('<head><base href="/v2/"></head>', "https://a.test/v2/"),
+    ],
+)
+def test_base_href_is_read_like_a_browser(html, expected) -> None:
+    from agentcrawl.html_tools import document_base_url
+
+    assert document_base_url(html, "https://a.test/p/") == expected
+
+
+def test_list_item_inside_a_table_cell_does_not_close_the_outer_item() -> None:
+    from agentcrawl.parsing import extract_content_html
+
+    html = "<ul><li>a<table><tr><td><li>b</td></tr></table>tail</li></ul>"
+    out = extract_content_html(html, only_main_content=False)
+    assert "<td><li>b</li></td>" in out.replace("\n", "")
