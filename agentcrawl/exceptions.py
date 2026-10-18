@@ -16,6 +16,9 @@ class FetchError(AgentCrawlError):
         error_type: str | None = None,
         status_code: int | None = None,
     ) -> None:
-        super().__init__(message)
+        # Imported here: errors.py imports this module.
+        from .errors import redact_credentials
+
+        super().__init__(redact_credentials(message))
         self.error_type = error_type
         self.status_code = status_code

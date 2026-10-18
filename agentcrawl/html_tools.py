@@ -8,14 +8,13 @@ import urllib.parse
 from html.parser import HTMLParser
 
 try:
-    # Matches with a timeout; installed with agentcrawl[server], where the
-    # patterns come from API callers.
-    import regex as _regex
-except ImportError:  # pragma: no cover - library use without the extra
+    import regex as _regex  # matches with a timeout (a core dependency)
+except ImportError:  # pragma: no cover - broken install
     _regex = None
 
 # re holds the GIL while it backtracks: one (a+)+ pattern froze the server.
 _MATCH_TIMEOUT_S = 0.05
+_MAX_PATTERNS = 20
 _PATTERN_ERRORS: tuple[type[Exception], ...] = (re.error, TimeoutError)
 if _regex is not None:
     _PATTERN_ERRORS += (_regex.error,)
@@ -261,12 +260,13 @@ def same_domain(url: str, root_url: str) -> bool:
 
 
 def url_allowed(url: str, include: list[str], exclude: list[str]) -> bool:
+    # Both fail closed: a pattern that times out neither admits nor un-excludes.
     if include and not any(_pattern_matches(pattern, url) for pattern in include):
         return False
-    return not any(_pattern_matches(pattern, url) for pattern in exclude)
+    return not any(_pattern_matches(pattern, url, on_timeout=True) for pattern in exclude)
 
 
-def _pattern_matches(pattern: str, url: str) -> bool:
+def _pattern_matches(pattern: str, url: str, *, on_timeout: bool = False) -> bool:
     """``re.search`` that a caller's typo can never turn into an exception.
 
     ``include`` / ``exclude`` are user input (the CLI flags and the API's
@@ -280,8 +280,9 @@ def _pattern_matches(pattern: str, url: str) -> bool:
         if _regex is not None:
             return _regex.search(pattern, url, timeout=_MATCH_TIMEOUT_S) is not None
         return re.search(pattern, url) is not None
+    except TimeoutError:
+        return on_timeout
     except _PATTERN_ERRORS:
-        # A pattern that backtracks past the timeout is as unusable as a typo.
         return False
 
 
@@ -289,12 +290,16 @@ def validate_url_patterns(patterns: list[str] | None) -> list[str] | None:
     """Raise ``ValueError`` for a pattern that cannot compile, naming it."""
     if patterns is None:
         return None
+    if len(patterns) > _MAX_PATTERNS:
+        # Each URL is matched against every pattern, each up to the timeout.
+        raise ValueError(f"At most {_MAX_PATTERNS} patterns are accepted, got {len(patterns)}")
     for pattern in patterns:
         if not isinstance(pattern, str):
             raise ValueError(f"Patterns must be strings, got {type(pattern).__name__}")
         try:
-            re.compile(pattern)
-        except re.error as exc:
+            # Validate with the engine that will match.
+            (_regex or re).compile(pattern)
+        except _PATTERN_ERRORS as exc:
             raise ValueError(f"Invalid regular expression {pattern!r}: {exc}") from exc
     return patterns
 

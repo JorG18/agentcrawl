@@ -15,13 +15,18 @@ _SPACE_RE = re.compile(r"\s+")
 _USERINFO_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s?#]+@")
 
 
+def redact_credentials(text: str) -> str:
+    """Hide the ``user:password@`` part of any URL in ``text`` (proxy errors)."""
+    return _USERINFO_RE.sub(r"\1***@", text)
+
+
 def sanitize_error_message(message: str | None) -> str:
     """One line, no control characters, at most ``ERROR_MESSAGE_MAX_CHARS``."""
     if not message:
         return ""
     text = _CONTROL_RE.sub(" ", str(message))
     text = _SPACE_RE.sub(" ", text).strip()
-    text = _USERINFO_RE.sub(r"\1***@", text)  # proxy or URL credentials
+    text = redact_credentials(text)
     if len(text) > ERROR_MESSAGE_MAX_CHARS:
         text = text[: ERROR_MESSAGE_MAX_CHARS - 1].rstrip() + "…"
     return text

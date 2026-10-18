@@ -80,9 +80,16 @@ def test_hidden_until_found_is_content() -> None:
 
 def test_backtracking_pattern_times_out_instead_of_freezing() -> None:
     started = time.monotonic()
-    allowed = url_allowed("https://x.com/" + "a" * 40 + "!", [r"^https://x.com/(a+)+$"], [])
-    assert not allowed
+    url = "https://x.com/" + "a" * 40 + "!"
+    assert not url_allowed(url, [r"(a|aa)+$"], [])
+    # An exclude that times out still excludes (fails closed).
+    assert not url_allowed(url, [], [r"(a|aa)+$"])
     assert time.monotonic() - started < 2
+
+
+def test_too_many_patterns_are_refused() -> None:
+    with pytest.raises(ValueError, match="At most 20"):
+        validate_url_patterns(["/a"] * 21)
 
 
 @pytest.mark.parametrize(
@@ -93,9 +100,12 @@ def test_ordinary_patterns_still_pass(pattern: str) -> None:
     assert validate_url_patterns([pattern]) == [pattern]
 
 
-def test_patterns_that_only_fail_to_compile_are_refused() -> None:
+def test_patterns_are_validated_by_the_matching_engine() -> None:
+    # Variable-width look-behind compiles in the engine that matches, so it works.
+    assert validate_url_patterns([r"(?<=/a+)x"]) == [r"(?<=/a+)x"]
+    assert url_allowed("https://h/aaax", [r"(?<=/a+)x"], [])
     with pytest.raises(ValueError, match="Invalid regular expression"):
-        validate_url_patterns([r"(?<=a+)x"])
+        validate_url_patterns([r"a{3,2}"])
 
 
 @pytest.fixture
@@ -117,7 +127,7 @@ def client(tmp_path: Path) -> TestClient:
         {"page_budget_ms": 0},
         {"http_retries": 20},
         {"crawl_url_retries": 20},
-        {"crawl_include": [r"(?<=a+)x"]},
+        {"crawl_include": [r"a{3,2}"]},
     ],
 )
 def test_api_refuses_overrides_that_hold_a_worker(client: TestClient, override: dict) -> None:
@@ -136,6 +146,12 @@ def test_error_messages_hide_url_credentials() -> None:
     assert "http://***@proxy.example:8080" in message
     assert "ss@" not in sanitize_error_message("http://user:p@ss@proxy:8080 refused")
     assert "https://host?next=a@b" in sanitize_error_message("failed https://host?next=a@b")
+
+
+def test_fetch_errors_redact_credentials() -> None:
+    from agentcrawl.exceptions import FetchError
+
+    assert "secret" not in str(FetchError("proxy http://me:secret@proxy:3128 refused"))
 
 
 def test_important_only_strips_the_priority() -> None:

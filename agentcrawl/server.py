@@ -97,8 +97,8 @@ _OVERRIDE_CEILINGS = {
     "page_budget_ms": 300_000,
     "browser_wait_ms": 60_000,
     "http_retry_delay": 60,
-    "crawl_retry_delay": 600,
-    "crawl_retry_max_delay": 600,
+    "crawl_retry_delay": 60,
+    "crawl_retry_max_delay": 60,
     "http_retries": 5,
     "crawl_url_retries": 5,
 }
@@ -538,7 +538,7 @@ class AgentCrawlServer:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         for key, ceiling in _OVERRIDE_CEILINGS.items():
-            if key in override and override[key] is not None and float(override[key]) > ceiling:
+            if key in override and override[key] > ceiling:
                 raise HTTPException(
                     status_code=400, detail=f"config.{key} must be at most {ceiling} over the API."
                 )
