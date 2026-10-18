@@ -6,6 +6,45 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ## Unreleased
 
+A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes on common HTML, jobs stuck after a restart, `/v2` options that failed or were dropped, and docs that promised more than the code did. Behaviour changes for callers are listed first.
+
+### Changed
+
+- **Unknown formats are refused** (library `ValueError`, API `422`, CLI usage error) instead of returning a document with nothing in it. `raw_html` was never supported (the TypeScript `Format` type listed it).
+- **API limits:** request bodies over `AGENTCRAWL_MAX_REQUEST_BYTES` (1 MB) are refused before authentication; `config` overrides are capped at `crawl_max_pages` 10,000 and `max_response_bytes` 50 MB.
+- **`agentcrawl doctor`** exits 1 when a check fails; `doctor --client` exits 1 for a stale client.
+- **The server reads every documented `AGENTCRAWL_*` engine variable** (it ignored `AGENTCRAWL_BROWSER_ENGINE`, `AGENTCRAWL_CDP_URL`, `AGENTCRAWL_PAGE_BUDGET_MS`, `AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AUDIT`), and local mode reads the Camofox, retry and crawl variables the server documented.
+- **`/v2`:** options the engine cannot honour are refused instead of dropped (`scrapeOptions.formats` other than markdown/html/links on crawl, `onlyMainContent: false` on crawl, `sitemap` other than `include` on map); `storeInCache: false` and `zeroDataRetention: true` skip the cache, and `zeroDataRetention` is refused on crawl and batch.
+- `metadata.dns_pinned` is `false` whenever an HTTP(S) proxy is configured in the environment.
+
+### Security
+
+- **SSRF read-back through iframes (default browser mode).** Outside `browser_strict_network` Chromium follows an iframe's redirects itself; a public frame redirecting to a loopback, private or metadata address had that page's HTML copied into the Markdown. Frames (and the page) whose URL the guard refuses when their HTML is read are no longer returned. The request itself still happens outside strict mode (SECURITY.md).
+- NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`), 6to4 and IPv4-compatible IPv6 addresses are checked by the IPv4 address they carry.
+- Page text and HTML sent to the LLM (extraction, schema generation, summaries) are fenced as untrusted data.
+
+### Fixed
+
+- **HTML with omitted end tags** (`<li>a<li>b`, `<td>1<td>2`, `<p>a<div>`) nested one level per item: a list of ~400 items raised `RecursionError` out of `scrape()` and aborted the crawl. Implied end tags are closed as browsers do, in the extractor and in CSS extraction (`ul > li`, `tr > td` now match); deeper markup falls back instead of crashing.
+- **Links** resolve against the final URL after redirects (also in the browser) and the page's `<base href>`, the same in `links`, the Markdown and CSS extraction; `metadata.source_url` stays the URL you asked for.
+- **A page rescued by the browser retry** takes the normal path: `section`, `max_tokens`, `json`, `summary` and `markdown_sha256` were skipped (and `diff()` raised).
+- **Sitemaps:** one broken child no longer drops the whole index (it is reported in `errors`); gzipped sitemaps are read.
+- `<meta charset="utf-16">` on an ASCII page is read as UTF-8; every member of a multi-member gzip body is kept.
+- **Crawl jobs:** the running worker renews its lease on a timer and a sweep every 60 s requeues jobs whose worker died, so a crash and quick restart no longer leaves a job `running` (or `cancelling`) forever; a duplicate queue entry can no longer drop the runner's lease. Re-saved documents keep their place, and documents saved together keep crawl order.
+- An idempotent `POST /v1/crawl` sent again after a failure retry no longer gets `409`.
+- `/v2/crawl` `includePaths`/`excludePaths` were rejected with `400` (regexes wrapped in `*`); anchored Firecrawl path patterns (`^/blog/`) now match. Bad or out-of-range numbers on `/v2` are `400`, not `500`; running `/v2` jobs page past 100 documents.
+- `agentcrawl restore --force` no longer replays a stale WAL over the restored file and replaces a corrupt target; `failures --export` writes the CSV in remote mode.
+- TypeScript SDK: `outline` format, `scroll_to_end` / `virtual_scroll` actions, `section` and `maxTokens` on `scrape()`.
+
+### Performance
+
+- The thin-page check and the Markdown conversion share one extraction (thin check + Markdown on a 128 KB page with scripts: 0.096 s → 0.059 s), and the check is skipped when no browser is installed.
+
+### Docs
+
+- `docs/BENCHMARKS.md`: the 0.6.0 web runs were deleted (they also carried results of a hosted tool whose terms do not allow publishing them); the committed summaries are the record. Added: the engine was fixed against pages of the same 400-site sample, so its coverage there is optimistic; the quality pages were filtered by a plain HTTP fetch; the drawn pages' signals were written by a separate AI agent.
+- SECURITY.md says what the default browser mode does and does not check. Examples use a page that reads over plain HTTP, install the extra they need, and list the tools the MCP server really exposes.
+
 ## 0.6.0 - 2026-10-16
 
 Register the MCP server in one command, see the JSON calls behind a page, read with your own Chrome, and know whether you got the whole page. Also the first public benchmark: on 400 random sites AgentCrawl is tied within noise with Firecrawl and Scrapling on pages read, and on quality it is on par with Firecrawl ([docs/BENCHMARKS.md](docs/BENCHMARKS.md)). Breaking: the deprecated graph classes and config keys are gone, and some errors changed type (see "Upgrading from 0.5").
