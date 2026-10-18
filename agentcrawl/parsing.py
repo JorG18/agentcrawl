@@ -84,10 +84,12 @@ _P_CLOSERS = frozenset(
     "address article aside blockquote details dialog div dl fieldset figcaption figure "
     "footer form h1 h2 h3 h4 h5 h6 header hr main menu nav ol p pre section table ul".split()
 )
+# An open <li> inside a table cell or object is out of reach (HTML "scope").
+_DEFAULT_SCOPE = frozenset({"table", "td", "th", "caption", "object", "template"})
 _IMPLIED_END = {
-    "li": ({"li"}, {"ul", "ol", "menu"}),
-    "dt": ({"dt", "dd"}, {"dl"}),
-    "dd": ({"dt", "dd"}, {"dl"}),
+    "li": ({"li"}, {"ul", "ol", "menu", *_DEFAULT_SCOPE}),
+    "dt": ({"dt", "dd"}, {"dl", *_DEFAULT_SCOPE}),
+    "dd": ({"dt", "dd"}, {"dl", *_DEFAULT_SCOPE}),
     "tr": ({"tr", "td", "th"}, {"table", "thead", "tbody", "tfoot"}),
     "td": ({"td", "th"}, {"tr", "table"}),
     "th": ({"td", "th"}, {"tr", "table"}),

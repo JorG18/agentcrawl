@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from agentcrawl.config import CrawlConfig
 from agentcrawl.parsing import html_to_markdown
 
@@ -117,3 +119,27 @@ def test_self_closing_hr_closes_an_open_paragraph() -> None:
     parser = _HTMLTreeParser()
     parser.feed("<p>one<hr/>two<p>three")
     assert [getattr(c, "tag", c) for c in parser.root.children] == ["p", "hr", "two", "p"]
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        ('<!-- <base href="https://evil.test/"> --><a href=x>', "https://a.test/p/"),
+        ('<script>var s="<base href=/cdn/>"</script>', "https://a.test/p/"),
+        ('<base data-href="/zzz/" href="/ok/">', "https://a.test/ok/"),
+        ('<base href="javascript:void(0)">', "https://a.test/p/"),
+        ('<head><base href="/v2/"></head>', "https://a.test/v2/"),
+    ],
+)
+def test_base_href_is_read_like_a_browser(html, expected) -> None:
+    from agentcrawl.html_tools import document_base_url
+
+    assert document_base_url(html, "https://a.test/p/") == expected
+
+
+def test_list_item_inside_a_table_cell_does_not_close_the_outer_item() -> None:
+    from agentcrawl.parsing import extract_content_html
+
+    html = "<ul><li>a<table><tr><td><li>b</td></tr></table>tail</li></ul>"
+    out = extract_content_html(html, only_main_content=False)
+    assert "<td><li>b</li></td>" in out.replace("\n", "")

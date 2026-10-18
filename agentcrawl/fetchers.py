@@ -575,21 +575,19 @@ def _render_if_js_shell(
 
     if not config.browser_fallback:
         return content, metadata
-    if needs_javascript(content):
+    js_shell = needs_javascript(content)
+    backend = config.browser_backend
+    if not _browser_backend_available(backend):
+        # Nothing to render with: say why the page is empty, skip the extraction.
+        return content, ({**metadata, "javascript_required": True} if js_shell else metadata)
+    if js_shell:
         reason = "javascript_required"
         http_chars = 0
-    elif not _browser_backend_available(config.browser_backend):
-        return content, metadata  # nothing to render with: skip the extraction below
     else:
         http_chars = _thin_extraction_chars(content, metadata)
         if http_chars is None:
             return content, metadata
         reason = "thin_extraction"
-    backend = config.browser_backend
-    if not _browser_backend_available(backend):
-        if reason == "javascript_required":
-            return content, {**metadata, "javascript_required": True}
-        return content, metadata
     audit_kwargs, browser_trail = _browser_audit_kwargs(config)
     try:
         html = _fetch_browser(source, config, **audit_kwargs)
