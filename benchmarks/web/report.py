@@ -296,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
         pages = [p for p in sample["pages"] if p.get("block", "random") == block]
         if pages:
             blocks[block] = analyse({**sample, "pages": pages}, by_tool)
+    if not blocks:
+        parser.error(f"{args.sample} has no pages in the random or hard block")
     report = blocks.get("random") or blocks["hard"]
     if "hard" in blocks and "random" in blocks:
         report = {**report, "hard_block": blocks["hard"]}
