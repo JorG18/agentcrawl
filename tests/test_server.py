@@ -95,7 +95,7 @@ def test_cancel_queued_job_and_expose_progress(tmp_path: Path) -> None:
     job = client.get(f"/v1/jobs/{job_id}").json()["data"]
 
     assert response.status_code == 200
-    assert job["status"] == "cancelling"
+    assert job["status"] == "cancelled"  # no run to wait for
     assert job["cancel_requested"] is True
     assert job["progress"] == {"visited": 0, "pending": 1, "failed": 0, "discovered": 1}
 
@@ -894,6 +894,13 @@ def _lock_columns(path: Path, job_id: str) -> tuple:
         ).fetchone()
 
 
+def _run_columns(path: Path, job_id: str) -> tuple:
+    with sqlite3.connect(path) as conn:
+        return conn.execute(
+            "select run_token, run_expires_at from jobs where id = ?", (job_id,)
+        ).fetchone()
+
+
 def test_run_crawl_job_heartbeats_then_releases_its_lease(tmp_path: Path, monkeypatch) -> None:
     """The running job's lease is renewed on a timer, not only between pages,
     and dropped on exit."""
@@ -905,9 +912,9 @@ def test_run_crawl_job_heartbeats_then_releases_its_lease(tmp_path: Path, monkey
     seen: list[float] = []
 
     def fake_run_crawl(payload, progress_callback, **kwargs):
-        first = _lock_columns(database, job_id)[1]
+        first = _run_columns(database, job_id)[1]
         time.sleep(1.5)  # one slow page, no progress tick
-        seen.append(_lock_columns(database, job_id)[1] - first)
+        seen.append(_run_columns(database, job_id)[1] - first)
         return {"documents": [], "metadata": {}}
 
     monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
@@ -916,6 +923,7 @@ def test_run_crawl_job_heartbeats_then_releases_its_lease(tmp_path: Path, monkey
     assert seen[0] > 0.5  # renewed while the page was still running
     assert server.store.get_job(job_id)["status"] == "completed"
     assert _lock_columns(database, job_id) == (None, None)
+    assert _run_columns(database, job_id) == (None, None)
 
 
 def _wait_for(condition, timeout: float = 10.0) -> None:
@@ -963,7 +971,7 @@ def test_a_stalled_worker_is_fenced_out_by_its_successor(tmp_path: Path) -> None
     assert store.acquire_schedule_lease(job, "proc-a", lease_seconds=300)
     assert store.claim_job(job, owner="run-a")
     with sqlite3.connect(database) as conn:  # A stalls, its lease runs out
-        conn.execute("update jobs set schedule_lock_expires_at = 0 where id = ?", (job,))
+        conn.execute("update jobs set run_expires_at = 0 where id = ?", (job,))
 
     assert store.prepare_restart_recovery() == 1
     # Requeued, no successor yet: the dead run's writes are already refused.
@@ -978,12 +986,12 @@ def test_a_stalled_worker_is_fenced_out_by_its_successor(tmp_path: Path) -> None
     assert not store.update_job_progress(job, {"visited": 9}, owner="run-a")
     assert not store.requeue_job(job, 0.0, owner="run-a")
     assert not store.update_job(job, "completed", result={"documents": []}, owner="run-a")
-    store.release_schedule_lease(job, "run-a")
+    store.release_run(job, "run-a")
 
     row = store.get_job(job)
     assert row["status"] == "running"
     assert store.get_job_checkpoint(job) is None
-    assert _lock_columns(database, job)[0] == "run-b"
+    assert _run_columns(database, job)[0] == "run-b"
     assert store.renew_job_lease(job, "run-b", 60)
     assert store.update_job(job, "completed", result={"documents": []}, owner="run-b")
 
@@ -996,7 +1004,7 @@ def test_a_cancelling_job_keeps_its_lease_and_its_run(tmp_path: Path) -> None:
 
     assert store.renew_job_lease(job, "run-a", 60)  # still alive, still its run
     # A duplicate queue entry that never claimed it must not finalize it.
-    assert not store.update_job(job, "cancelled", free_for="proc-b")
+    assert not store.update_job(job, "cancelled", unclaimed=True)
     assert store.get_job(job)["status"] == "cancelling"
     assert store.update_job(job, "cancelled", result={"documents": []}, owner="run-a")
 
@@ -1007,7 +1015,7 @@ def test_an_unclaimed_cancelled_job_is_finalized_by_its_queue_entry(tmp_path: Pa
     assert store.acquire_schedule_lease(job, "proc-a", lease_seconds=300)
     store.request_job_cancel(job)
 
-    assert store.update_job(job, "cancelled", free_for="proc-a")
+    assert store.update_job(job, "cancelled", unclaimed=True)
     assert store.get_job(job)["status"] == "cancelled"
 
 
@@ -1021,7 +1029,7 @@ def test_a_run_that_lost_its_job_stops_and_writes_nothing(tmp_path: Path, monkey
 
     def fake_run_crawl(payload, progress_callback, should_cancel, **kwargs):
         with sqlite3.connect(database) as conn:  # a successor claims the job
-            conn.execute("update jobs set schedule_lock = 'run-b' where id = ?", (job_id,))
+            conn.execute("update jobs set run_token = 'run-b' where id = ?", (job_id,))
         _wait_for(should_cancel)  # the next heartbeat notices
         seen.append(should_cancel())
         return {"documents": [], "metadata": {"cancelled": True}}
@@ -1031,7 +1039,7 @@ def test_a_run_that_lost_its_job_stops_and_writes_nothing(tmp_path: Path, monkey
 
     assert seen == [True]
     assert server.store.get_job(job_id)["status"] == "running"  # the successor's to finish
-    assert _lock_columns(database, job_id)[0] == "run-b"
+    assert _run_columns(database, job_id)[0] == "run-b"
 
 
 def test_a_refused_write_stops_the_run_at_once(tmp_path: Path, monkeypatch) -> None:
@@ -1042,7 +1050,7 @@ def test_a_refused_write_stops_the_run_at_once(tmp_path: Path, monkeypatch) -> N
 
     def fake_run_crawl(payload, progress_callback, should_cancel, **kwargs):
         with sqlite3.connect(database) as conn:  # a successor claims the job
-            conn.execute("update jobs set schedule_lock = 'run-b' where id = ?", (job_id,))
+            conn.execute("update jobs set run_token = 'run-b' where id = ?", (job_id,))
         progress_callback({"visited": 1})
         seen.append(should_cancel())  # no heartbeat tick needed
         return {"documents": [], "metadata": {"cancelled": True}}
@@ -1100,9 +1108,9 @@ def test_a_stale_entry_cannot_cancel_a_finished_job(tmp_path: Path) -> None:
     store.request_job_cancel(job)
     page = {"url": "https://example.com/a", "markdown": "A"}
     assert store.update_job(job, "cancelled", result={"documents": [page]}, owner="run-a")
-    store.release_schedule_lease(job, "run-a")
+    store.release_run(job, "run-a")
 
-    assert not store.update_job(job, "cancelled", free_for="proc-x")  # stale queue entry
+    assert not store.update_job(job, "cancelled", unclaimed=True)  # stale queue entry
     assert len(store.get_job_documents(job)) == 1
 
 
@@ -1115,6 +1123,7 @@ def test_a_finished_job_holds_no_lock(tmp_path: Path) -> None:
     assert store.update_job(job, "completed", result={"documents": []}, owner="run-a")
 
     assert _lock_columns(database, job) == (None, None)
+    assert _run_columns(database, job) == (None, None)
 
 
 def test_a_lock_without_expiry_does_not_block_a_queued_cancel(tmp_path: Path) -> None:
@@ -1123,9 +1132,9 @@ def test_a_lock_without_expiry_does_not_block_a_queued_cancel(tmp_path: Path) ->
     job = store.create_job("crawl", {"url": "https://example.com/"})
     store.request_job_cancel(job)
     with sqlite3.connect(database) as conn:  # recovery treats this as dead too
-        conn.execute("update jobs set schedule_lock = 'legacy' where id = ?", (job,))
+        conn.execute("update jobs set run_token = 'legacy' where id = ?", (job,))
 
-    assert store.update_job(job, "cancelled", free_for="proc-a")
+    assert store.update_job(job, "cancelled", unclaimed=True)
 
 
 def test_an_entry_that_cannot_claim_releases_its_scheduling_lease(
@@ -1178,4 +1187,39 @@ def test_a_duplicate_entry_that_loses_the_claim_keeps_the_runners_lease(
 
     _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
 
-    assert _lock_columns(database, job_id)[0] == runner
+    assert _run_columns(database, job_id)[0] == runner
+
+
+def test_a_cancel_of_a_job_waiting_for_a_delayed_retry_ends_at_once(tmp_path: Path) -> None:
+    server.store = SQLiteStore(tmp_path / "retry-cancel.db")
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+    server.store.requeue_job(job_id, time.time() + 600)
+    assert server.schedule_job(job_id, {"url": "https://example.com/"}, None, time.time() + 600)
+    try:
+        response = TestClient(app).delete(f"/v1/jobs/{job_id}")
+
+        assert response.status_code == 200
+        assert server.store.get_job(job_id)["status"] == "cancelled"
+    finally:
+        server._job_threads[job_id].cancel()
+        server._forget_entry(job_id)
+
+
+def test_a_run_that_requeues_the_job_releases_its_run_token(tmp_path: Path, monkeypatch) -> None:
+    database = tmp_path / "requeue-release.db"
+    server.store = SQLiteStore(database)
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+    retry_at = time.time() + 600
+
+    def fake_run_crawl(payload, progress_callback, **kwargs):
+        return {"documents": [], "metadata": {"retry_scheduled": True, "next_retry_at": retry_at}}
+
+    monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
+    _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
+    try:
+        assert server.store.get_job(job_id)["status"] == "queued"
+        assert _run_columns(database, job_id) == (None, None)
+        assert _lock_columns(database, job_id)[0] == server.instance_id  # its retry timer
+    finally:
+        server._job_threads[job_id].cancel()
+        server._forget_entry(job_id)

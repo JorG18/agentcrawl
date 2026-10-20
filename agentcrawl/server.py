@@ -1177,6 +1177,8 @@ def cancel_job(
             status_code=409,
             detail=f"Job cannot be cancelled from status {job['status']}.",
         )
+    # No run to notice it (e.g. a delayed retry waiting on its timer): end it now.
+    _finish_unclaimed_cancel(job_id)
     server.store.record_usage(scope.key_id, "/v1/jobs.cancel")
     return {"success": True, "data": {"job_id": job_id, "status": "cancelling"}}
 
@@ -1476,8 +1478,8 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
     finally:
         heartbeat_stop.set()
         try:
-            if claimed:  # a duplicate entry that lost the claim must not drop the runner's lease
-                server.store.release_schedule_lease(job_id, run)
+            if claimed:  # a duplicate entry that lost the claim must not drop the runner's token
+                server.store.release_run(job_id, run)
         except Exception:  # noqa: BLE001 - the lease expires on its own; the slot must not leak
             logging.getLogger(__name__).exception("could not release the lease of %s", job_id)
         if acquired:
@@ -1494,7 +1496,7 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
 def _finish_unclaimed_cancel(job_id: str) -> None:
     """A queue entry that never claimed the job finishes its cancel, unless a
     run (here or on a peer) is executing it: that run finishes it instead."""
-    if not server.store.update_job(job_id, "cancelled", free_for=server.instance_id):
+    if not server.store.update_job(job_id, "cancelled", unclaimed=True):
         logging.getLogger(__name__).info(
             "cancel of job %s left to the run holding it (or the recovery sweep)", job_id
         )

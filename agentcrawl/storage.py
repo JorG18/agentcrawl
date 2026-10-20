@@ -199,6 +199,21 @@ class SQLiteStore:
                     conn.execute("alter table jobs add column schedule_lock text")
                 if "schedule_lock_expires_at" not in columns:
                     conn.execute("alter table jobs add column schedule_lock_expires_at real")
+                if "run_expires_at" not in columns:
+                    conn.execute("alter table jobs add column run_expires_at real")
+                if "run_token" not in columns:
+                    conn.execute("alter table jobs add column run_token text")
+                    # One lock used to mean both the scheduling lease and the
+                    # run token; a running job's lock was its run's token.
+                    conn.execute(
+                        """
+                        update jobs
+                        set run_token = schedule_lock,
+                            run_expires_at = schedule_lock_expires_at,
+                            schedule_lock = null, schedule_lock_expires_at = null
+                        where status in ('running', 'cancelling')
+                        """
+                    )
                 if "billed_pages" not in columns:
                     conn.execute(
                         "alter table jobs add column billed_pages integer not null default 0"
@@ -246,7 +261,7 @@ class SQLiteStore:
         """Requeue ``running`` jobs that no live process still owns.
 
         In a multi-worker deployment every process runs this on startup, so
-        a peer's in-flight job (its schedule lease alive) must be left alone:
+        a peer's in-flight job (its run's lease alive) must be left alone:
         reverting it paused the job until the lease expired and stamped a
         misleading 'recovered' error on a job that never stopped. Only a
         missing or expired lease means the worker really died. The return
@@ -258,16 +273,16 @@ class SQLiteStore:
             # A live worker keeps its lease fresh; only a missing or expired
             # lease means nobody will finish this job (safe to run periodically).
             dead = """
-                (schedule_lock is null
-                 or schedule_lock_expires_at is null
-                 or schedule_lock_expires_at < ?)
+                (run_token is null
+                 or run_expires_at is null
+                 or run_expires_at < ?)
             """
             cursor = conn.execute(
                 f"""
                 update jobs
                 set status = 'queued',
                     error = 'Recovered interrupted job (its worker stopped).',
-                    schedule_lock = null, schedule_lock_expires_at = null,
+                    run_token = null, run_expires_at = null,
                     updated_at = ?
                 where status = 'running' and {dead}
                 """,
@@ -312,7 +327,8 @@ class SQLiteStore:
             update jobs
             set status = 'cancelled', result_json = ?, error = ?, checkpoint_json = null,
                 available_at = 0, updated_at = ?,
-                schedule_lock = null, schedule_lock_expires_at = null
+                schedule_lock = null, schedule_lock_expires_at = null,
+                run_token = null, run_expires_at = null
             where id = ?
             """,
             (result_json, error, now, job_id),
@@ -504,9 +520,8 @@ class SQLiteStore:
 
         Re-entrant for the same owner: an instance that schedules a job it
         already holds the lease for (a duplicate ``schedule_job`` before the
-        run claims it) keeps it. Once claimed, the lock belongs to that run
-        (``claim_job``) and is released when the run ends, before any retry
-        is scheduled.
+        run claims it) keeps it. ``claim_job`` clears it: a running job holds
+        its run's token (``run_token``) instead, released when the run ends.
 
         Returns ``True`` when the caller won the race (or renewed its own
         lease); ``False`` when a different owner holds a valid lease.
@@ -563,54 +578,65 @@ class SQLiteStore:
                 (time.time(), job_id, owner),
             )
 
+    def release_run(self, job_id: str, run: str) -> None:
+        """Drop ``run``'s token when the run ends; a successor's is left alone."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update jobs set run_token = null, run_expires_at = null
+                where id = ? and run_token = ?
+                """,
+                (job_id, run),
+            )
+
     def renew_job_lease(self, job_id: str, owner: str, lease_seconds: float) -> bool:
-        """Heartbeat for a ``running`` job: push its lease ``lease_seconds`` out.
+        """Heartbeat for a ``running`` job: push its run's lease ``lease_seconds`` out.
 
         A short, renewed lease lets restart recovery tell a dead worker from a
-        live one without waiting out the long scheduling lease.
+        live one.
         """
-        # ``claim_job`` made ``owner`` the lock holder; ``False`` means a
+        # ``claim_job`` made ``owner`` the run token; ``False`` means a
         # successor recovered and claimed the job, so this run must stop.
         with self._connect() as conn:
             cursor = conn.execute(
                 """
-                update jobs set schedule_lock_expires_at = ?
-                where id = ? and status in ('running', 'cancelling') and schedule_lock = ?
+                update jobs set run_expires_at = ?
+                where id = ? and status in ('running', 'cancelling') and run_token = ?
                 """,
                 (time.time() + lease_seconds, job_id, owner),
             )
         return bool(cursor.rowcount)
 
     @staticmethod
-    def _owned(owner: str | None, free_for: str | None = None) -> tuple[str, tuple[Any, ...]]:
+    def _owned(owner: str | None, unclaimed: bool = False) -> tuple[str, tuple[Any, ...]]:
         """Extra ``WHERE`` terms for a job write: ``owner``'s run still holds the
-        job (claimed by it, not recovered since), and/or no run other than
-        ``free_for`` holds a live lock on it."""
+        job (claimed by it, not recovered since), and/or (``unclaimed``) no run
+        holds a live token on it. A scheduling lease is not a run."""
         sql: str = ""
         params: tuple[Any, ...] = ()
         if owner is not None:
-            sql += " and schedule_lock = ? and status in ('running', 'cancelling')"
+            sql += " and run_token = ? and status in ('running', 'cancelling')"
             params += (owner,)
-        if free_for is not None:
+        if unclaimed:
             sql += (
                 " and status in ('queued', 'cancelling')"
-                " and (schedule_lock is null or schedule_lock = ?"
-                " or schedule_lock_expires_at is null or schedule_lock_expires_at < ?)"
+                " and (run_token is null"
+                " or run_expires_at is null or run_expires_at < ?)"
             )
-            params += (free_for, time.time())
+            params += (time.time(),)
         return sql, params
 
     def _fence(
-        self, conn: sqlite3.Connection, job_id: str, owner: str | None, free_for: str | None = None
+        self, conn: sqlite3.Connection, job_id: str, owner: str | None, unclaimed: bool = False
     ) -> bool:
-        """Start the write and check the job is still ``owner``'s / free for ``free_for``.
+        """Start the write and check the job is still ``owner``'s / not being run.
 
         A write as the first statement takes SQLite's write lock, so no peer
         can claim the job between this check and the caller's writes.
         """
-        if owner is None and free_for is None:
+        if owner is None and not unclaimed:
             return True
-        extra, params = self._owned(owner, free_for)
+        extra, params = self._owned(owner, unclaimed)
         cursor = conn.execute(
             f"update jobs set updated_at = ? where id = ?{extra}",
             (time.time(), job_id, *params),
@@ -620,10 +646,10 @@ class SQLiteStore:
     def claim_job(
         self, job_id: str, owner: str | None = None, *, lease_seconds: float | None = None
     ) -> bool:
-        """``queued`` -> ``running``; with ``owner``, that run also takes the lock.
+        """``queued`` -> ``running``; with ``owner``, that run also takes the run token.
 
-        Taking the lock here (even from a peer's scheduling lease) is what
-        fences a stalled predecessor out: its renewals and writes stop matching.
+        The scheduling lease ends here. Taking the token is what fences a
+        stalled predecessor out: its renewals and writes stop matching.
         """
         now = time.time()
         with self._connect() as conn:
@@ -631,9 +657,9 @@ class SQLiteStore:
                 """
                 update jobs
                 set status = 'running', error = null, updated_at = ?,
-                    schedule_lock = coalesce(?, schedule_lock),
-                    schedule_lock_expires_at = case when ? is null
-                        then schedule_lock_expires_at else ? end
+                    schedule_lock = null, schedule_lock_expires_at = null,
+                    run_token = ?,
+                    run_expires_at = case when ? is null then null else ? end
                 where id = ? and status = 'queued' and cancel_requested = 0
                   and available_at <= ?
                 """,
@@ -663,11 +689,11 @@ class SQLiteStore:
         error: str | None = None,
         *,
         owner: str | None = None,
-        free_for: str | None = None,
+        unclaimed: bool = False,
         bill: bool = False,
     ) -> bool:
         """Finish a job; with ``owner``, only while that run still holds it;
-        with ``free_for``, only if no other run holds a live lock on it. With
+        with ``unclaimed``, only if no run holds a live token on it. With
         ``bill``, the job's unbilled pages are billed in the same transaction
         (a run costs at least one unit)."""
         now = time.time()
@@ -678,7 +704,7 @@ class SQLiteStore:
             stored_result = {**result, "documents": []}
             stored_result.setdefault("metadata", {})["document_count"] = len(documents)
         with self._connect() as conn:
-            if not self._fence(conn, job_id, owner, free_for):
+            if not self._fence(conn, job_id, owner, unclaimed):
                 return False
             if status == "cancelled" and result is None and owner is None:
                 return self._finish_cancel(conn, job_id, error, now)
@@ -712,7 +738,8 @@ class SQLiteStore:
                 update jobs
                 set status = ?, result_json = ?, error = ?, checkpoint_json = null,
                     available_at = 0, updated_at = ?,
-                    schedule_lock = null, schedule_lock_expires_at = null
+                    schedule_lock = null, schedule_lock_expires_at = null,
+                    run_token = null, run_expires_at = null
                 where id = ?
                 """,
                 (
