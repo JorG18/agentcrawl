@@ -259,6 +259,7 @@ class SQLiteStore:
                 update jobs
                 set status = 'queued',
                     error = 'Recovered interrupted job (its worker stopped).',
+                    schedule_lock = null, schedule_lock_expires_at = null,
                     updated_at = ?
                 where status = 'running' and {dead}
                 """,
@@ -271,6 +272,7 @@ class SQLiteStore:
                 set status = 'cancelled',
                     error = 'Cancellation completed (its worker stopped).',
                     checkpoint_json = null,
+                    schedule_lock = null, schedule_lock_expires_at = null,
                     updated_at = ?
                 where status = 'cancelling' and {dead}
                 """,
@@ -505,28 +507,49 @@ class SQLiteStore:
             cursor = conn.execute(
                 """
                 update jobs set schedule_lock_expires_at = ?
-                where id = ? and status = 'running' and schedule_lock = ?
+                where id = ? and status in ('running', 'cancelling') and schedule_lock = ?
                 """,
                 (time.time() + lease_seconds, job_id, owner),
             )
         return bool(cursor.rowcount)
 
     @staticmethod
-    def _fence(conn: sqlite3.Connection, job_id: str, owner: str | None) -> bool:
-        """Start the write and check ``owner`` still holds the job (no owner: always).
+    def _owned(owner: str | None, free_for: str | None = None) -> tuple[str, tuple[Any, ...]]:
+        """Extra ``WHERE`` terms for a job write: ``owner``'s run still holds the
+        job (claimed by it, not recovered since), and/or no run other than
+        ``free_for`` holds a live lock on it."""
+        sql: str = ""
+        params: tuple[Any, ...] = ()
+        if owner is not None:
+            sql += " and schedule_lock = ? and status in ('running', 'cancelling')"
+            params += (owner,)
+        if free_for is not None:
+            sql += (
+                " and (schedule_lock is null or schedule_lock = ? or schedule_lock_expires_at < ?)"
+            )
+            params += (free_for, time.time())
+        return sql, params
+
+    def _fence(
+        self, conn: sqlite3.Connection, job_id: str, owner: str | None, free_for: str | None = None
+    ) -> bool:
+        """Start the write and check the job is still ``owner``'s / free for ``free_for``.
 
         A write as the first statement takes SQLite's write lock, so no peer
         can claim the job between this check and the caller's writes.
         """
-        if owner is None:
+        if owner is None and free_for is None:
             return True
+        extra, params = self._owned(owner, free_for)
         cursor = conn.execute(
-            "update jobs set updated_at = ? where id = ? and schedule_lock = ?",
-            (time.time(), job_id, owner),
+            f"update jobs set updated_at = ? where id = ?{extra}",
+            (time.time(), job_id, *params),
         )
         return bool(cursor.rowcount)
 
-    def claim_job(self, job_id: str, owner: str | None = None) -> bool:
+    def claim_job(
+        self, job_id: str, owner: str | None = None, *, lease_seconds: float | None = None
+    ) -> bool:
         """``queued`` -> ``running``; with ``owner``, that run also takes the lock.
 
         Taking the lock here (even from a peer's scheduling lease) is what
@@ -544,7 +567,14 @@ class SQLiteStore:
                 where id = ? and status = 'queued' and cancel_requested = 0
                   and available_at <= ?
                 """,
-                (now, owner, owner, now + DEFAULT_SCHEDULE_LEASE_SECONDS, job_id, now),
+                (
+                    now,
+                    owner,
+                    owner,
+                    now + (lease_seconds or DEFAULT_SCHEDULE_LEASE_SECONDS),
+                    job_id,
+                    now,
+                ),
             )
             claimed = bool(cursor.rowcount)
             if claimed:
@@ -559,8 +589,10 @@ class SQLiteStore:
         error: str | None = None,
         *,
         owner: str | None = None,
+        free_for: str | None = None,
     ) -> bool:
-        """Finish a job; with ``owner``, only while that run still holds it."""
+        """Finish a job; with ``owner``, only while that run still holds it;
+        with ``free_for``, only if no other run holds a live lock on it."""
         now = time.time()
         stored_result = result
         documents: list[dict[str, Any]] = []
@@ -569,7 +601,7 @@ class SQLiteStore:
             stored_result = {**result, "documents": []}
             stored_result.setdefault("metadata", {})["document_count"] = len(documents)
         with self._connect() as conn:
-            if not self._fence(conn, job_id, owner):
+            if not self._fence(conn, job_id, owner, free_for):
                 return False
             # The worker looks for a cancel only between pages, so one that
             # lands during the last page was accepted ('cancelling') and then
@@ -726,12 +758,11 @@ class SQLiteStore:
     def update_job_progress(
         self, job_id: str, progress: dict[str, Any], *, owner: str | None = None
     ) -> None:
+        extra, params = self._owned(owner)
         with self._connect() as conn:
-            if not self._fence(conn, job_id, owner):
-                return
             conn.execute(
-                "update jobs set progress_json = ?, updated_at = ? where id = ?",
-                (json.dumps(progress), time.time(), job_id),
+                f"update jobs set progress_json = ?, updated_at = ? where id = ?{extra}",
+                (json.dumps(progress), time.time(), job_id, *params),
             )
 
     def save_job_checkpoint(
@@ -744,8 +775,19 @@ class SQLiteStore:
         owner: str | None = None,
     ) -> None:
         now = time.time()
+        extra, params = self._owned(owner)
         with self._connect() as conn:
-            if not self._fence(conn, job_id, owner):
+            # The job row first: its WHERE is the ownership check, and the
+            # write lock it takes covers the document insert below.
+            cursor = conn.execute(
+                f"""
+                update jobs
+                set checkpoint_json = ?, progress_json = ?, updated_at = ?
+                where id = ?{extra}
+                """,
+                (json.dumps(checkpoint), json.dumps(progress), now, job_id, *params),
+            )
+            if not cursor.rowcount:
                 return
             if document is not None:
                 document_url = str(document["url"])
@@ -758,14 +800,6 @@ class SQLiteStore:
                     (job_id, document_url, json.dumps(document), now),
                 )
                 self._mark_failure_resolved(conn, job_id, document_url, now)
-            conn.execute(
-                """
-                update jobs
-                set checkpoint_json = ?, progress_json = ?, updated_at = ?
-                where id = ?
-                """,
-                (json.dumps(checkpoint), json.dumps(progress), now, job_id),
-            )
 
     def get_job_documents(
         self,

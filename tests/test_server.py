@@ -931,7 +931,7 @@ def test_heartbeat_survives_a_transient_database_error(tmp_path: Path, monkeypat
 
     def flaky_renew(*args, **kwargs):
         calls.append(1)
-        if len(calls) == 2:  # the first timer tick fails
+        if len(calls) == 1:  # the first timer tick fails
             raise sqlite3.OperationalError("database is locked")
         return real_renew(*args, **kwargs)
 
@@ -944,7 +944,7 @@ def test_heartbeat_survives_a_transient_database_error(tmp_path: Path, monkeypat
     monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
     _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
 
-    assert len(calls) >= 3  # claim-time renewal, the failed tick, a later tick
+    assert len(calls) >= 2  # the failed tick, then a later one
 
 
 def test_a_stalled_worker_is_fenced_out_by_its_successor(tmp_path: Path) -> None:
@@ -959,6 +959,9 @@ def test_a_stalled_worker_is_fenced_out_by_its_successor(tmp_path: Path) -> None
         conn.execute("update jobs set schedule_lock_expires_at = 0 where id = ?", (job,))
 
     assert store.prepare_restart_recovery() == 1
+    # Requeued, no successor yet: the dead run's writes are already refused.
+    assert not store.update_job(job, "cancelled", result={"documents": []}, owner="run-a")
+    assert store.get_job(job)["status"] == "queued"
     assert store.acquire_schedule_lease(job, "proc-b", lease_seconds=300)
     assert store.claim_job(job, owner="run-b")
 
@@ -976,6 +979,29 @@ def test_a_stalled_worker_is_fenced_out_by_its_successor(tmp_path: Path) -> None
     assert _lock_columns(database, job)[0] == "run-b"
     assert store.renew_job_lease(job, "run-b", 60)
     assert store.update_job(job, "completed", result={"documents": []}, owner="run-b")
+
+
+def test_a_cancelling_job_keeps_its_lease_and_its_run(tmp_path: Path) -> None:
+    store = SQLiteStore(tmp_path / "cancelling.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.claim_job(job, owner="run-a")
+    store.request_job_cancel(job)
+
+    assert store.renew_job_lease(job, "run-a", 60)  # still alive, still its run
+    # A duplicate queue entry that never claimed it must not finalize it.
+    assert not store.update_job(job, "cancelled", free_for="proc-b")
+    assert store.get_job(job)["status"] == "cancelling"
+    assert store.update_job(job, "cancelled", result={"documents": []}, owner="run-a")
+
+
+def test_an_unclaimed_cancelled_job_is_finalized_by_its_queue_entry(tmp_path: Path) -> None:
+    store = SQLiteStore(tmp_path / "queued-cancel.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.acquire_schedule_lease(job, "proc-a", lease_seconds=300)
+    store.request_job_cancel(job)
+
+    assert store.update_job(job, "cancelled", free_for="proc-a")
+    assert store.get_job(job)["status"] == "cancelled"
 
 
 def test_a_run_that_lost_its_job_stops_and_writes_nothing(tmp_path: Path, monkeypatch) -> None:

@@ -1355,20 +1355,25 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
         while not acquired:
             acquired = server._job_semaphore.acquire(timeout=0.5)
             if not acquired and server.store.job_cancel_requested(job_id):
-                server.store.update_job(job_id, "cancelled")
+                # Unclaimed: finish the cancel only if no run is executing the job.
+                server.store.update_job(job_id, "cancelled", free_for=server.instance_id)
                 return
         if server.store.job_cancel_requested(job_id):
-            server.store.update_job(job_id, "cancelled")
+            server.store.update_job(job_id, "cancelled", free_for=server.instance_id)
             return
-        if not server.store.claim_job(job_id, owner=run):
+        lease = server.schedule_lease_seconds
+        if not server.store.claim_job(job_id, owner=run, lease_seconds=lease):
             return
         claimed = True
+        # Claimed: the DB status now blocks duplicates, so drop the in-process
+        # dedupe entry here; a successor run may own it by the time we finish.
+        with server._job_threads_lock:
+            server._job_threads.pop(job_id, None)
+            server._queued_jobs.discard(job_id)
         # The run that claimed the job owns its lease and renews it on a timer,
         # whatever a page is waiting on; the recovery sweep only requeues a job
         # whose lease ran out, i.e. whose worker died. If this run stalled that
         # long, a successor has claimed it: stop, and every write is refused.
-        lease = server.schedule_lease_seconds
-        server.store.renew_job_lease(job_id, run, lease)
 
         def heartbeat() -> None:
             while not heartbeat_stop.wait(max(1.0, lease / 3)):
@@ -1444,16 +1449,20 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             units=max(1, len(result.get("documents", []))),
         )
     except Exception as exc:
-        server.store.update_job(job_id, "failed", error=str(exc), owner=run if claimed else None)
+        if claimed:
+            server.store.update_job(job_id, "failed", error=str(exc), owner=run)
+        else:  # still queued (or another run's): recovery reschedules it
+            logging.getLogger(__name__).exception("job %s failed before its claim", job_id)
     finally:
         heartbeat_stop.set()
         if claimed:  # a duplicate queue entry that lost the claim must not drop the runner's lease
             server.store.release_schedule_lease(job_id, run)
         if acquired:
             server._job_semaphore.release()
-        with server._job_threads_lock:
-            server._job_threads.pop(job_id, None)
-            server._queued_jobs.discard(job_id)
+        if not claimed:
+            with server._job_threads_lock:
+                server._job_threads.pop(job_id, None)
+                server._queued_jobs.discard(job_id)
         if reschedule_at is not None:
             server.schedule_job(job_id, payload, api_key, reschedule_at)
 
