@@ -10,7 +10,7 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 
 ### Changed
 
-- **`crawl()` follows RFC 9309 when `robots.txt` cannot be read:** a server error (5xx) or a network failure now blocks the crawl ("blocked by robots.txt") instead of crawling everything; a 4xx still means no rules. `--no-robots` overrides it.
+- **`crawl()` follows RFC 9309 when `robots.txt` cannot be read:** a server error (5xx, or 429) or a network failure, after one retry, now blocks the crawl ("robots.txt unreachable, crawl disallowed") instead of crawling everything; a 4xx, a redirect loop or an unusable body still means no rules. `--no-robots` overrides it.
 - **TypeScript SDK license is Apache-2.0**, the same as the Python package (it said MIT).
 - **Benchmark wording:** a gap that is not significant is written "no significant difference", not "tie" (a test cannot show two tools are equal).
 - **Unknown formats are refused** (library `ValueError`, API `422`, CLI usage error) instead of returning a document with nothing in it. `raw_html` was never supported (the TypeScript `Format` type listed it).

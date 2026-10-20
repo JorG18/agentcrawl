@@ -328,7 +328,7 @@ def test_mcnemar_exact() -> None:
     assert mcnemar_p(0, 0) == 1.0
 
 
-def test_tie_is_written_as_a_tie() -> None:
+def test_non_significant_gap_is_written_as_no_significant_difference() -> None:
     from benchmarks.web.aggregate import markdown, pooled
 
     run = _run({"a": {"x": True, "y": False}, "b": {"x": False, "y": True}})
