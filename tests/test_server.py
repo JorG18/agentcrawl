@@ -1082,6 +1082,66 @@ def test_a_stale_entry_cannot_cancel_a_finished_job(tmp_path: Path) -> None:
     assert len(store.get_job_documents(job)) == 1
 
 
+def test_a_finished_job_holds_no_lock(tmp_path: Path) -> None:
+    # A retry of its failures right after the end must be schedulable at once.
+    database = tmp_path / "finished-lock.db"
+    store = SQLiteStore(database)
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.claim_job(job, owner="run-a")
+    assert store.update_job(job, "completed", result={"documents": []}, owner="run-a")
+
+    assert _lock_columns(database, job) == (None, None)
+
+
+def test_a_lock_without_expiry_does_not_block_a_queued_cancel(tmp_path: Path) -> None:
+    database = tmp_path / "null-expiry.db"
+    store = SQLiteStore(database)
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    store.request_job_cancel(job)
+    with sqlite3.connect(database) as conn:  # recovery treats this as dead too
+        conn.execute("update jobs set schedule_lock = 'legacy' where id = ?", (job,))
+
+    assert store.update_job(job, "cancelled", free_for="proc-a")
+
+
+def test_an_entry_that_cannot_claim_releases_its_scheduling_lease(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = tmp_path / "unclaimed.db"
+    server.store = SQLiteStore(database)
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+    server.store.requeue_job(job_id, time.time() + 600)  # not due yet: the claim fails
+    assert server.store.acquire_schedule_lease(job_id, server.instance_id, lease_seconds=300)
+
+    _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
+
+    assert _lock_columns(database, job_id) == (None, None)  # the next sweep can schedule it
+
+
+def test_a_heartbeat_failing_for_a_whole_lease_gives_the_job_up(
+    tmp_path: Path, monkeypatch
+) -> None:
+    server.store = SQLiteStore(tmp_path / "hb-dead.db")
+    monkeypatch.setattr(server, "schedule_lease_seconds", 2.0)  # ticks every 1 s
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+
+    def broken_renew(*_a, **_k):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(server.store, "renew_job_lease", broken_renew)
+    seen: list[bool] = []
+
+    def fake_run_crawl(payload, progress_callback, should_cancel, **kwargs):
+        _wait_for(should_cancel)
+        seen.append(should_cancel())
+        return {"documents": [], "metadata": {"cancelled": True}}
+
+    monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
+    _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
+
+    assert seen == [True]
+
+
 def test_a_duplicate_entry_that_loses_the_claim_keeps_the_runners_lease(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -1089,8 +1149,9 @@ def test_a_duplicate_entry_that_loses_the_claim_keeps_the_runners_lease(
     server.store = SQLiteStore(database)
     job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
     assert server.store.acquire_schedule_lease(job_id, server.instance_id, lease_seconds=300)
-    assert server.store.claim_job(job_id)  # another entry is already running it
+    runner = f"{server.instance_id}:runner"
+    assert server.store.claim_job(job_id, owner=runner)  # another entry is already running it
 
     _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
 
-    assert _lock_columns(database, job_id)[0] == server.instance_id
+    assert _lock_columns(database, job_id)[0] == runner
