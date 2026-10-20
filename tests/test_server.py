@@ -947,29 +947,58 @@ def test_heartbeat_survives_a_transient_database_error(tmp_path: Path, monkeypat
     assert len(calls) >= 3  # claim-time renewal, the failed tick, a later tick
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known: renew_job_lease has no fencing token; needs claim-time ownership "
-    "and owner-checked update_job (pending decision)",
-)
-def test_a_stalled_worker_does_not_take_the_job_back_from_its_successor(tmp_path: Path) -> None:
+def test_a_stalled_worker_is_fenced_out_by_its_successor(tmp_path: Path) -> None:
     """Worker A froze past its lease; B recovered and claimed the job. When A
-    wakes up its heartbeat must not steal the lease from B (two runners)."""
-    store = SQLiteStore(tmp_path / "zombie.db")
+    wakes up it must neither take the lease back nor overwrite B's job."""
+    database = tmp_path / "zombie.db"
+    store = SQLiteStore(database)
     job = store.create_job("crawl", {"url": "https://example.com/"})
-    assert store.acquire_schedule_lease(job, "worker-a", lease_seconds=300)
-    assert store.claim_job(job)
-    assert store.renew_job_lease(job, "worker-a", 60)
-    with sqlite3.connect(tmp_path / "zombie.db") as conn:  # A stalls, lease runs out
+    assert store.acquire_schedule_lease(job, "proc-a", lease_seconds=300)
+    assert store.claim_job(job, owner="run-a")
+    with sqlite3.connect(database) as conn:  # A stalls, its lease runs out
         conn.execute("update jobs set schedule_lock_expires_at = 0 where id = ?", (job,))
 
     assert store.prepare_restart_recovery() == 1
-    assert store.acquire_schedule_lease(job, "worker-b", lease_seconds=300)
-    assert store.claim_job(job)
-    assert store.renew_job_lease(job, "worker-b", 60)
+    assert store.acquire_schedule_lease(job, "proc-b", lease_seconds=300)
+    assert store.claim_job(job, owner="run-b")
 
-    assert not store.renew_job_lease(job, "worker-a", 60)  # A wakes up
-    assert _lock_columns(tmp_path / "zombie.db", job)[0] == "worker-b"
+    # A wakes up: every renewal and write of its run is refused.
+    assert not store.renew_job_lease(job, "run-a", 60)
+    store.save_job_checkpoint(job, {"a": 1}, {"visited": 9}, owner="run-a")
+    store.update_job_progress(job, {"visited": 9}, owner="run-a")
+    assert not store.requeue_job(job, 0.0, owner="run-a")
+    assert not store.update_job(job, "completed", result={"documents": []}, owner="run-a")
+    store.release_schedule_lease(job, "run-a")
+
+    row = store.get_job(job)
+    assert row["status"] == "running"
+    assert store.get_job_checkpoint(job) is None
+    assert _lock_columns(database, job)[0] == "run-b"
+    assert store.renew_job_lease(job, "run-b", 60)
+    assert store.update_job(job, "completed", result={"documents": []}, owner="run-b")
+
+
+def test_a_run_that_lost_its_job_stops_and_writes_nothing(tmp_path: Path, monkeypatch) -> None:
+    database = tmp_path / "lost.db"
+    server.store = SQLiteStore(database)
+    monkeypatch.setattr(server, "schedule_lease_seconds", 3.0)  # renewed every 1 s
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+    assert server.store.acquire_schedule_lease(job_id, server.instance_id, lease_seconds=300)
+    seen: list[bool] = []
+
+    def fake_run_crawl(payload, progress_callback, should_cancel, **kwargs):
+        with sqlite3.connect(database) as conn:  # a successor claims the job
+            conn.execute("update jobs set schedule_lock = 'run-b' where id = ?", (job_id,))
+        time.sleep(1.5)  # one heartbeat tick
+        seen.append(should_cancel())
+        return {"documents": [], "metadata": {"cancelled": True}}
+
+    monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
+    _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
+
+    assert seen == [True]
+    assert server.store.get_job(job_id)["status"] == "running"  # the successor's to finish
+    assert _lock_columns(database, job_id)[0] == "run-b"
 
 
 def test_a_duplicate_entry_that_loses_the_claim_keeps_the_runners_lease(

@@ -499,28 +499,52 @@ class SQLiteStore:
         A short, renewed lease lets restart recovery tell a dead worker from a
         live one without waiting out the long scheduling lease.
         """
-        # Only one worker can have claimed a running job (queued -> running is
-        # atomic), so that worker takes the lease over even if a peer holds it.
+        # ``claim_job`` made ``owner`` the lock holder; ``False`` means a
+        # successor recovered and claimed the job, so this run must stop.
         with self._connect() as conn:
             cursor = conn.execute(
                 """
-                update jobs set schedule_lock = ?, schedule_lock_expires_at = ?
-                where id = ? and status = 'running'
+                update jobs set schedule_lock_expires_at = ?
+                where id = ? and status = 'running' and schedule_lock = ?
                 """,
-                (owner, time.time() + lease_seconds, job_id),
+                (time.time() + lease_seconds, job_id, owner),
             )
         return bool(cursor.rowcount)
 
-    def claim_job(self, job_id: str) -> bool:
+    @staticmethod
+    def _fence(conn: sqlite3.Connection, job_id: str, owner: str | None) -> bool:
+        """Start the write and check ``owner`` still holds the job (no owner: always).
+
+        A write as the first statement takes SQLite's write lock, so no peer
+        can claim the job between this check and the caller's writes.
+        """
+        if owner is None:
+            return True
+        cursor = conn.execute(
+            "update jobs set updated_at = ? where id = ? and schedule_lock = ?",
+            (time.time(), job_id, owner),
+        )
+        return bool(cursor.rowcount)
+
+    def claim_job(self, job_id: str, owner: str | None = None) -> bool:
+        """``queued`` -> ``running``; with ``owner``, that run also takes the lock.
+
+        Taking the lock here (even from a peer's scheduling lease) is what
+        fences a stalled predecessor out: its renewals and writes stop matching.
+        """
+        now = time.time()
         with self._connect() as conn:
             cursor = conn.execute(
                 """
                 update jobs
-                set status = 'running', error = null, updated_at = ?
+                set status = 'running', error = null, updated_at = ?,
+                    schedule_lock = coalesce(?, schedule_lock),
+                    schedule_lock_expires_at = case when ? is null
+                        then schedule_lock_expires_at else ? end
                 where id = ? and status = 'queued' and cancel_requested = 0
                   and available_at <= ?
                 """,
-                (time.time(), job_id, time.time()),
+                (now, owner, owner, now + DEFAULT_SCHEDULE_LEASE_SECONDS, job_id, now),
             )
             claimed = bool(cursor.rowcount)
             if claimed:
@@ -533,7 +557,10 @@ class SQLiteStore:
         status: str,
         result: dict[str, Any] | None = None,
         error: str | None = None,
-    ) -> None:
+        *,
+        owner: str | None = None,
+    ) -> bool:
+        """Finish a job; with ``owner``, only while that run still holds it."""
         now = time.time()
         stored_result = result
         documents: list[dict[str, Any]] = []
@@ -542,6 +569,8 @@ class SQLiteStore:
             stored_result = {**result, "documents": []}
             stored_result.setdefault("metadata", {})["document_count"] = len(documents)
         with self._connect() as conn:
+            if not self._fence(conn, job_id, owner):
+                return False
             # The worker looks for a cancel only between pages, so one that
             # lands during the last page was accepted ('cancelling') and then
             # overwritten here. Honour it; the pages already scraped are kept.
@@ -599,6 +628,7 @@ class SQLiteStore:
                 },
                 now,
             )
+        return True
 
     @staticmethod
     def _mark_failure_resolved(
@@ -670,9 +700,12 @@ class SQLiteStore:
         *,
         event_type: str = "requeued",
         payload: dict[str, Any] | None = None,
-    ) -> None:
+        owner: str | None = None,
+    ) -> bool:
         now = time.time()
         with self._connect() as conn:
+            if not self._fence(conn, job_id, owner):
+                return False
             conn.execute(
                 """
                 update jobs
@@ -688,9 +721,14 @@ class SQLiteStore:
                 {"available_at": available_at, **(payload or {})},
                 now,
             )
+        return True
 
-    def update_job_progress(self, job_id: str, progress: dict[str, Any]) -> None:
+    def update_job_progress(
+        self, job_id: str, progress: dict[str, Any], *, owner: str | None = None
+    ) -> None:
         with self._connect() as conn:
+            if not self._fence(conn, job_id, owner):
+                return
             conn.execute(
                 "update jobs set progress_json = ?, updated_at = ? where id = ?",
                 (json.dumps(progress), time.time(), job_id),
@@ -702,9 +740,13 @@ class SQLiteStore:
         checkpoint: dict[str, Any],
         progress: dict[str, Any],
         document: dict[str, Any] | None = None,
+        *,
+        owner: str | None = None,
     ) -> None:
         now = time.time()
         with self._connect() as conn:
+            if not self._fence(conn, job_id, owner):
+                return
             if document is not None:
                 document_url = str(document["url"])
                 conn.execute(
