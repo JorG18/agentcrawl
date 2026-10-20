@@ -695,6 +695,15 @@ class AgentCrawlServer:
         # dedupe.
         self._queued_jobs.discard(job_id)
 
+    def _drop_entry(self, job_id: str) -> None:
+        """Forget the job's in-process entry and cancel its pending retry timer
+        (the job ended without it; a peer's timer finds it finished)."""
+        with self._job_threads_lock:
+            timer = self._job_threads.pop(job_id, None)
+            self._queued_jobs.discard(job_id)
+        if isinstance(timer, threading.Timer):
+            timer.cancel()
+
     def _forget_entry(self, job_id: str) -> bool:
         """Drop the in-process dedupe entry, unless a newer delayed retry for
         the job still waits on its timer (that entry is not ours to drop)."""
@@ -1177,8 +1186,18 @@ def cancel_job(
             status_code=409,
             detail=f"Job cannot be cancelled from status {job['status']}.",
         )
+    # No run to notice it (e.g. a delayed retry waiting on its timer): end it
+    # now. Best effort: a run, or the recovery sweep, finishes it otherwise.
+    status = "cancelling"
+    try:
+        if _finish_unclaimed_cancel(job_id):
+            server._drop_entry(job_id)
+        # The real status: the run may also have ended the job meanwhile.
+        status = server.store.job_status(job_id) or status
+    except Exception:  # noqa: BLE001 - the cancel itself is recorded
+        logging.getLogger(__name__).exception("could not finish the cancel of %s", job_id)
     server.store.record_usage(scope.key_id, "/v1/jobs.cancel")
-    return {"success": True, "data": {"job_id": job_id, "status": "cancelling"}}
+    return {"success": True, "data": {"job_id": job_id, "status": status}}
 
 
 @app.get("/v1/failures")
@@ -1357,6 +1376,7 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
     acquired = False
     reschedule_at: float | None = None
     claimed = False
+    ended = False  # this run's own write ended or requeued the job (token cleared)
     heartbeat_stop = threading.Event()
     lost = threading.Event()
     # Unique per run, not per process: a successor in this same process must
@@ -1443,6 +1463,7 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             if server.store.requeue_job(
                 job_id, retry_at, event_type=event_type, payload=event_payload, owner=run
             ):
+                ended = True
                 reschedule_at = retry_at
                 return
             # Refused: cancelled meanwhile (finished below, its pages kept) or
@@ -1453,7 +1474,7 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             # of a clean completion. The per-page errors stay in the stored
             # result for inspection.
             batch_errors = result.get("errors") or []
-            server.store.update_job(
+            ended = server.store.update_job(
                 job_id,
                 "failed",
                 result=result,
@@ -1463,23 +1484,25 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             return
         status = "cancelled" if metadata.get("cancelled") else "completed"
         # Refused: a successor owns the job now; it reports and bills it.
-        server.store.update_job(job_id, status, result=result, owner=run, bill=True)
+        ended = server.store.update_job(job_id, status, result=result, owner=run, bill=True)
     except Exception as exc:
         log = logging.getLogger(__name__)
         if not claimed:  # still queued (or another run's): recovery reschedules it
             log.exception("job %s failed before its claim", job_id)
         else:
             try:
-                server.store.update_job(job_id, "failed", error=str(exc), owner=run)
+                ended = server.store.update_job(job_id, "failed", error=str(exc), owner=run)
             except Exception:  # noqa: BLE001 - the worker thread must survive; recovery retries
                 log.exception("could not record the failure of job %s", job_id)
     finally:
         heartbeat_stop.set()
         try:
-            if claimed:  # a duplicate entry that lost the claim must not drop the runner's lease
-                server.store.release_schedule_lease(job_id, run)
-        except Exception:  # noqa: BLE001 - the lease expires on its own; the slot must not leak
-            logging.getLogger(__name__).exception("could not release the lease of %s", job_id)
+            # Only a run that did not end the job itself (lost it, or its last
+            # write failed) still holds a token; a duplicate entry holds none.
+            if claimed and not ended:
+                server.store.release_run(job_id, run)
+        except Exception:  # noqa: BLE001 - the token expires on its own; the slot must not leak
+            logging.getLogger(__name__).exception("could not release the run token of %s", job_id)
         if acquired:
             server._job_semaphore.release()
         if not claimed and server._forget_entry(job_id):
@@ -1491,13 +1514,16 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             server.schedule_job(job_id, payload, api_key, reschedule_at)
 
 
-def _finish_unclaimed_cancel(job_id: str) -> None:
+def _finish_unclaimed_cancel(job_id: str) -> bool:
     """A queue entry that never claimed the job finishes its cancel, unless a
     run (here or on a peer) is executing it: that run finishes it instead."""
-    if not server.store.update_job(job_id, "cancelled", free_for=server.instance_id):
+    if server.store.update_job(job_id, "cancelled", unclaimed=True):
+        return True
+    if server.store.job_status(job_id) in ("queued", "cancelling", "running"):
         logging.getLogger(__name__).info(
             "cancel of job %s left to the run holding it (or the recovery sweep)", job_id
         )
+    return False
 
 
 def _resume_state(job_id: str) -> dict[str, Any] | None:

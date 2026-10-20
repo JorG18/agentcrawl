@@ -4,13 +4,13 @@ from agentcrawl.storage import SQLiteStore
 
 
 def test_prepare_restart_recovery_leaves_a_live_lease_alone(tmp_path) -> None:
-    """A running job whose schedule lease is still alive belongs to a live
+    """A running job whose run lease is still alive belongs to a live
     worker: another process starting up must not "recover" it (that paused
     the job until the lease expired and stamped a false interruption error)."""
     store = SQLiteStore(tmp_path / "live-lease.db")
     job = store.create_job("crawl", {"url": "https://example.com"})
     assert store.acquire_schedule_lease(job, "pid-alive", lease_seconds=300)
-    assert store.claim_job(job)  # status = running, lease still held
+    assert store.claim_job(job, owner="pid-alive", lease_seconds=300)  # running, lease held
 
     assert store.prepare_restart_recovery() == 0
     assert store.get_job(job)["status"] == "running"
@@ -23,13 +23,13 @@ def test_prepare_restart_recovery_requeues_an_expired_lease(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "expired-lease.db")
     job = store.create_job("crawl", {"url": "https://example.com"})
     store.acquire_schedule_lease(job, "pid-dead", lease_seconds=300)
-    assert store.claim_job(job)
+    assert store.claim_job(job, owner="pid-dead", lease_seconds=300)
     # Simulate the crash: the lease aged out while the job stays 'running'.
     import sqlite3
 
     with sqlite3.connect(tmp_path / "expired-lease.db") as conn:
         conn.execute(
-            "update jobs set schedule_lock_expires_at = ? where id = ?",
+            "update jobs set run_expires_at = ? where id = ?",
             (0.0, job),
         )
 
@@ -322,7 +322,7 @@ def test_recovery_leaves_a_live_cancelling_job_to_its_worker(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "cancelling.db")
     job = store.create_job("crawl", {"url": "https://example.com"})
     assert store.acquire_schedule_lease(job, "pid-alive", lease_seconds=300)
-    assert store.claim_job(job)
+    assert store.claim_job(job, owner="pid-alive", lease_seconds=300)
     assert store.request_job_cancel(job)
 
     store.prepare_restart_recovery()
@@ -347,10 +347,10 @@ def test_a_cancel_from_the_queue_keeps_the_pages(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "keep-queued.db")
     job = _job_with_a_page(store)
     assert store.requeue_job(job, 0.0, owner="run-a")  # between quanta
-    store.release_schedule_lease(job, "run-a")
+    store.release_run(job, "run-a")
     store.request_job_cancel(job)
 
-    assert store.update_job(job, "cancelled", free_for="proc-a")
+    assert store.update_job(job, "cancelled", unclaimed=True)
 
     result = store.get_job(job)["result"]
     assert [doc["url"] for doc in result["documents"]] == ["https://example.com/a"]
@@ -400,7 +400,7 @@ def test_pages_paid_by_an_earlier_run_are_not_billed_again(tmp_path) -> None:
 
     retry()
     store.request_job_cancel(job)
-    assert store.update_job(job, "cancelled", free_for="proc-a")  # cancelled before running
+    assert store.update_job(job, "cancelled", unclaimed=True)  # cancelled before running
     assert store.usage_count() == 1
 
     retry()
@@ -440,7 +440,7 @@ def test_a_cancel_marks_an_earlier_result_cancelled(tmp_path) -> None:
         conn.execute("update jobs set status = 'queued' where id = ?", (job,))
     store.request_job_cancel(job)
 
-    assert store.update_job(job, "cancelled", free_for="proc-a")
+    assert store.update_job(job, "cancelled", unclaimed=True)
 
     assert store.get_job(job)["result"]["metadata"]["cancelled"] is True
 
@@ -454,9 +454,9 @@ def test_a_cancel_records_the_checkpoints_failures(tmp_path) -> None:
         job, {"version": 2, "terminal_failures": [failure]}, {"visited": 1}, owner="run-a"
     )
     store.request_job_cancel(job)
-    store.release_schedule_lease(job, "run-a")
+    store.release_run(job, "run-a")
 
-    assert store.update_job(job, "cancelled", free_for="proc-a")
+    assert store.update_job(job, "cancelled", unclaimed=True)
 
     assert [f["url"] for f in store.list_crawl_failures(job_id=job)] == [failure["url"]]
     event = [e for e in store.list_job_events(job) if e["event_type"] == "cancelled"][-1]
@@ -471,7 +471,7 @@ def test_a_cancel_finished_by_the_sweep_keeps_the_pages(tmp_path) -> None:
     job = _job_with_a_page(store)
     store.request_job_cancel(job)
     with sqlite3.connect(database) as conn:  # its worker died while cancelling
-        conn.execute("update jobs set schedule_lock_expires_at = 0 where id = ?", (job,))
+        conn.execute("update jobs set run_expires_at = 0 where id = ?", (job,))
 
     store.prepare_restart_recovery()
 
@@ -480,3 +480,130 @@ def test_a_cancel_finished_by_the_sweep_keeps_the_pages(tmp_path) -> None:
     assert [doc["url"] for doc in row["result"]["documents"]] == ["https://example.com/a"]
     assert store.usage_count() == 1
     assert any(e["event_type"] == "cancelled" for e in store.list_job_events(job))
+
+
+def test_running_jobs_move_their_lock_to_the_run_columns(tmp_path) -> None:
+    import sqlite3
+
+    database = tmp_path / "run-token.db"
+    store = SQLiteStore(database)
+    running = store.create_job("crawl", {"url": "https://example.com/"})
+    queued = store.create_job("crawl", {"url": "https://example.org/"})
+    cancelling = store.create_job("crawl", {"url": "https://example.net/"})
+    with sqlite3.connect(database) as conn:  # an old database: one lock for both
+        conn.execute("alter table jobs drop column run_token")
+        conn.execute("alter table jobs drop column run_expires_at")
+        conn.execute(
+            "update jobs set status = 'running', schedule_lock = 'run-a',"
+            " schedule_lock_expires_at = 123.0 where id = ?",
+            (running,),
+        )
+        conn.execute(
+            "update jobs set schedule_lock = 'proc-a', schedule_lock_expires_at = 456.0"
+            " where id = ?",
+            (queued,),
+        )
+        conn.execute(  # cancelled while queued: its lock is a scheduling lease
+            "update jobs set status = 'cancelling', cancel_requested = 1,"
+            " schedule_lock = 'proc-a', schedule_lock_expires_at = 9e9 where id = ?",
+            (cancelling,),
+        )
+    SQLiteStore._migrated_paths.discard(str(database))
+
+    SQLiteStore(database)
+
+    with sqlite3.connect(database) as conn:
+        columns = "schedule_lock, schedule_lock_expires_at, run_token, run_expires_at"
+        sql = f"select {columns} from jobs where id = ?"
+        assert conn.execute(sql, (running,)).fetchone() == (None, None, "run-a", 123.0)
+        assert conn.execute(sql, (queued,)).fetchone() == ("proc-a", 456.0, None, None)
+        assert conn.execute(sql, (cancelling,)).fetchone() == (None, None, None, None)
+    assert store.update_job(cancelling, "cancelled", unclaimed=True)  # nothing runs it
+
+
+def test_a_peers_scheduling_lease_does_not_block_a_queued_cancel(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "peer-lease.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.acquire_schedule_lease(job, "proc-b", lease_seconds=1800)  # a retry timer
+    store.request_job_cancel(job)
+
+    assert store.update_job(job, "cancelled", unclaimed=True)
+    assert store.get_job(job)["status"] == "cancelled"
+
+
+def test_release_run_drops_only_its_own_run_token(tmp_path) -> None:
+    import sqlite3
+
+    database = tmp_path / "release-run.db"
+    store = SQLiteStore(database)
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.claim_job(job, owner="run-a")
+    sql = "select run_token, run_expires_at is null from jobs where id = ?"
+
+    store.release_run(job, "run-b")  # another run's stale entry
+    with sqlite3.connect(database) as conn:
+        assert conn.execute(sql, (job,)).fetchone() == ("run-a", 0)
+
+    store.release_run(job, "run-a")
+    with sqlite3.connect(database) as conn:
+        assert conn.execute(sql, (job,)).fetchone() == (None, 1)
+
+
+def test_a_cancel_right_after_a_requeue_ends_at_once(tmp_path) -> None:
+    # Between a run's requeue and the end of that run, nothing executes the job.
+    store = SQLiteStore(tmp_path / "requeue-gap.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.claim_job(job, owner="run-a")
+    assert store.requeue_job(job, 0.0, owner="run-a")
+    store.request_job_cancel(job)
+
+    assert store.update_job(job, "cancelled", unclaimed=True)
+
+
+def test_a_job_claimed_without_a_run_token_stays_alive_while_its_lock_is(tmp_path) -> None:
+    # An ownerless claim, or a process from before run_token existed.
+    store = SQLiteStore(tmp_path / "old-claim.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.acquire_schedule_lease(job, "proc-old", lease_seconds=300)
+    assert store.claim_job(job)
+
+    assert store.prepare_restart_recovery() == 0
+    assert store.get_job(job)["status"] == "running"
+
+
+def test_processes_started_together_migrate_one_at_a_time(tmp_path) -> None:
+    import sqlite3
+    import threading
+
+    database = tmp_path / "together.db"
+    SQLiteStore(database)
+    with sqlite3.connect(database) as conn:  # an old database
+        conn.execute("alter table jobs drop column run_token")
+        conn.execute("alter table jobs drop column run_expires_at")
+    errors: list[BaseException] = []
+    start = threading.Barrier(4)
+
+    def open_store() -> None:
+        start.wait()
+        try:
+            SQLiteStore(database)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    SQLiteStore._migrated_paths.discard(str(database))
+    # Separate processes do not share _migration_lock; neither do these
+    # threads once the per-process cache is bypassed.
+    original = SQLiteStore._migration_lock
+    try:
+        SQLiteStore._migration_lock = type(
+            "NoLock", (), {"__enter__": lambda s: s, "__exit__": lambda s, *a: False}
+        )()
+        threads = [threading.Thread(target=open_store) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        SQLiteStore._migration_lock = original
+
+    assert errors == []
