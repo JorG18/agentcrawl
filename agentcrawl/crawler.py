@@ -1651,12 +1651,17 @@ def _robots_body(robots_url: str, config: CrawlConfig) -> str | None:
         # Bounded read: a hostile robots.txt could otherwise stream without
         # limit and take the process down during discovery.
         content: str | None = _discovery_read(robots_url, config)
+    except urllib.error.HTTPError as exc:
+        # RFC 9309 §2.3.1: 4xx means no rules; a server error means disallow all.
+        content = None if 400 <= exc.code < 500 else _DISALLOW_ALL
     except Exception:
-        content = None
+        content = _DISALLOW_ALL  # unreachable robots.txt = complete disallow (RFC 9309)
     if context is not None and cache is not None:
         cache[robots_url] = content
     return content
 
+
+_DISALLOW_ALL = "User-agent: *\nDisallow: /\n"
 
 _ROBOTS_CACHE: contextvars.ContextVar[dict[str, str | None] | None] = contextvars.ContextVar(
     "agentcrawl_robots_cache", default=None

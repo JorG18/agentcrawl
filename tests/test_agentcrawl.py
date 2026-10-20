@@ -2,6 +2,7 @@ from dataclasses import asdict
 from pathlib import Path
 import sys
 import types
+import urllib.error
 
 import pytest
 
@@ -329,6 +330,28 @@ def test_crawl_respects_robots_policy(tmp_path: Path, monkeypatch) -> None:
     assert not run.documents
     assert run.metadata["failed"] == 1
     assert "blocked by robots.txt" in run.errors[0]
+
+
+@pytest.mark.parametrize(
+    ("error", "allowed"),
+    [
+        (urllib.error.HTTPError("https://example.com/robots.txt", 404, "", {}, None), True),
+        (urllib.error.HTTPError("https://example.com/robots.txt", 503, "", {}, None), False),
+        (urllib.error.URLError("timed out"), False),
+    ],
+)
+def test_unreachable_robots_txt_disallows_everything(monkeypatch, error, allowed) -> None:
+    # RFC 9309 §2.3.1: 4xx = no rules; 5xx or unreachable = complete disallow.
+    import agentcrawl.crawler as crawler_module
+
+    def fail(*_a, **_k):
+        raise error
+
+    monkeypatch.setattr(crawler_module, "_guarded_urlopen", fail)
+
+    robots = crawler_module._load_robots("https://example.com/", CrawlConfig())
+
+    assert (robots is None or robots.can_fetch("AgentCrawl", "https://example.com/a")) is allowed
 
 
 def test_url_canonicalization_removes_tracking_and_normalizes_origin() -> None:

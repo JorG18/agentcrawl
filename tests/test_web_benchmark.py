@@ -333,7 +333,7 @@ def test_tie_is_written_as_a_tie() -> None:
 
     run = _run({"a": {"x": True, "y": False}, "b": {"x": False, "y": True}})
     text = markdown(pooled([run]))
-    assert "tie within noise" in text
+    assert "no significant difference" in text
 
 
 def test_cli_reads_results_from_downloaded_artifact_folders(tmp_path, capsys) -> None:

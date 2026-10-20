@@ -10,6 +10,9 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 
 ### Changed
 
+- **`crawl()` follows RFC 9309 when `robots.txt` cannot be read:** a server error (5xx) or a network failure now blocks the crawl ("blocked by robots.txt") instead of crawling everything; a 4xx still means no rules. `--no-robots` overrides it.
+- **TypeScript SDK license is Apache-2.0**, the same as the Python package (it said MIT).
+- **Benchmark wording:** a gap that is not significant is written "no significant difference", not "tie" (a test cannot show two tools are equal).
 - **Unknown formats are refused** (library `ValueError`, API `422`, CLI usage error) instead of returning a document with nothing in it. `raw_html` was never supported (the TypeScript `Format` type listed it).
 - **API limits:** request bodies over `AGENTCRAWL_MAX_REQUEST_BYTES` (1 MB) are refused before authentication; `config` overrides are capped at `crawl_max_pages` 10,000, `max_response_bytes` 50 MB, `timeout_ms`/`page_budget_ms` 5 min (`page_budget_ms` 0 refused), `browser_wait_ms` 60 s, retry delays 60 s and `http_retries`/`crawl_url_retries` 5; at most 20 `include`/`exclude` patterns.
 - **`regex` is a core dependency**: `include`/`exclude` matches are limited to 50 ms each.
