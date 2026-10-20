@@ -1053,6 +1053,30 @@ def test_a_refused_write_stops_the_run_at_once(tmp_path: Path, monkeypatch) -> N
     assert seen == [True]
 
 
+def test_a_run_that_gives_up_is_not_reported_cancelled(tmp_path: Path, monkeypatch) -> None:
+    """Losing the lease to a DB outage is not a user cancel: nothing is
+    written, and recovery resumes the job from its checkpoint."""
+    server.store = SQLiteStore(tmp_path / "gave-up.db")
+    monkeypatch.setattr(server, "schedule_lease_seconds", 2.0)
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+
+    def broken_renew(*_a, **_k):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(server.store, "renew_job_lease", broken_renew)
+
+    def fake_run_crawl(payload, progress_callback, should_cancel, **kwargs):
+        _wait_for(should_cancel)
+        return {"documents": [], "metadata": {"cancelled": True}}
+
+    monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
+    _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
+
+    assert server.store.get_job(job_id)["status"] == "running"
+    assert server.store.prepare_restart_recovery() == 1  # its lock is gone: requeued
+    assert server.store.usage_count() == 0
+
+
 def test_a_cancel_during_a_requeued_quantum_keeps_the_pages(tmp_path: Path, monkeypatch) -> None:
     server.store = SQLiteStore(tmp_path / "cancel-requeue.db")
     job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
