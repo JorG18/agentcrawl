@@ -10,6 +10,8 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 
 ### Changed
 
+- **A cancelled job always keeps the pages already scraped.** A cancel that landed while the job waited between quanta, or that the recovery sweep finished, deleted them; only a cancel during a run kept them. The job's result now lists them (`metadata.cancelled: true`) and they are recorded as usage for the job's key; a job cancelled before any page still has no result. Its failed URLs are kept in the failures list too.
+- **Crawl jobs bill each page once:** a failures retry or a cancel no longer bills again the pages an earlier run of the job already paid for (the job now records how many pages it billed).
 - **Job heartbeat survives a transient database error** (`database is locked`): the renewal thread used to die on it, so the lease of a live worker expired and a peer ran the same job again.
 - **A stalled worker is fenced out of its job:** each run claims the job with its own token, and its lease renewals, progress, checkpoints, requeues and final result are refused once a successor has recovered and claimed the job. The stalled run stops between pages instead of finishing (and billing) the job a second time.
 - **`crawl()` follows RFC 9309 when `robots.txt` cannot be read:** a server error (5xx, or 429) or a network failure, after one retry, now blocks the crawl ("robots.txt unreachable, crawl disallowed") instead of crawling everything; a 4xx, a redirect loop or an unusable body still means no rules. `--no-robots` overrides it.

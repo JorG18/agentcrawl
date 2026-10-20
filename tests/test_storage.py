@@ -61,9 +61,9 @@ def test_prepare_restart_recovery_counts_real_transitions_under_a_race(tmp_path)
     assert store.get_job(job)["status"] == "queued"
 
 
-def test_prepare_restart_recovery_only_sweeps_jobs_it_finalizes(tmp_path) -> None:
-    """Recovering a crashed 'running' job must not delete documents that
-    belong to unrelated cancelled jobs from earlier runs."""
+def test_prepare_restart_recovery_keeps_every_jobs_documents(tmp_path) -> None:
+    """Recovery keeps the crashed job's documents for the resumed run and
+    leaves an earlier cancelled job (which keeps its pages) untouched."""
     store = SQLiteStore(tmp_path / "recovery.db")
 
     crashed = store.create_job("crawl", {"url": "https://a.example"})
@@ -82,17 +82,7 @@ def test_prepare_restart_recovery_only_sweeps_jobs_it_finalizes(tmp_path) -> Non
         result={"documents": [{"url": "https://b.example/page", "markdown": "# Old"}]},
     )
     store.update_job(old_cancelled, "cancelled")
-    assert store.get_job_documents(old_cancelled) == []  # normal cancel clears docs
-
-    # Give the old cancelled job documents again, as an operator-visible
-    # artifact from a restore or earlier version.
-    store.save_job_checkpoint(
-        old_cancelled,
-        {"version": 2, "root": "https://b.example", "queue": []},
-        {"visited": 1},
-        document={"url": "https://b.example/page", "markdown": "# Historical"},
-    )
-    assert store.get_job_documents(old_cancelled)
+    assert store.get_job_documents(old_cancelled)  # a cancel keeps the pages
 
     assert store.prepare_restart_recovery() == 1
 
@@ -338,3 +328,112 @@ def test_recovery_leaves_a_live_cancelling_job_to_its_worker(tmp_path) -> None:
     store.prepare_restart_recovery()
 
     assert store.get_job(job)["status"] == "cancelling"
+
+
+def _job_with_a_page(store: SQLiteStore) -> str:
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.claim_job(job, owner="run-a")
+    assert store.save_job_checkpoint(
+        job,
+        {"version": 2, "root": "https://example.com/", "queue": []},
+        {"visited": 1},
+        document={"url": "https://example.com/a", "markdown": "# A"},
+        owner="run-a",
+    )
+    return job
+
+
+def test_a_cancel_from_the_queue_keeps_the_pages(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "keep-queued.db")
+    job = _job_with_a_page(store)
+    assert store.requeue_job(job, 0.0, owner="run-a")  # between quanta
+    store.release_schedule_lease(job, "run-a")
+    store.request_job_cancel(job)
+
+    assert store.update_job(job, "cancelled", free_for="proc-a")
+
+    result = store.get_job(job)["result"]
+    assert [doc["url"] for doc in result["documents"]] == ["https://example.com/a"]
+    assert result["metadata"]["cancelled"] is True
+    assert store.usage_count() == 1  # the kept page is billed
+    events = [e for e in store.list_job_events(job) if e["event_type"] == "cancelled"]
+    assert events[-1]["payload"]["document_count"] == 1
+
+
+def test_a_cancel_without_pages_has_no_result(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "no-pages.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    store.request_job_cancel(job)
+
+    assert store.update_job(job, "cancelled")
+
+    assert store.get_job(job)["result"] is None
+    assert store.usage_count() == 0
+
+
+def test_a_finished_job_cannot_be_cancelled_or_billed_again(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "finished.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    page = {"url": "https://example.com/a", "markdown": "# A"}
+    store.update_job(job, "completed", result={"documents": [page]})
+    store.bill_job(job, 1)
+
+    assert not store.update_job(job, "cancelled")
+
+    assert store.get_job(job)["status"] == "completed"
+    assert store.usage_count() == 1
+
+
+def test_pages_paid_by_an_earlier_run_are_not_billed_again(tmp_path) -> None:
+    import sqlite3
+
+    database = tmp_path / "rebill.db"
+    store = SQLiteStore(database)
+    job = _job_with_a_page(store)  # 1 page
+    assert store.update_job(job, "completed", result={"documents": []}, owner="run-a")
+    store.bill_job(job, 1)
+    with sqlite3.connect(database) as conn:  # a failures retry requeues it, pages kept
+        conn.execute("update jobs set status = 'queued', result_json = null where id = ?", (job,))
+    store.request_job_cancel(job)
+
+    assert store.update_job(job, "cancelled", free_for="proc-a")  # cancelled before running
+    assert store.usage_count() == 1
+    store.bill_job(job, 3)  # a later run that ends with 3 pages pays for 2 new ones
+    assert store.usage_count() == 3
+
+
+def test_a_cancel_records_the_checkpoints_failures(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "cancel-failures.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.claim_job(job, owner="run-a")
+    failure = {"url": "https://example.com/bad", "error_type": "http_404", "message": "404"}
+    store.save_job_checkpoint(
+        job, {"version": 2, "terminal_failures": [failure]}, {"visited": 1}, owner="run-a"
+    )
+    store.request_job_cancel(job)
+    store.release_schedule_lease(job, "run-a")
+
+    assert store.update_job(job, "cancelled", free_for="proc-a")
+
+    assert [f["url"] for f in store.list_crawl_failures(job_id=job)] == [failure["url"]]
+    event = [e for e in store.list_job_events(job) if e["event_type"] == "cancelled"][-1]
+    assert event["payload"]["terminal_failures"] == 1
+
+
+def test_a_cancel_finished_by_the_sweep_keeps_the_pages(tmp_path) -> None:
+    import sqlite3
+
+    database = tmp_path / "keep-sweep.db"
+    store = SQLiteStore(database)
+    job = _job_with_a_page(store)
+    store.request_job_cancel(job)
+    with sqlite3.connect(database) as conn:  # its worker died while cancelling
+        conn.execute("update jobs set schedule_lock_expires_at = 0 where id = ?", (job,))
+
+    store.prepare_restart_recovery()
+
+    row = store.get_job(job)
+    assert row["status"] == "cancelled"
+    assert [doc["url"] for doc in row["result"]["documents"]] == ["https://example.com/a"]
+    assert store.usage_count() == 1
+    assert any(e["event_type"] == "cancelled" for e in store.list_job_events(job))

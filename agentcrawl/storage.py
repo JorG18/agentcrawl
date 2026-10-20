@@ -199,6 +199,10 @@ class SQLiteStore:
                     conn.execute("alter table jobs add column schedule_lock text")
                 if "schedule_lock_expires_at" not in columns:
                     conn.execute("alter table jobs add column schedule_lock_expires_at real")
+                if "billed_pages" not in columns:
+                    conn.execute(
+                        "alter table jobs add column billed_pages integer not null default 0"
+                    )
                 conn.execute(
                     """
                     create unique index if not exists idx_jobs_idempotency
@@ -248,12 +252,6 @@ class SQLiteStore:
                  or schedule_lock_expires_at is null
                  or schedule_lock_expires_at < ?)
             """
-            finalized_ids = [
-                str(row["id"])
-                for row in conn.execute(
-                    f"select id from jobs where status = 'cancelling' and {dead}", (now,)
-                ).fetchall()
-            ]
             cursor = conn.execute(
                 f"""
                 update jobs
@@ -266,31 +264,93 @@ class SQLiteStore:
                 (now, now),
             )
             recovered = int(cursor.rowcount or 0)
-            conn.execute(
-                f"""
-                update jobs
-                set status = 'cancelled',
-                    error = 'Cancellation completed (its worker stopped).',
-                    checkpoint_json = null,
-                    schedule_lock = null, schedule_lock_expires_at = null,
-                    updated_at = ?
-                where status = 'cancelling' and {dead}
-                """,
-                (now, now),
-            )
-            # Same cleanup contract as ``update_job(..., 'cancelled')``:
-            # a job that ends cancelled loses its documents; recovered jobs
-            # keep theirs so the resumed run does not duplicate pages.
-            if finalized_ids:
-                placeholders = ", ".join("?" for _ in finalized_ids)
-                conn.execute(
-                    f"""
-                    delete from crawl_documents
-                    where job_id in ({placeholders})
-                    """,
-                    tuple(finalized_ids),
+            for row in conn.execute(
+                f"select id from jobs where status = 'cancelling' and {dead}", (now,)
+            ).fetchall():
+                self._finish_cancel(
+                    conn, str(row["id"]), "Cancellation completed (its worker stopped).", now
                 )
         return recovered
+
+    def _finish_cancel(
+        self, conn: sqlite3.Connection, job_id: str, error: str | None, now: float
+    ) -> bool:
+        """End a queued/cancelling job ``cancelled`` without a result from a run.
+
+        Pages scraped before the cancel are kept and their unbilled part is
+        billed; the result (unless the job already has one) lists them, and
+        the checkpoint's failures are recorded. Shared by a queue entry
+        finishing a cancel and by the recovery sweep.
+        """
+        row = conn.execute(
+            "select status, result_json, checkpoint_json from jobs where id = ?", (job_id,)
+        ).fetchone()
+        if row is None or row["status"] not in ("queued", "cancelling"):
+            return False
+        pages = self._document_count(conn, job_id)
+        failures = list(json.loads(row["checkpoint_json"] or "{}").get("terminal_failures") or [])
+        self._record_crawl_failures(conn, job_id, failures, now)
+        result_json = row["result_json"]
+        if pages and result_json is None:
+            result_json = json.dumps({"documents": [], "metadata": {"cancelled": True}})
+        conn.execute(
+            """
+            update jobs
+            set status = 'cancelled', result_json = ?, error = ?, checkpoint_json = null,
+                available_at = 0, updated_at = ?,
+                schedule_lock = null, schedule_lock_expires_at = null
+            where id = ?
+            """,
+            (result_json, error, now, job_id),
+        )
+        self._insert_job_event(
+            conn,
+            job_id,
+            "cancelled",
+            {"error": error, "document_count": pages, "terminal_failures": len(failures)},
+            now,
+        )
+        # No run ended here, so no one-unit minimum: only pages are billed.
+        self._bill_job_pages(conn, job_id, pages, minimum=0, now=now)
+        return True
+
+    @staticmethod
+    def _document_count(conn: sqlite3.Connection, job_id: str) -> int:
+        row = conn.execute(
+            "select count(*) as total from crawl_documents where job_id = ?", (job_id,)
+        ).fetchone()
+        return int(row["total"])
+
+    @staticmethod
+    def _insert_usage(
+        conn: sqlite3.Connection, api_key: str | None, endpoint: str, units: int, now: float
+    ) -> None:
+        conn.execute(
+            "insert into usage_events values (?, ?, ?, ?, ?)",
+            (uuid.uuid4().hex, api_key, endpoint, units, now),
+        )
+
+    def _bill_job_pages(
+        self, conn: sqlite3.Connection, job_id: str, pages: int, *, minimum: int, now: float
+    ) -> None:
+        """Bill the job's key for pages not billed yet (a failures retry keeps
+        the pages an earlier run already paid for), at least ``minimum`` units."""
+        row = conn.execute(
+            "select owner_key, billed_pages from jobs where id = ?", (job_id,)
+        ).fetchone()
+        if row is None:
+            return
+        units = max(minimum, pages - int(row["billed_pages"]))
+        if units:
+            self._insert_usage(conn, row["owner_key"] or None, "/v1/crawl", units, now)
+        conn.execute(
+            "update jobs set billed_pages = max(billed_pages, ?) where id = ?", (pages, job_id)
+        )
+
+    def bill_job(self, job_id: str, pages: int) -> None:
+        """Bill a job run that ended with ``pages`` pages (a run costs at least one unit)."""
+        with self._connect() as conn:
+            self._bill_job_pages(conn, job_id, pages, minimum=1, now=time.time())
 
     @staticmethod
     def _insert_job_event(
@@ -525,7 +585,8 @@ class SQLiteStore:
         if free_for is not None:
             sql += (
                 " and status in ('queued', 'cancelling')"
-                " and (schedule_lock is null or schedule_lock = ? or schedule_lock_expires_at < ?)"
+                " and (schedule_lock is null or schedule_lock = ?"
+                " or schedule_lock_expires_at is null or schedule_lock_expires_at < ?)"
             )
             params += (free_for, time.time())
         return sql, params
@@ -571,7 +632,11 @@ class SQLiteStore:
                     now,
                     owner,
                     owner,
-                    now + (lease_seconds or DEFAULT_SCHEDULE_LEASE_SECONDS),
+                    now
+                    + max(
+                        1.0,
+                        DEFAULT_SCHEDULE_LEASE_SECONDS if lease_seconds is None else lease_seconds,
+                    ),
                     job_id,
                     now,
                 ),
@@ -603,6 +668,8 @@ class SQLiteStore:
         with self._connect() as conn:
             if not self._fence(conn, job_id, owner, free_for):
                 return False
+            if status == "cancelled" and result is None:
+                return self._finish_cancel(conn, job_id, error, now)
             # The worker looks for a cancel only between pages, so one that
             # lands during the last page was accepted ('cancelling') and then
             # overwritten here. Honour it; the pages already scraped are kept.
@@ -632,7 +699,8 @@ class SQLiteStore:
                 """
                 update jobs
                 set status = ?, result_json = ?, error = ?, checkpoint_json = null,
-                    available_at = 0, updated_at = ?
+                    available_at = 0, updated_at = ?,
+                    schedule_lock = null, schedule_lock_expires_at = null
                 where id = ?
                 """,
                 (
@@ -643,8 +711,6 @@ class SQLiteStore:
                     job_id,
                 ),
             )
-            if status == "cancelled" and result is None:
-                conn.execute("delete from crawl_documents where job_id = ?", (job_id,))
             self._insert_job_event(
                 conn,
                 job_id,
@@ -735,18 +801,19 @@ class SQLiteStore:
         owner: str | None = None,
     ) -> bool:
         now = time.time()
+        extra, params = self._owned(owner)
         with self._connect() as conn:
-            if not self._fence(conn, job_id, owner):
-                return False
             cursor = conn.execute(
-                """
+                f"""
                 update jobs
                 set status = 'queued', available_at = ?, error = null, updated_at = ?
-                where id = ? and cancel_requested = 0
+                where id = ? and cancel_requested = 0{extra}
                 """,
-                (available_at, now, job_id),
+                (available_at, now, job_id, *params),
             )
-            if not cursor.rowcount:  # cancelled meanwhile: the caller finishes it
+            # Refused: cancelled meanwhile (the caller finishes it) or not
+            # ``owner``'s any more.
+            if not cursor.rowcount:
                 return False
             self._insert_job_event(
                 conn,
@@ -828,11 +895,7 @@ class SQLiteStore:
 
     def job_document_count(self, job_id: str) -> int:
         with self._connect() as conn:
-            row = conn.execute(
-                "select count(*) as total from crawl_documents where job_id = ?",
-                (job_id,),
-            ).fetchone()
-        return int(row["total"])
+            return self._document_count(conn, job_id)
 
     def get_job_checkpoint(self, job_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
@@ -1179,10 +1242,7 @@ class SQLiteStore:
 
     def record_usage(self, api_key: str | None, endpoint: str, units: int = 1) -> None:
         with self._connect() as conn:
-            conn.execute(
-                "insert into usage_events values (?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, api_key, endpoint, units, time.time()),
-            )
+            self._insert_usage(conn, api_key, endpoint, units, time.time())
 
     def usage_count(self, api_key: str | None = None) -> int:
         with self._connect() as conn:
