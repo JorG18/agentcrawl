@@ -489,6 +489,7 @@ def test_running_jobs_move_their_lock_to_the_run_columns(tmp_path) -> None:
     store = SQLiteStore(database)
     running = store.create_job("crawl", {"url": "https://example.com/"})
     queued = store.create_job("crawl", {"url": "https://example.org/"})
+    cancelling = store.create_job("crawl", {"url": "https://example.net/"})
     with sqlite3.connect(database) as conn:  # an old database: one lock for both
         conn.execute("alter table jobs drop column run_token")
         conn.execute("alter table jobs drop column run_expires_at")
@@ -502,6 +503,11 @@ def test_running_jobs_move_their_lock_to_the_run_columns(tmp_path) -> None:
             " where id = ?",
             (queued,),
         )
+        conn.execute(  # cancelled while queued: its lock is a scheduling lease
+            "update jobs set status = 'cancelling', cancel_requested = 1,"
+            " schedule_lock = 'proc-a', schedule_lock_expires_at = 9e9 where id = ?",
+            (cancelling,),
+        )
     SQLiteStore._migrated_paths.discard(str(database))
 
     SQLiteStore(database)
@@ -511,6 +517,8 @@ def test_running_jobs_move_their_lock_to_the_run_columns(tmp_path) -> None:
         sql = f"select {columns} from jobs where id = ?"
         assert conn.execute(sql, (running,)).fetchone() == (None, None, "run-a", 123.0)
         assert conn.execute(sql, (queued,)).fetchone() == ("proc-a", 456.0, None, None)
+        assert conn.execute(sql, (cancelling,)).fetchone() == (None, None, None, None)
+    assert store.update_job(cancelling, "cancelled", unclaimed=True)  # nothing runs it
 
 
 def test_a_peers_scheduling_lease_does_not_block_a_queued_cancel(tmp_path) -> None:
@@ -539,3 +547,14 @@ def test_release_run_drops_only_its_own_run_token(tmp_path) -> None:
     store.release_run(job, "run-a")
     with sqlite3.connect(database) as conn:
         assert conn.execute(sql, (job,)).fetchone() == (None, 1)
+
+
+def test_a_cancel_right_after_a_requeue_ends_at_once(tmp_path) -> None:
+    # Between a run's requeue and the end of that run, nothing executes the job.
+    store = SQLiteStore(tmp_path / "requeue-gap.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.claim_job(job, owner="run-a")
+    assert store.requeue_job(job, 0.0, owner="run-a")
+    store.request_job_cancel(job)
+
+    assert store.update_job(job, "cancelled", unclaimed=True)

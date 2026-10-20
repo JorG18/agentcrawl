@@ -1177,10 +1177,21 @@ def cancel_job(
             status_code=409,
             detail=f"Job cannot be cancelled from status {job['status']}.",
         )
-    # No run to notice it (e.g. a delayed retry waiting on its timer): end it now.
-    _finish_unclaimed_cancel(job_id)
+    # No run to notice it (e.g. a delayed retry waiting on its timer): end it
+    # now. Best effort: a run, or the recovery sweep, finishes it otherwise.
+    status = "cancelling"
+    try:
+        if _finish_unclaimed_cancel(job_id):
+            status = "cancelled"
+            with server._job_threads_lock:  # its pending retry has nothing left to do
+                timer = server._job_threads.pop(job_id, None)
+                server._queued_jobs.discard(job_id)
+            if isinstance(timer, threading.Timer):
+                timer.cancel()
+    except Exception:  # noqa: BLE001 - the cancel itself is recorded
+        logging.getLogger(__name__).exception("could not finish the cancel of %s", job_id)
     server.store.record_usage(scope.key_id, "/v1/jobs.cancel")
-    return {"success": True, "data": {"job_id": job_id, "status": "cancelling"}}
+    return {"success": True, "data": {"job_id": job_id, "status": status}}
 
 
 @app.get("/v1/failures")
@@ -1493,13 +1504,15 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             server.schedule_job(job_id, payload, api_key, reschedule_at)
 
 
-def _finish_unclaimed_cancel(job_id: str) -> None:
+def _finish_unclaimed_cancel(job_id: str) -> bool:
     """A queue entry that never claimed the job finishes its cancel, unless a
     run (here or on a peer) is executing it: that run finishes it instead."""
-    if not server.store.update_job(job_id, "cancelled", unclaimed=True):
-        logging.getLogger(__name__).info(
-            "cancel of job %s left to the run holding it (or the recovery sweep)", job_id
-        )
+    if server.store.update_job(job_id, "cancelled", unclaimed=True):
+        return True
+    logging.getLogger(__name__).info(
+        "cancel of job %s left to the run holding it (or the recovery sweep)", job_id
+    )
+    return False
 
 
 def _resume_state(job_id: str) -> dict[str, Any] | None:

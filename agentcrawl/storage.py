@@ -204,14 +204,22 @@ class SQLiteStore:
                 if "run_token" not in columns:
                     conn.execute("alter table jobs add column run_token text")
                     # One lock used to mean both the scheduling lease and the
-                    # run token; a running job's lock was its run's token.
+                    # run token; a running job's lock was its run's token. A
+                    # 'cancelling' job's lock may be a queued job's scheduling
+                    # lease, so it moves nothing: the sweep finishes that cancel.
                     conn.execute(
                         """
                         update jobs
                         set run_token = schedule_lock,
                             run_expires_at = schedule_lock_expires_at,
                             schedule_lock = null, schedule_lock_expires_at = null
-                        where status in ('running', 'cancelling')
+                        where status = 'running'
+                        """
+                    )
+                    conn.execute(
+                        """
+                        update jobs set schedule_lock = null, schedule_lock_expires_at = null
+                        where status = 'cancelling'
                         """
                     )
                 if "billed_pages" not in columns:
@@ -583,10 +591,10 @@ class SQLiteStore:
         with self._connect() as conn:
             conn.execute(
                 """
-                update jobs set run_token = null, run_expires_at = null
+                update jobs set run_token = null, run_expires_at = null, updated_at = ?
                 where id = ? and run_token = ?
                 """,
-                (job_id, run),
+                (time.time(), job_id, run),
             )
 
     def renew_job_lease(self, job_id: str, owner: str, lease_seconds: float) -> bool:
@@ -848,7 +856,8 @@ class SQLiteStore:
             cursor = conn.execute(
                 f"""
                 update jobs
-                set status = 'queued', available_at = ?, error = null, updated_at = ?
+                set status = 'queued', available_at = ?, error = null, updated_at = ?,
+                    run_token = null, run_expires_at = null
                 where id = ? and cancel_requested = 0{extra}
                 """,
                 (available_at, now, job_id, *params),

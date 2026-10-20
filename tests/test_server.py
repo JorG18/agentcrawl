@@ -1195,13 +1195,18 @@ def test_a_cancel_of_a_job_waiting_for_a_delayed_retry_ends_at_once(tmp_path: Pa
     job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
     server.store.requeue_job(job_id, time.time() + 600)
     assert server.schedule_job(job_id, {"url": "https://example.com/"}, None, time.time() + 600)
+    timer = server._job_threads[job_id]
     try:
         response = TestClient(app).delete(f"/v1/jobs/{job_id}")
 
         assert response.status_code == 200
+        assert response.json()["data"]["status"] == "cancelled"
         assert server.store.get_job(job_id)["status"] == "cancelled"
+        timer.join(timeout=5)  # its pending retry was cancelled with it
+        assert not timer.is_alive()
+        assert job_id not in server._job_threads and job_id not in server._queued_jobs
     finally:
-        server._job_threads[job_id].cancel()
+        timer.cancel()
         server._forget_entry(job_id)
 
 
