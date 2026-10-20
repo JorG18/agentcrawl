@@ -21,10 +21,6 @@ from .html_tools import normalize_url
 # don't lock jobs forever.
 DEFAULT_SCHEDULE_LEASE_SECONDS = 300
 
-# Result of a job cancelled before its run reported one; its pages, kept in
-# ``crawl_documents``, are listed from there.
-_CANCELLED_RESULT = '{"documents": [], "metadata": {"cancelled": true}}'
-
 
 def _apply_owner_filter(
     clauses: list[str],
@@ -264,20 +260,56 @@ class SQLiteStore:
                 (now, now),
             )
             recovered = int(cursor.rowcount or 0)
-            conn.execute(
-                f"""
-                update jobs
-                set status = 'cancelled',
-                    error = 'Cancellation completed (its worker stopped).',
-                    result_json = coalesce(result_json, ?),
-                    checkpoint_json = null,
-                    schedule_lock = null, schedule_lock_expires_at = null,
-                    updated_at = ?
-                where status = 'cancelling' and {dead}
-                """,
-                (_CANCELLED_RESULT, now, now),
-            )
+            for row in conn.execute(
+                f"select id from jobs where status = 'cancelling' and {dead}", (now,)
+            ).fetchall():
+                self._finish_cancel(
+                    conn, str(row["id"]), "Cancellation completed (its worker stopped).", now
+                )
         return recovered
+
+    def _finish_cancel(
+        self, conn: sqlite3.Connection, job_id: str, error: str | None, now: float
+    ) -> None:
+        """End a job ``cancelled`` without a result from its run.
+
+        Pages scraped before the cancel are kept and billed to the job's key;
+        the result (unless the job already has one) lists them. Shared by a
+        queue entry finishing a cancel and by the recovery sweep.
+        """
+        row = conn.execute(
+            "select owner_key, result_json from jobs where id = ?", (job_id,)
+        ).fetchone()
+        if row is None:
+            return
+        pages = int(
+            conn.execute(
+                "select count(*) from crawl_documents where job_id = ?", (job_id,)
+            ).fetchone()[0]
+        )
+        result_json = row["result_json"]
+        if pages and result_json is None:
+            result_json = json.dumps(
+                {"documents": [], "metadata": {"cancelled": True, "document_count": pages}}
+            )
+        conn.execute(
+            """
+            update jobs
+            set status = 'cancelled', result_json = ?, error = ?, checkpoint_json = null,
+                available_at = 0, updated_at = ?,
+                schedule_lock = null, schedule_lock_expires_at = null
+            where id = ?
+            """,
+            (result_json, error, now, job_id),
+        )
+        self._insert_job_event(
+            conn, job_id, "cancelled", {"error": error, "document_count": pages}, now
+        )
+        if pages:
+            conn.execute(
+                "insert into usage_events values (?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, row["owner_key"] or None, "/v1/crawl", pages, now),
+            )
 
     @staticmethod
     def _insert_job_event(
@@ -581,10 +613,6 @@ class SQLiteStore:
         """Finish a job; with ``owner``, only while that run still holds it;
         with ``free_for``, only if no other run holds a live lock on it."""
         now = time.time()
-        if result is None and status == "cancelled":
-            # Pages scraped before a cancel are kept (and paid for); this
-            # makes ``get_job`` list them from ``crawl_documents``.
-            result = json.loads(_CANCELLED_RESULT)
         stored_result = result
         documents: list[dict[str, Any]] = []
         if result is not None:
@@ -594,6 +622,9 @@ class SQLiteStore:
         with self._connect() as conn:
             if not self._fence(conn, job_id, owner, free_for):
                 return False
+            if status == "cancelled" and result is None:
+                self._finish_cancel(conn, job_id, error, now)
+                return True
             # The worker looks for a cancel only between pages, so one that
             # lands during the last page was accepted ('cancelling') and then
             # overwritten here. Honour it; the pages already scraped are kept.

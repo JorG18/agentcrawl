@@ -61,9 +61,9 @@ def test_prepare_restart_recovery_counts_real_transitions_under_a_race(tmp_path)
     assert store.get_job(job)["status"] == "queued"
 
 
-def test_prepare_restart_recovery_only_sweeps_jobs_it_finalizes(tmp_path) -> None:
-    """Recovering a crashed 'running' job must not delete documents that
-    belong to unrelated cancelled jobs from earlier runs."""
+def test_prepare_restart_recovery_keeps_every_jobs_documents(tmp_path) -> None:
+    """Recovery keeps the crashed job's documents for the resumed run and
+    leaves an earlier cancelled job (which keeps its pages) untouched."""
     store = SQLiteStore(tmp_path / "recovery.db")
 
     crashed = store.create_job("crawl", {"url": "https://a.example"})
@@ -355,6 +355,31 @@ def test_a_cancel_from_the_queue_keeps_the_pages(tmp_path) -> None:
     result = store.get_job(job)["result"]
     assert [doc["url"] for doc in result["documents"]] == ["https://example.com/a"]
     assert result["metadata"]["cancelled"] is True
+    assert store.usage_count() == 1  # the kept page is billed
+    events = [e for e in store.list_job_events(job) if e["event_type"] == "cancelled"]
+    assert events[-1]["payload"]["document_count"] == 1
+
+
+def test_a_cancel_without_pages_has_no_result(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "no-pages.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    store.request_job_cancel(job)
+
+    assert store.update_job(job, "cancelled")
+
+    assert store.get_job(job)["result"] is None
+    assert store.usage_count() == 0
+
+
+def test_a_cancel_keeps_a_result_the_job_already_had(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "had-result.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    page = {"url": "https://example.com/a", "markdown": "# A"}
+    store.update_job(job, "completed", result={"documents": [page], "metadata": {"x": 1}})
+
+    store.update_job(job, "cancelled")
+
+    assert store.get_job(job)["result"]["metadata"]["x"] == 1
 
 
 def test_a_cancel_finished_by_the_sweep_keeps_the_pages(tmp_path) -> None:
@@ -372,3 +397,5 @@ def test_a_cancel_finished_by_the_sweep_keeps_the_pages(tmp_path) -> None:
     row = store.get_job(job)
     assert row["status"] == "cancelled"
     assert [doc["url"] for doc in row["result"]["documents"]] == ["https://example.com/a"]
+    assert store.usage_count() == 1
+    assert any(e["event_type"] == "cancelled" for e in store.list_job_events(job))
