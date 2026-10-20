@@ -558,3 +558,52 @@ def test_a_cancel_right_after_a_requeue_ends_at_once(tmp_path) -> None:
     store.request_job_cancel(job)
 
     assert store.update_job(job, "cancelled", unclaimed=True)
+
+
+def test_a_job_claimed_without_a_run_token_stays_alive_while_its_lock_is(tmp_path) -> None:
+    # An ownerless claim, or a process from before run_token existed.
+    store = SQLiteStore(tmp_path / "old-claim.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.acquire_schedule_lease(job, "proc-old", lease_seconds=300)
+    assert store.claim_job(job)
+
+    assert store.prepare_restart_recovery() == 0
+    assert store.get_job(job)["status"] == "running"
+
+
+def test_processes_started_together_migrate_one_at_a_time(tmp_path) -> None:
+    import sqlite3
+    import threading
+
+    database = tmp_path / "together.db"
+    SQLiteStore(database)
+    with sqlite3.connect(database) as conn:  # an old database
+        conn.execute("alter table jobs drop column run_token")
+        conn.execute("alter table jobs drop column run_expires_at")
+    errors: list[BaseException] = []
+    start = threading.Barrier(4)
+
+    def open_store() -> None:
+        start.wait()
+        try:
+            SQLiteStore(database)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    SQLiteStore._migrated_paths.discard(str(database))
+    # Separate processes do not share _migration_lock; neither do these
+    # threads once the per-process cache is bypassed.
+    original = SQLiteStore._migration_lock
+    try:
+        SQLiteStore._migration_lock = type(
+            "NoLock", (), {"__enter__": lambda s: s, "__exit__": lambda s, *a: False}
+        )()
+        threads = [threading.Thread(target=open_store) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        SQLiteStore._migration_lock = original
+
+    assert errors == []

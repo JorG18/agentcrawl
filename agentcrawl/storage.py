@@ -178,6 +178,9 @@ class SQLiteStore:
                     create index if not exists idx_scrape_cache_expires_at on scrape_cache(expires_at);
                     """
                 )
+                # Processes restarted together migrate one at a time: the
+                # second sees the first's columns instead of re-adding them.
+                conn.execute("begin immediate")
                 columns = {
                     str(row["name"]) for row in conn.execute("pragma table_info(jobs)").fetchall()
                 }
@@ -293,8 +296,13 @@ class SQLiteStore:
                     run_token = null, run_expires_at = null,
                     updated_at = ?
                 where status = 'running' and {dead}
+                  -- claimed without a run token (no owner, or a process from
+                  -- before run_token existed): its lock is still the old one
+                  and (schedule_lock is null
+                       or schedule_lock_expires_at is null
+                       or schedule_lock_expires_at < ?)
                 """,
-                (now, now),
+                (now, now, now),
             )
             recovered = int(cursor.rowcount or 0)
             for row in conn.execute(
@@ -569,8 +577,9 @@ class SQLiteStore:
     def release_schedule_lease(self, job_id: str, owner: str) -> None:
         """Drop a scheduling lease we previously acquired.
 
-        Called when we successfully run (or fail) the scheduling so other
-        workers don't have to wait for the natural TTL. Idempotent:
+        Called by a queue entry that could not claim the job, so other
+        workers don't have to wait for the natural TTL (a claimed job's
+        lease ends at the claim; its run holds ``run_token``). Idempotent:
         clearing a lease we never owned is a no-op so the queue worker
         can call this defensively.
         """
@@ -656,8 +665,10 @@ class SQLiteStore:
     ) -> bool:
         """``queued`` -> ``running``; with ``owner``, that run also takes the run token.
 
-        The scheduling lease ends here. Taking the token is what fences a
-        stalled predecessor out: its renewals and writes stop matching.
+        With ``owner`` the scheduling lease ends here, and taking the token is
+        what fences a stalled predecessor out: its renewals and writes stop
+        matching. Without one the job keeps its scheduling lease as its
+        liveness, as before run tokens existed.
         """
         now = time.time()
         with self._connect() as conn:
@@ -665,7 +676,9 @@ class SQLiteStore:
                 """
                 update jobs
                 set status = 'running', error = null, updated_at = ?,
-                    schedule_lock = null, schedule_lock_expires_at = null,
+                    schedule_lock = case when ? is null then schedule_lock end,
+                    schedule_lock_expires_at = case when ? is null
+                        then schedule_lock_expires_at end,
                     run_token = ?,
                     run_expires_at = case when ? is null then null else ? end
                 where id = ? and status = 'queued' and cancel_requested = 0
@@ -673,6 +686,8 @@ class SQLiteStore:
                 """,
                 (
                     now,
+                    owner,
+                    owner,
                     owner,
                     owner,
                     now
@@ -1003,6 +1018,11 @@ class SQLiteStore:
             if requested:
                 self._insert_job_event(conn, job_id, "cancel_requested", {}, now)
             return requested
+
+    def job_status(self, job_id: str) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute("select status from jobs where id = ?", (job_id,)).fetchone()
+        return str(row["status"]) if row else None
 
     def job_cancel_requested(self, job_id: str) -> bool:
         with self._connect() as conn:
