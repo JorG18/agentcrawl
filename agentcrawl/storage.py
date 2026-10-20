@@ -433,12 +433,11 @@ class SQLiteStore:
         ``schedule_lock_expires_at`` on the row only when no other owner
         currently holds a live lease.
 
-        Re-entrant for the same owner: an instance renewing its own lease
-        succeeds, which is what the delayed-retry path needs — the worker
-        that requeued the job re-schedules it seconds later while the
-        300s lease it took at claim time is still live. Without the
-        re-entrant clause the renewal silently failed and delayed retries
-        sat in ``queued`` until process restart.
+        Re-entrant for the same owner: an instance that schedules a job it
+        already holds the lease for (a duplicate ``schedule_job`` before the
+        run claims it) keeps it. Once claimed, the lock belongs to that run
+        (``claim_job``) and is released when the run ends, before any retry
+        is scheduled.
 
         Returns ``True`` when the caller won the race (or renewed its own
         lease); ``False`` when a different owner holds a valid lease.
@@ -525,6 +524,7 @@ class SQLiteStore:
             params += (owner,)
         if free_for is not None:
             sql += (
+                " and status in ('queued', 'cancelling')"
                 " and (schedule_lock is null or schedule_lock = ? or schedule_lock_expires_at < ?)"
             )
             params += (free_for, time.time())
@@ -738,7 +738,7 @@ class SQLiteStore:
         with self._connect() as conn:
             if not self._fence(conn, job_id, owner):
                 return False
-            conn.execute(
+            cursor = conn.execute(
                 """
                 update jobs
                 set status = 'queued', available_at = ?, error = null, updated_at = ?
@@ -746,6 +746,8 @@ class SQLiteStore:
                 """,
                 (available_at, now, job_id),
             )
+            if not cursor.rowcount:  # cancelled meanwhile: the caller finishes it
+                return False
             self._insert_job_event(
                 conn,
                 job_id,
@@ -757,13 +759,15 @@ class SQLiteStore:
 
     def update_job_progress(
         self, job_id: str, progress: dict[str, Any], *, owner: str | None = None
-    ) -> None:
+    ) -> bool:
+        """``False`` when ``owner``'s run no longer holds the job."""
         extra, params = self._owned(owner)
         with self._connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 f"update jobs set progress_json = ?, updated_at = ? where id = ?{extra}",
                 (json.dumps(progress), time.time(), job_id, *params),
             )
+        return bool(cursor.rowcount)
 
     def save_job_checkpoint(
         self,
@@ -773,7 +777,8 @@ class SQLiteStore:
         document: dict[str, Any] | None = None,
         *,
         owner: str | None = None,
-    ) -> None:
+    ) -> bool:
+        """``False`` when ``owner``'s run no longer holds the job (nothing saved)."""
         now = time.time()
         extra, params = self._owned(owner)
         with self._connect() as conn:
@@ -788,7 +793,7 @@ class SQLiteStore:
                 (json.dumps(checkpoint), json.dumps(progress), now, job_id, *params),
             )
             if not cursor.rowcount:
-                return
+                return False
             if document is not None:
                 document_url = str(document["url"])
                 conn.execute(
@@ -800,6 +805,7 @@ class SQLiteStore:
                     (job_id, document_url, json.dumps(document), now),
                 )
                 self._mark_failure_resolved(conn, job_id, document_url, now)
+        return True
 
     def get_job_documents(
         self,

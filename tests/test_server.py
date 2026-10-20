@@ -918,6 +918,13 @@ def test_run_crawl_job_heartbeats_then_releases_its_lease(tmp_path: Path, monkey
     assert _lock_columns(database, job_id) == (None, None)
 
 
+def _wait_for(condition, timeout: float = 10.0) -> None:
+    """Poll instead of sleeping a fixed time, so a slow runner cannot flake."""
+    deadline = time.monotonic() + timeout
+    while not condition() and time.monotonic() < deadline:
+        time.sleep(0.05)
+
+
 def test_heartbeat_survives_a_transient_database_error(tmp_path: Path, monkeypatch) -> None:
     """A 'database is locked' on one renewal must not stop the heartbeat: the
     lease would then expire under a live worker and a peer would rerun the job."""
@@ -938,7 +945,7 @@ def test_heartbeat_survives_a_transient_database_error(tmp_path: Path, monkeypat
     monkeypatch.setattr(server.store, "renew_job_lease", flaky_renew)
 
     def fake_run_crawl(payload, progress_callback, **kwargs):
-        time.sleep(2.5)  # long enough for two timer ticks
+        _wait_for(lambda: len(calls) >= 2)  # the failed tick, then a later one
         return {"documents": [], "metadata": {}}
 
     monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
@@ -967,8 +974,8 @@ def test_a_stalled_worker_is_fenced_out_by_its_successor(tmp_path: Path) -> None
 
     # A wakes up: every renewal and write of its run is refused.
     assert not store.renew_job_lease(job, "run-a", 60)
-    store.save_job_checkpoint(job, {"a": 1}, {"visited": 9}, owner="run-a")
-    store.update_job_progress(job, {"visited": 9}, owner="run-a")
+    assert not store.save_job_checkpoint(job, {"a": 1}, {"visited": 9}, owner="run-a")
+    assert not store.update_job_progress(job, {"visited": 9}, owner="run-a")
     assert not store.requeue_job(job, 0.0, owner="run-a")
     assert not store.update_job(job, "completed", result={"documents": []}, owner="run-a")
     store.release_schedule_lease(job, "run-a")
@@ -1015,7 +1022,7 @@ def test_a_run_that_lost_its_job_stops_and_writes_nothing(tmp_path: Path, monkey
     def fake_run_crawl(payload, progress_callback, should_cancel, **kwargs):
         with sqlite3.connect(database) as conn:  # a successor claims the job
             conn.execute("update jobs set schedule_lock = 'run-b' where id = ?", (job_id,))
-        time.sleep(1.5)  # one heartbeat tick
+        _wait_for(should_cancel)  # the next heartbeat notices
         seen.append(should_cancel())
         return {"documents": [], "metadata": {"cancelled": True}}
 
@@ -1025,6 +1032,54 @@ def test_a_run_that_lost_its_job_stops_and_writes_nothing(tmp_path: Path, monkey
     assert seen == [True]
     assert server.store.get_job(job_id)["status"] == "running"  # the successor's to finish
     assert _lock_columns(database, job_id)[0] == "run-b"
+
+
+def test_a_refused_write_stops_the_run_at_once(tmp_path: Path, monkeypatch) -> None:
+    database = tmp_path / "refused.db"
+    server.store = SQLiteStore(database)
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+    seen: list[bool] = []
+
+    def fake_run_crawl(payload, progress_callback, should_cancel, **kwargs):
+        with sqlite3.connect(database) as conn:  # a successor claims the job
+            conn.execute("update jobs set schedule_lock = 'run-b' where id = ?", (job_id,))
+        progress_callback({"visited": 1})
+        seen.append(should_cancel())  # no heartbeat tick needed
+        return {"documents": [], "metadata": {"cancelled": True}}
+
+    monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
+    _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
+
+    assert seen == [True]
+
+
+def test_a_cancel_during_a_requeued_quantum_keeps_the_pages(tmp_path: Path, monkeypatch) -> None:
+    server.store = SQLiteStore(tmp_path / "cancel-requeue.db")
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+    page = {"url": "https://example.com/a", "markdown": "A"}
+
+    def fake_run_crawl(payload, progress_callback, **kwargs):
+        server.store.request_job_cancel(job_id)  # lands during the last page
+        return {"documents": [page], "metadata": {"fairness_yielded": True}}
+
+    monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
+    _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
+
+    assert server.store.get_job(job_id)["status"] == "cancelled"
+    assert [doc["url"] for doc in server.store.get_job_documents(job_id)] == [page["url"]]
+
+
+def test_a_stale_entry_cannot_cancel_a_finished_job(tmp_path: Path) -> None:
+    store = SQLiteStore(tmp_path / "finished.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.claim_job(job, owner="run-a")
+    store.request_job_cancel(job)
+    page = {"url": "https://example.com/a", "markdown": "A"}
+    assert store.update_job(job, "cancelled", result={"documents": [page]}, owner="run-a")
+    store.release_schedule_lease(job, "run-a")
+
+    assert not store.update_job(job, "cancelled", free_for="proc-x")  # stale queue entry
+    assert len(store.get_job_documents(job)) == 1
 
 
 def test_a_duplicate_entry_that_loses_the_claim_keeps_the_runners_lease(

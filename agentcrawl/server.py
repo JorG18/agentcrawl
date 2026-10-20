@@ -695,6 +695,16 @@ class AgentCrawlServer:
         # dedupe.
         self._queued_jobs.discard(job_id)
 
+    def _forget_entry(self, job_id: str) -> None:
+        """Drop the in-process dedupe entry, unless a newer delayed retry for
+        the job still waits on its timer (that entry is not ours to drop)."""
+        with self._job_threads_lock:
+            timer = self._job_threads.get(job_id)
+            if timer is not None and timer.is_alive():
+                return
+            self._job_threads.pop(job_id, None)
+            self._queued_jobs.discard(job_id)
+
     def schedule_job(
         self,
         job_id: str,
@@ -1367,9 +1377,7 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
         claimed = True
         # Claimed: the DB status now blocks duplicates, so drop the in-process
         # dedupe entry here; a successor run may own it by the time we finish.
-        with server._job_threads_lock:
-            server._job_threads.pop(job_id, None)
-            server._queued_jobs.discard(job_id)
+        server._forget_entry(job_id)
         # The run that claimed the job owns its lease and renews it on a timer,
         # whatever a page is waiting on; the recovery sweep only requeues a job
         # whose lease ran out, i.e. whose worker died. If this run stalled that
@@ -1385,47 +1393,48 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
                     logging.getLogger(__name__).exception("lease renewal failed: %s", job_id)
 
         threading.Thread(target=heartbeat, name=f"lease-{job_id}", daemon=True).start()
+
+        # A refused write means a successor holds the job: stop at once
+        # instead of crawling in parallel until the next heartbeat.
+        def save_progress(progress: dict[str, Any]) -> None:
+            if not server.store.update_job_progress(job_id, progress, owner=run):
+                lost.set()
+
+        def save_checkpoint(checkpoint: dict[str, Any], progress: dict[str, Any], document) -> None:
+            document = to_jsonable(document) if document is not None else None
+            if not server.store.save_job_checkpoint(
+                job_id, checkpoint, progress, document, owner=run
+            ):
+                lost.set()
+
         result = _run_crawl(
             payload,
-            progress_callback=lambda progress: server.store.update_job_progress(
-                job_id, progress, owner=run
-            ),
+            progress_callback=save_progress,
             should_cancel=lambda: lost.is_set() or server.store.job_cancel_requested(job_id),
             resume_state=_resume_state(job_id),
-            checkpoint_callback=lambda checkpoint, progress, document: (
-                server.store.save_job_checkpoint(
-                    job_id,
-                    checkpoint,
-                    progress,
-                    to_jsonable(document) if document is not None else None,
-                    owner=run,
-                )
-            ),
+            checkpoint_callback=save_checkpoint,
             max_run_pages=server.crawl_job_page_quantum or None,
         )
         metadata = result.get("metadata", {})
+        requeue: tuple[float, str, dict[str, Any]] | None = None
         if metadata.get("retry_scheduled"):
             retry_at = float(metadata["next_retry_at"])
+            requeue = (retry_at, "retry_scheduled", {"next_retry_at": retry_at})
+        elif metadata.get("fairness_yielded"):
+            requeue = (
+                time.time(),
+                "fairness_yielded",
+                {"page_quantum": server.crawl_job_page_quantum},
+            )
+        if requeue is not None:
+            retry_at, event_type, event_payload = requeue
             if server.store.requeue_job(
-                job_id,
-                retry_at,
-                event_type="retry_scheduled",
-                payload={"next_retry_at": retry_at},
-                owner=run,
+                job_id, retry_at, event_type=event_type, payload=event_payload, owner=run
             ):
                 reschedule_at = retry_at
-            return
-        if metadata.get("fairness_yielded"):
-            retry_at = time.time()
-            if server.store.requeue_job(
-                job_id,
-                retry_at,
-                event_type="fairness_yielded",
-                payload={"page_quantum": server.crawl_job_page_quantum},
-                owner=run,
-            ):
-                reschedule_at = retry_at
-            return
+                return
+            # Refused: cancelled meanwhile (finished below, its pages kept) or
+            # lost to a successor (every write below is refused too).
         if metadata.get("batch_all_failed"):
             # Every URL in the batch came back with errors: report the job as
             # failed (Firecrawl distinguishes failed from completed) instead
@@ -1449,20 +1458,25 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             units=max(1, len(result.get("documents", []))),
         )
     except Exception as exc:
-        if claimed:
-            server.store.update_job(job_id, "failed", error=str(exc), owner=run)
-        else:  # still queued (or another run's): recovery reschedules it
-            logging.getLogger(__name__).exception("job %s failed before its claim", job_id)
+        log = logging.getLogger(__name__)
+        if not claimed:  # still queued (or another run's): recovery reschedules it
+            log.exception("job %s failed before its claim", job_id)
+        else:
+            try:
+                server.store.update_job(job_id, "failed", error=str(exc), owner=run)
+            except Exception:  # noqa: BLE001 - the worker thread must survive; recovery retries
+                log.exception("could not record the failure of job %s", job_id)
     finally:
         heartbeat_stop.set()
-        if claimed:  # a duplicate queue entry that lost the claim must not drop the runner's lease
-            server.store.release_schedule_lease(job_id, run)
+        try:
+            if claimed:  # a duplicate entry that lost the claim must not drop the runner's lease
+                server.store.release_schedule_lease(job_id, run)
+        except Exception:  # noqa: BLE001 - the lease expires on its own; the slot must not leak
+            logging.getLogger(__name__).exception("could not release the lease of %s", job_id)
         if acquired:
             server._job_semaphore.release()
         if not claimed:
-            with server._job_threads_lock:
-                server._job_threads.pop(job_id, None)
-                server._queued_jobs.discard(job_id)
+            server._forget_entry(job_id)
         if reschedule_at is not None:
             server.schedule_job(job_id, payload, api_key, reschedule_at)
 
