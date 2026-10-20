@@ -1385,7 +1385,8 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
 
         def heartbeat() -> None:
             renewed = time.monotonic()
-            while not heartbeat_stop.wait(max(1.0, lease / 3)):
+            interval = max(1.0, lease / 3)
+            while not heartbeat_stop.wait(interval):
                 try:
                     if not server.store.renew_job_lease(job_id, run, lease):
                         lost.set()
@@ -1393,7 +1394,9 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
                     renewed = time.monotonic()
                 except Exception:  # noqa: BLE001 - a dead heartbeat lets a live lease expire
                     logging.getLogger(__name__).exception("lease renewal failed: %s", job_id)
-                    if time.monotonic() - renewed > lease:  # expired: a peer may run it now
+                    # Give up before the lease expires, so a peer that recovers
+                    # the job never crawls it in parallel with this run.
+                    if time.monotonic() - renewed > lease - interval:
                         lost.set()
                         return
 
@@ -1420,6 +1423,10 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             checkpoint_callback=save_checkpoint,
             max_run_pages=server.crawl_job_page_quantum or None,
         )
+        if lost.is_set():
+            # Not a cancel: write nothing, so recovery requeues the job and
+            # the next run resumes it from its checkpoint.
+            return
         metadata = result.get("metadata", {})
         requeue: tuple[float, str, dict[str, Any]] | None = None
         if metadata.get("retry_scheduled"):
@@ -1455,9 +1462,8 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             )
             return
         status = "cancelled" if metadata.get("cancelled") else "completed"
-        if not server.store.update_job(job_id, status, result=result, owner=run):
-            return  # a successor owns the job now; it reports and bills it
-        server.store.bill_job(job_id, server.store.job_document_count(job_id))
+        # Refused: a successor owns the job now; it reports and bills it.
+        server.store.update_job(job_id, status, result=result, owner=run, bill=True)
     except Exception as exc:
         log = logging.getLogger(__name__)
         if not claimed:  # still queued (or another run's): recovery reschedules it

@@ -375,8 +375,7 @@ def test_a_finished_job_cannot_be_cancelled_or_billed_again(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "finished.db")
     job = store.create_job("crawl", {"url": "https://example.com/"})
     page = {"url": "https://example.com/a", "markdown": "# A"}
-    store.update_job(job, "completed", result={"documents": [page]})
-    store.bill_job(job, 1)
+    store.update_job(job, "completed", result={"documents": [page]}, bill=True)
 
     assert not store.update_job(job, "cancelled")
 
@@ -390,16 +389,60 @@ def test_pages_paid_by_an_earlier_run_are_not_billed_again(tmp_path) -> None:
     database = tmp_path / "rebill.db"
     store = SQLiteStore(database)
     job = _job_with_a_page(store)  # 1 page
-    assert store.update_job(job, "completed", result={"documents": []}, owner="run-a")
-    store.bill_job(job, 1)
-    with sqlite3.connect(database) as conn:  # a failures retry requeues it, pages kept
-        conn.execute("update jobs set status = 'queued', result_json = null where id = ?", (job,))
-    store.request_job_cancel(job)
+    assert store.update_job(job, "completed", result={"documents": []}, owner="run-a", bill=True)
+    assert store.usage_count() == 1
 
+    def retry() -> None:  # what a failures retry does: requeue, pages kept
+        with sqlite3.connect(database) as conn:
+            conn.execute(
+                "update jobs set status = 'queued', result_json = null where id = ?", (job,)
+            )
+
+    retry()
+    store.request_job_cancel(job)
     assert store.update_job(job, "cancelled", free_for="proc-a")  # cancelled before running
     assert store.usage_count() == 1
-    store.bill_job(job, 3)  # a later run that ends with 3 pages pays for 2 new ones
-    assert store.usage_count() == 3
+
+    retry()
+    with sqlite3.connect(database) as conn:
+        conn.execute("update jobs set cancel_requested = 0 where id = ?", (job,))
+    assert store.claim_job(job, owner="run-b")
+    pages = [{"url": f"https://example.com/{n}", "markdown": n} for n in "bc"]
+    assert store.update_job(job, "completed", result={"documents": pages}, owner="run-b", bill=True)
+    assert store.usage_count() == 3  # only the 2 new pages
+
+
+def test_jobs_finished_before_billed_pages_existed_count_as_billed(tmp_path) -> None:
+    import sqlite3
+
+    database = tmp_path / "legacy.db"
+    store = SQLiteStore(database)
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    store.update_job(job, "completed", result={"documents": [{"url": "https://e.com/a"}]})
+    with sqlite3.connect(database) as conn:  # an old database: no billed_pages column
+        conn.execute("alter table jobs drop column billed_pages")
+    SQLiteStore._migrated_paths.discard(str(database))
+
+    SQLiteStore(database)
+
+    with sqlite3.connect(database) as conn:
+        assert conn.execute("select billed_pages from jobs").fetchone()[0] == 1
+
+
+def test_a_cancel_marks_an_earlier_result_cancelled(tmp_path) -> None:
+    import sqlite3
+
+    database = tmp_path / "earlier-result.db"
+    store = SQLiteStore(database)
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    store.update_job(job, "completed", result={"documents": [{"url": "https://e.com/a"}]})
+    with sqlite3.connect(database) as conn:  # a legacy row requeued with its result
+        conn.execute("update jobs set status = 'queued' where id = ?", (job,))
+    store.request_job_cancel(job)
+
+    assert store.update_job(job, "cancelled", free_for="proc-a")
+
+    assert store.get_job(job)["result"]["metadata"]["cancelled"] is True
 
 
 def test_a_cancel_records_the_checkpoints_failures(tmp_path) -> None:

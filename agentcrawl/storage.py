@@ -203,6 +203,16 @@ class SQLiteStore:
                     conn.execute(
                         "alter table jobs add column billed_pages integer not null default 0"
                     )
+                    # Jobs finished before the column existed were billed for
+                    # their pages already; a later retry must not bill them again.
+                    conn.execute(
+                        """
+                        update jobs set billed_pages = (
+                            select count(*) from crawl_documents where job_id = jobs.id
+                        )
+                        where status in ('completed', 'failed', 'cancelled')
+                        """
+                    )
                 conn.execute(
                     """
                     create unique index if not exists idx_jobs_idempotency
@@ -291,7 +301,11 @@ class SQLiteStore:
         failures = list(json.loads(row["checkpoint_json"] or "{}").get("terminal_failures") or [])
         self._record_crawl_failures(conn, job_id, failures, now)
         result_json = row["result_json"]
-        if pages and result_json is None:
+        if result_json is not None:  # an earlier result now describes a cancelled job
+            stored = json.loads(result_json)
+            stored.setdefault("metadata", {})["cancelled"] = True
+            result_json = json.dumps(stored)
+        elif pages:
             result_json = json.dumps({"documents": [], "metadata": {"cancelled": True}})
         conn.execute(
             """
@@ -346,11 +360,6 @@ class SQLiteStore:
         conn.execute(
             "update jobs set billed_pages = max(billed_pages, ?) where id = ?", (pages, job_id)
         )
-
-    def bill_job(self, job_id: str, pages: int) -> None:
-        """Bill a job run that ended with ``pages`` pages (a run costs at least one unit)."""
-        with self._connect() as conn:
-            self._bill_job_pages(conn, job_id, pages, minimum=1, now=time.time())
 
     @staticmethod
     def _insert_job_event(
@@ -655,9 +664,12 @@ class SQLiteStore:
         *,
         owner: str | None = None,
         free_for: str | None = None,
+        bill: bool = False,
     ) -> bool:
         """Finish a job; with ``owner``, only while that run still holds it;
-        with ``free_for``, only if no other run holds a live lock on it."""
+        with ``free_for``, only if no other run holds a live lock on it. With
+        ``bill``, the job's unbilled pages are billed in the same transaction
+        (a run costs at least one unit)."""
         now = time.time()
         stored_result = result
         documents: list[dict[str, Any]] = []
@@ -668,7 +680,7 @@ class SQLiteStore:
         with self._connect() as conn:
             if not self._fence(conn, job_id, owner, free_for):
                 return False
-            if status == "cancelled" and result is None:
+            if status == "cancelled" and result is None and owner is None:
                 return self._finish_cancel(conn, job_id, error, now)
             # The worker looks for a cancel only between pages, so one that
             # lands during the last page was accepted ('cancelling') and then
@@ -726,6 +738,9 @@ class SQLiteStore:
                 },
                 now,
             )
+            if bill:
+                pages = self._document_count(conn, job_id)
+                self._bill_job_pages(conn, job_id, pages, minimum=1, now=now)
         return True
 
     @staticmethod
