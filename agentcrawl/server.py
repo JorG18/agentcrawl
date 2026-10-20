@@ -1367,7 +1367,10 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
 
         def heartbeat() -> None:
             while not heartbeat_stop.wait(max(1.0, lease / 3)):
-                server.store.renew_job_lease(job_id, server.instance_id, lease)
+                try:
+                    server.store.renew_job_lease(job_id, server.instance_id, lease)
+                except Exception:  # noqa: BLE001 - a dead heartbeat lets a live lease expire
+                    logging.getLogger(__name__).exception("lease renewal failed: %s", job_id)
 
         threading.Thread(target=heartbeat, name=f"lease-{job_id}", daemon=True).start()
         result = _run_crawl(

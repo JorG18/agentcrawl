@@ -10,6 +10,7 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 
 ### Changed
 
+- **Job heartbeat survives a transient database error** (`database is locked`): the renewal thread used to die on it, so the lease of a live worker expired and a peer ran the same job again.
 - **`crawl()` follows RFC 9309 when `robots.txt` cannot be read:** a server error (5xx, or 429) or a network failure, after one retry, now blocks the crawl ("robots.txt unreachable, crawl disallowed") instead of crawling everything; a 4xx, a redirect loop or an unusable body still means no rules. `--no-robots` overrides it.
 - **TypeScript SDK license is Apache-2.0**, the same as the Python package (it said MIT).
 - **Benchmark wording:** a gap that is not significant is written "no significant difference", not "tie" (a test cannot show two tools are equal).

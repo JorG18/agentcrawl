@@ -918,6 +918,60 @@ def test_run_crawl_job_heartbeats_then_releases_its_lease(tmp_path: Path, monkey
     assert _lock_columns(database, job_id) == (None, None)
 
 
+def test_heartbeat_survives_a_transient_database_error(tmp_path: Path, monkeypatch) -> None:
+    """A 'database is locked' on one renewal must not stop the heartbeat: the
+    lease would then expire under a live worker and a peer would rerun the job."""
+    database = tmp_path / "hb-error.db"
+    server.store = SQLiteStore(database)
+    monkeypatch.setattr(server, "schedule_lease_seconds", 3.0)  # renewed every 1 s
+    job_id = server.store.create_job("crawl", {"url": "https://example.com/"})
+    assert server.store.acquire_schedule_lease(job_id, server.instance_id, lease_seconds=300)
+    real_renew = server.store.renew_job_lease
+    calls: list[int] = []
+
+    def flaky_renew(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:  # the first timer tick fails
+            raise sqlite3.OperationalError("database is locked")
+        return real_renew(*args, **kwargs)
+
+    monkeypatch.setattr(server.store, "renew_job_lease", flaky_renew)
+
+    def fake_run_crawl(payload, progress_callback, **kwargs):
+        time.sleep(2.5)  # long enough for two timer ticks
+        return {"documents": [], "metadata": {}}
+
+    monkeypatch.setattr(server_module, "_run_crawl", fake_run_crawl)
+    _run_crawl_job(job_id, {"url": "https://example.com/"}, None)
+
+    assert len(calls) >= 3  # claim-time renewal, the failed tick, a later tick
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="known: renew_job_lease has no fencing token; needs claim-time ownership "
+    "and owner-checked update_job (pending decision)",
+)
+def test_a_stalled_worker_does_not_take_the_job_back_from_its_successor(tmp_path: Path) -> None:
+    """Worker A froze past its lease; B recovered and claimed the job. When A
+    wakes up its heartbeat must not steal the lease from B (two runners)."""
+    store = SQLiteStore(tmp_path / "zombie.db")
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.acquire_schedule_lease(job, "worker-a", lease_seconds=300)
+    assert store.claim_job(job)
+    assert store.renew_job_lease(job, "worker-a", 60)
+    with sqlite3.connect(tmp_path / "zombie.db") as conn:  # A stalls, lease runs out
+        conn.execute("update jobs set schedule_lock_expires_at = 0 where id = ?", (job,))
+
+    assert store.prepare_restart_recovery() == 1
+    assert store.acquire_schedule_lease(job, "worker-b", lease_seconds=300)
+    assert store.claim_job(job)
+    assert store.renew_job_lease(job, "worker-b", 60)
+
+    assert not store.renew_job_lease(job, "worker-a", 60)  # A wakes up
+    assert _lock_columns(tmp_path / "zombie.db", job)[0] == "worker-b"
+
+
 def test_a_duplicate_entry_that_loses_the_claim_keeps_the_runners_lease(
     tmp_path: Path, monkeypatch
 ) -> None:
