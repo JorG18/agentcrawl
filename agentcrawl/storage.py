@@ -21,6 +21,10 @@ from .html_tools import normalize_url
 # don't lock jobs forever.
 DEFAULT_SCHEDULE_LEASE_SECONDS = 300
 
+# Result of a job cancelled before its run reported one; its pages, kept in
+# ``crawl_documents``, are listed from there.
+_CANCELLED_RESULT = '{"documents": [], "metadata": {"cancelled": true}}'
+
 
 def _apply_owner_filter(
     clauses: list[str],
@@ -248,12 +252,6 @@ class SQLiteStore:
                  or schedule_lock_expires_at is null
                  or schedule_lock_expires_at < ?)
             """
-            finalized_ids = [
-                str(row["id"])
-                for row in conn.execute(
-                    f"select id from jobs where status = 'cancelling' and {dead}", (now,)
-                ).fetchall()
-            ]
             cursor = conn.execute(
                 f"""
                 update jobs
@@ -271,25 +269,14 @@ class SQLiteStore:
                 update jobs
                 set status = 'cancelled',
                     error = 'Cancellation completed (its worker stopped).',
+                    result_json = coalesce(result_json, ?),
                     checkpoint_json = null,
                     schedule_lock = null, schedule_lock_expires_at = null,
                     updated_at = ?
                 where status = 'cancelling' and {dead}
                 """,
-                (now, now),
+                (_CANCELLED_RESULT, now, now),
             )
-            # Same cleanup contract as ``update_job(..., 'cancelled')``:
-            # a job that ends cancelled loses its documents; recovered jobs
-            # keep theirs so the resumed run does not duplicate pages.
-            if finalized_ids:
-                placeholders = ", ".join("?" for _ in finalized_ids)
-                conn.execute(
-                    f"""
-                    delete from crawl_documents
-                    where job_id in ({placeholders})
-                    """,
-                    tuple(finalized_ids),
-                )
         return recovered
 
     @staticmethod
@@ -594,6 +581,10 @@ class SQLiteStore:
         """Finish a job; with ``owner``, only while that run still holds it;
         with ``free_for``, only if no other run holds a live lock on it."""
         now = time.time()
+        if result is None and status == "cancelled":
+            # Pages scraped before a cancel are kept (and paid for); this
+            # makes ``get_job`` list them from ``crawl_documents``.
+            result = json.loads(_CANCELLED_RESULT)
         stored_result = result
         documents: list[dict[str, Any]] = []
         if result is not None:
@@ -643,8 +634,6 @@ class SQLiteStore:
                     job_id,
                 ),
             )
-            if status == "cancelled" and result is None:
-                conn.execute("delete from crawl_documents where job_id = ?", (job_id,))
             self._insert_job_event(
                 conn,
                 job_id,

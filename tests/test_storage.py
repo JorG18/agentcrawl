@@ -82,17 +82,7 @@ def test_prepare_restart_recovery_only_sweeps_jobs_it_finalizes(tmp_path) -> Non
         result={"documents": [{"url": "https://b.example/page", "markdown": "# Old"}]},
     )
     store.update_job(old_cancelled, "cancelled")
-    assert store.get_job_documents(old_cancelled) == []  # normal cancel clears docs
-
-    # Give the old cancelled job documents again, as an operator-visible
-    # artifact from a restore or earlier version.
-    store.save_job_checkpoint(
-        old_cancelled,
-        {"version": 2, "root": "https://b.example", "queue": []},
-        {"visited": 1},
-        document={"url": "https://b.example/page", "markdown": "# Historical"},
-    )
-    assert store.get_job_documents(old_cancelled)
+    assert store.get_job_documents(old_cancelled)  # a cancel keeps the pages
 
     assert store.prepare_restart_recovery() == 1
 
@@ -338,3 +328,47 @@ def test_recovery_leaves_a_live_cancelling_job_to_its_worker(tmp_path) -> None:
     store.prepare_restart_recovery()
 
     assert store.get_job(job)["status"] == "cancelling"
+
+
+def _job_with_a_page(store: SQLiteStore) -> str:
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    assert store.claim_job(job, owner="run-a")
+    assert store.save_job_checkpoint(
+        job,
+        {"version": 2, "root": "https://example.com/", "queue": []},
+        {"visited": 1},
+        document={"url": "https://example.com/a", "markdown": "# A"},
+        owner="run-a",
+    )
+    return job
+
+
+def test_a_cancel_from_the_queue_keeps_the_pages(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "keep-queued.db")
+    job = _job_with_a_page(store)
+    assert store.requeue_job(job, 0.0, owner="run-a")  # between quanta
+    store.release_schedule_lease(job, "run-a")
+    store.request_job_cancel(job)
+
+    assert store.update_job(job, "cancelled", free_for="proc-a")
+
+    result = store.get_job(job)["result"]
+    assert [doc["url"] for doc in result["documents"]] == ["https://example.com/a"]
+    assert result["metadata"]["cancelled"] is True
+
+
+def test_a_cancel_finished_by_the_sweep_keeps_the_pages(tmp_path) -> None:
+    import sqlite3
+
+    database = tmp_path / "keep-sweep.db"
+    store = SQLiteStore(database)
+    job = _job_with_a_page(store)
+    store.request_job_cancel(job)
+    with sqlite3.connect(database) as conn:  # its worker died while cancelling
+        conn.execute("update jobs set schedule_lock_expires_at = 0 where id = ?", (job,))
+
+    store.prepare_restart_recovery()
+
+    row = store.get_job(job)
+    assert row["status"] == "cancelled"
+    assert [doc["url"] for doc in row["result"]["documents"]] == ["https://example.com/a"]
