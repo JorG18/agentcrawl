@@ -525,7 +525,8 @@ class SQLiteStore:
         if free_for is not None:
             sql += (
                 " and status in ('queued', 'cancelling')"
-                " and (schedule_lock is null or schedule_lock = ? or schedule_lock_expires_at < ?)"
+                " and (schedule_lock is null or schedule_lock = ?"
+                " or schedule_lock_expires_at is null or schedule_lock_expires_at < ?)"
             )
             params += (free_for, time.time())
         return sql, params
@@ -571,7 +572,11 @@ class SQLiteStore:
                     now,
                     owner,
                     owner,
-                    now + (lease_seconds or DEFAULT_SCHEDULE_LEASE_SECONDS),
+                    now
+                    + max(
+                        1.0,
+                        DEFAULT_SCHEDULE_LEASE_SECONDS if lease_seconds is None else lease_seconds,
+                    ),
                     job_id,
                     now,
                 ),
@@ -632,7 +637,8 @@ class SQLiteStore:
                 """
                 update jobs
                 set status = ?, result_json = ?, error = ?, checkpoint_json = null,
-                    available_at = 0, updated_at = ?
+                    available_at = 0, updated_at = ?,
+                    schedule_lock = null, schedule_lock_expires_at = null
                 where id = ?
                 """,
                 (
@@ -735,18 +741,19 @@ class SQLiteStore:
         owner: str | None = None,
     ) -> bool:
         now = time.time()
+        extra, params = self._owned(owner)
         with self._connect() as conn:
-            if not self._fence(conn, job_id, owner):
-                return False
             cursor = conn.execute(
-                """
+                f"""
                 update jobs
                 set status = 'queued', available_at = ?, error = null, updated_at = ?
-                where id = ? and cancel_requested = 0
+                where id = ? and cancel_requested = 0{extra}
                 """,
-                (available_at, now, job_id),
+                (available_at, now, job_id, *params),
             )
-            if not cursor.rowcount:  # cancelled meanwhile: the caller finishes it
+            # Refused: cancelled meanwhile (the caller finishes it) or not
+            # ``owner``'s any more.
+            if not cursor.rowcount:
                 return False
             self._insert_job_event(
                 conn,
