@@ -4,8 +4,8 @@ How AgentCrawl compares with Crawl4AI, Scrapling and Firecrawl on real websites,
 
 ## Summary
 
-- **Pages read (400 random real sites, two runs per time cap):** AgentCrawl, Firecrawl and Scrapling are tied within noise, at about 64–66 % of pages with readable content. AgentCrawl reads more pages than Crawl4AI (p < 0.001).
-- **What comes back, on 23 randomly drawn pages with checked expectations:** AgentCrawl kept 99 % of the checked text with 10.5 % noise offline, and 99 % with 8 % live. It is ahead of Scrapling on quality (p < 0.001). **Against Firecrawl and Crawl4AI the quality difference is a tie** (p = 0.13 and 0.07).
+- **Pages read (400 random real sites, two runs per time cap):** AgentCrawl, Firecrawl and Scrapling show no significant difference, at about 64–66 % of pages with readable content. AgentCrawl reads more pages than Crawl4AI (p < 0.001).
+- **What comes back, on 23 randomly drawn pages with checked expectations:** AgentCrawl kept 99 % of the checked text with 10.5 % noise offline, and 99 % with 8 % live. It is ahead of Scrapling on quality (p < 0.001). **Against Firecrawl and Crawl4AI the quality difference is not significant** (p = 0.13 and 0.07).
 - **Tokens:** on random pages AgentCrawl's output is about a third smaller than Firecrawl's. Against Crawl4AI's `fit_markdown` it is 18 % larger offline and about the same live. On the 12 chosen pages it is about a third smaller than `fit_markdown`.
 - **Combined score** (pages read × quality of what came back): AgentCrawl 58, Firecrawl 53, Crawl4AI 45, Scrapling 6. This is our own formula, and the gap between AgentCrawl and Firecrawl is inside the noise of both inputs.
 
@@ -65,10 +65,10 @@ AgentCrawl against each tool, counting the (page, run) pairs where only one of t
 | pair | 60 s: only AgentCrawl / only other | p | 180 s: only AgentCrawl / only other | p | verdict |
 |---|---|---|---|---|---|
 | vs Crawl4AI | 84 / 17 | < 0.001 | 86 / 14 | < 0.001 | AgentCrawl ahead |
-| vs Firecrawl | 45 / 59 | 0.20 | 30 / 40 | 0.28 | tie within noise |
-| vs Scrapling | 38 / 45 | 0.51 | 25 / 35 | 0.25 | tie within noise |
+| vs Firecrawl | 45 / 59 | 0.20 | 30 / 40 | 0.28 | no significant difference |
+| vs Scrapling | 38 / 45 | 0.51 | 25 / 35 | 0.25 | no significant difference |
 
-Firecrawl and Scrapling are also tied with each other (p = 0.67 and 1.0). Raising the cap from 60 s to 180 s changes any tool's coverage by 1.5 points or less.
+Firecrawl and Scrapling also show no significant difference from each other (p = 0.67 and 1.0). Raising the cap from 60 s to 180 s changes any tool's coverage by 1.5 points or less.
 
 Part of the gap with Crawl4AI is its main-content filter rather than fetching. In each run, 17–18 pages came back from Crawl4AI with at least 1,500 characters of raw Markdown but under 300 after `fit_markdown`'s filter, so they count as not read.
 
@@ -140,7 +140,7 @@ One of the 6 pages counted for AgentCrawl against Firecrawl, and one of the 7 ag
 - **Live ran about two hours after the pages were saved** (22:22 UTC on 15 October vs 00:08 UTC on 16 October). A page that changed in between lowers every tool's recall.
 - **Small samples.** 23 drawn pages can separate large differences (vs Scrapling) but not small ones (vs Firecrawl, vs Crawl4AI).
 - **What "content" lets through.** The 300-character threshold also counts navigation-only output as content, which helps tools that return the whole page.
-- **Scrapling** is measured with the Markdown its MCP server returns. That conversion removes scripts and hidden text but does not select the main content, so its noise figure measures the conversion, not its fetching, where it ties with the best.
+- **Scrapling** is measured with the Markdown its MCP server returns. That conversion removes scripts and hidden text but does not select the main content, so its noise figure measures the conversion, not its fetching, where it shows no significant difference from the best.
 - **Crawl4AI** is measured as `fit_markdown` (its main-content filter) in the web and live lanes; offline, both variants are shown.
 - **The combined score is our formula.** It treats a missed page and a page full of chrome alike. If you weigh noise less, Scrapling moves up. All the inputs are in the tables above.
 - **Not measured here:** crawling, search, speed at scale, structured extraction, pages behind logins, and protected sites from a residential IP.

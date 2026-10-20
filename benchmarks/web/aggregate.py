@@ -5,7 +5,7 @@ verdicts, slow sites), so a single run cannot tell a 5-page gap from noise.
 This pools runs of the same sample and, for every pair of tools, counts the
 (page, run) pairs where only one of them got content. An exact McNemar test on
 those counts gives ``p``; ``band`` is how much the per-run difference itself
-moved between runs. A gap with ``p > 0.05`` is written as a tie.
+moved between runs. A gap with ``p > 0.05`` is written as no significant difference.
 
 Usage::
 
@@ -95,7 +95,7 @@ def pooled(runs: list[dict[str, dict[str, dict[str, Any]]]]) -> dict[str, Any]:
 
 def _verdict(pair: dict[str, Any]) -> str:
     if pair["p"] > ALPHA:
-        return "tie within noise"
+        return "no significant difference"
     return f"{pair['a'] if pair['difference'] > 0 else pair['b']} ahead"
 
 

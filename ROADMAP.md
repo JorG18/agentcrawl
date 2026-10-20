@@ -2,7 +2,7 @@
 
 AgentCrawl focuses on one job first: help AI agents read and crawl web content reliably from infrastructure you control.
 
-This roadmap is **directional**. Public performance or quality claims need reproducible tests before they appear in docs or marketing: benchmark numbers appear only with a public, reproducible run (see [docs/BENCHMARKS.md](docs/BENCHMARKS.md)), and a gap that is not significant is called a tie.
+This roadmap is **directional**. Public performance or quality claims need reproducible tests before they appear in docs or marketing: benchmark numbers appear only with a public, reproducible run (see [docs/BENCHMARKS.md](docs/BENCHMARKS.md)), and a gap that is not significant is reported as no significant difference, never as a win.
 
 ## Current community status
 

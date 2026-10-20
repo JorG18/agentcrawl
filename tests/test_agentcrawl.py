@@ -2,6 +2,7 @@ from dataclasses import asdict
 from pathlib import Path
 import sys
 import types
+import urllib.error
 
 import pytest
 
@@ -329,6 +330,50 @@ def test_crawl_respects_robots_policy(tmp_path: Path, monkeypatch) -> None:
     assert not run.documents
     assert run.metadata["failed"] == 1
     assert "blocked by robots.txt" in run.errors[0]
+
+
+def _robots_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://example.com/robots.txt", code, "", {}, None)
+
+
+@pytest.mark.parametrize(
+    ("error", "allowed"),
+    [
+        (_robots_error(404), True),
+        (_robots_error(301), True),  # redirect loop = unavailable
+        (FetchError("response too large"), True),  # unusable body = no rules
+        (_robots_error(503), False),
+        (_robots_error(429), False),
+        (urllib.error.URLError("timed out"), False),
+    ],
+)
+def test_unreachable_robots_txt_disallows_everything(monkeypatch, error, allowed) -> None:
+    # RFC 9309 §2.3.1: 4xx = no rules; 5xx or unreachable = complete disallow.
+    import agentcrawl.crawler as crawler_module
+
+    def fail(*_a, **_k):
+        raise error
+
+    monkeypatch.setattr(crawler_module, "_guarded_urlopen", fail)
+
+    robots = crawler_module._load_robots("https://example.com/", CrawlConfig())
+
+    assert (robots is None or robots.can_fetch("AgentCrawl", "https://example.com/a")) is allowed
+    assert (robots is not None and robots.agentcrawl_unreachable) is not allowed
+
+
+def test_robots_txt_is_retried_once_after_a_network_error(monkeypatch) -> None:
+    import agentcrawl.crawler as crawler_module
+
+    errors = [urllib.error.URLError("reset"), _robots_error(404)]
+
+    def fail(*_a, **_k):
+        raise errors.pop(0)
+
+    monkeypatch.setattr(crawler_module, "_guarded_urlopen", fail)
+
+    assert crawler_module._load_robots("https://example.com/", CrawlConfig()) is None
+    assert not errors
 
 
 def test_url_canonicalization_removes_tracking_and_normalizes_origin() -> None:

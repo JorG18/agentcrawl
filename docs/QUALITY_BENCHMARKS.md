@@ -101,7 +101,7 @@ The assertions live in `tests/test_quality_fixtures.py` and verify expected cont
 
 The public comparison with Crawl4AI, Scrapling and Firecrawl (real websites, quality on checked pages, versions, run ids and how to reproduce it) is in [BENCHMARKS.md](BENCHMARKS.md). This page covers the regression suite and the tooling behind those numbers.
 
-Rules the comparison follows: differences are tested (a gap with p > 0.05 is written as a tie), the expectations for the randomly drawn pages are written and committed before any tool runs on them, and challenge or block text returned as if it were the page is counted as junk, separately from an honest failure.
+Rules the comparison follows: differences are tested (a gap with p > 0.05 is written as no significant difference), the expectations for the randomly drawn pages are written and committed before any tool runs on them, and challenge or block text returned as if it were the page is counted as junk, separately from an honest failure.
 
 ### Neutral corpus (`benchmarks/corpus/neutral.json`)
 

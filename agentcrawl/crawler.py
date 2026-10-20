@@ -937,7 +937,11 @@ class AgentCrawl:
                     ):
                         visited.add(url)
                         failed_urls.append(url)
-                        message = "blocked by robots.txt"
+                        message = (
+                            "robots.txt unreachable, crawl disallowed (RFC 9309)"
+                            if getattr(robots, "agentcrawl_unreachable", False)
+                            else "blocked by robots.txt"
+                        )
                         errors.append(f"{url}: {message}")
                         terminal_failures.append(
                             _terminal_failure(
@@ -1638,7 +1642,10 @@ def _read_sitemap(
 
 
 def _robots_body(robots_url: str, config: CrawlConfig) -> str | None:
-    """robots.txt body, fetched at most once per discovery run (``None`` if absent).
+    """robots.txt body, fetched at most once per discovery run.
+
+    ``None`` when there are no rules (4xx, unusable body); ``_UNREACHABLE``
+    (disallow all) on a server error or network failure, per RFC 9309.
 
     ``map()`` reads it for ``Sitemap:`` lines and ``crawl()`` for the rules; a
     run that needs both reuses the first fetch instead of asking the site twice.
@@ -1647,16 +1654,29 @@ def _robots_body(robots_url: str, config: CrawlConfig) -> str | None:
     cache = _ROBOTS_CACHE.get()
     if context is not None and cache is not None and robots_url in cache:
         return cache[robots_url]
-    try:
-        # Bounded read: a hostile robots.txt could otherwise stream without
-        # limit and take the process down during discovery.
-        content: str | None = _discovery_read(robots_url, config)
-    except Exception:
-        content = None
+    content: str | None = None
+    for _ in range(2):  # one retry, so a single hiccup does not block the whole crawl
+        try:
+            # Bounded read: a hostile robots.txt could otherwise stream without
+            # limit and take the process down during discovery.
+            content = _discovery_read(robots_url, config)
+        except urllib.error.HTTPError as exc:
+            # RFC 9309 §2.3.1: 4xx or a redirect loop = no rules; 5xx = disallow
+            # all (429 counts as a server error, as Google does).
+            content = _UNREACHABLE if exc.code >= 500 or exc.code == 429 else None
+        except OSError:  # timeout, refused connection, DNS failure
+            content = _UNREACHABLE
+        except Exception:  # oversized or undecodable body: no rules, as before
+            content = None
+        if content is not _UNREACHABLE:
+            break
     if context is not None and cache is not None:
         cache[robots_url] = content
     return content
 
+
+# Stand-in body for a robots.txt that could not be reached (RFC 9309: disallow all).
+_UNREACHABLE = "User-agent: *\nDisallow: /\n"
 
 _ROBOTS_CACHE: contextvars.ContextVar[dict[str, str | None] | None] = contextvars.ContextVar(
     "agentcrawl_robots_cache", default=None
@@ -1700,4 +1720,5 @@ def _load_robots(root_url: str, config: CrawlConfig) -> urllib.robotparser.Robot
     parser = urllib.robotparser.RobotFileParser()
     parser.set_url(robots_url)
     parser.parse(content.splitlines())
+    parser.agentcrawl_unreachable = content is _UNREACHABLE  # type: ignore[attr-defined]
     return parser
