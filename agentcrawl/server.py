@@ -1457,11 +1457,7 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
         status = "cancelled" if metadata.get("cancelled") else "completed"
         if not server.store.update_job(job_id, status, result=result, owner=run):
             return  # a successor owns the job now; it reports and bills it
-        server.store.record_usage(
-            api_key,
-            "/v1/crawl",
-            units=max(1, len(result.get("documents", []))),
-        )
+        server.store.bill_job(job_id, server.store.job_document_count(job_id))
     except Exception as exc:
         log = logging.getLogger(__name__)
         if not claimed:  # still queued (or another run's): recovery reschedules it
