@@ -295,7 +295,7 @@ def test_the_running_worker_takes_over_the_lease(tmp_path) -> None:
     job = store.create_job("crawl", {"url": "https://example.com"})
     store.acquire_schedule_lease(job, "pid-b", lease_seconds=300)
     assert not store.renew_job_lease(job, "pid-a", 60)  # still queued
-    assert store.claim_job(job)
+    assert store.claim_job(job, owner="pid-a")
     assert store.renew_job_lease(job, "pid-a", 60)
     store.release_schedule_lease(job, "pid-b")  # the peer's stale entry: no effect now
     assert store.prepare_restart_recovery() == 0  # fresh heartbeat: alive

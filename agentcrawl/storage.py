@@ -259,6 +259,7 @@ class SQLiteStore:
                 update jobs
                 set status = 'queued',
                     error = 'Recovered interrupted job (its worker stopped).',
+                    schedule_lock = null, schedule_lock_expires_at = null,
                     updated_at = ?
                 where status = 'running' and {dead}
                 """,
@@ -271,6 +272,7 @@ class SQLiteStore:
                 set status = 'cancelled',
                     error = 'Cancellation completed (its worker stopped).',
                     checkpoint_json = null,
+                    schedule_lock = null, schedule_lock_expires_at = null,
                     updated_at = ?
                 where status = 'cancelling' and {dead}
                 """,
@@ -431,12 +433,11 @@ class SQLiteStore:
         ``schedule_lock_expires_at`` on the row only when no other owner
         currently holds a live lease.
 
-        Re-entrant for the same owner: an instance renewing its own lease
-        succeeds, which is what the delayed-retry path needs — the worker
-        that requeued the job re-schedules it seconds later while the
-        300s lease it took at claim time is still live. Without the
-        re-entrant clause the renewal silently failed and delayed retries
-        sat in ``queued`` until process restart.
+        Re-entrant for the same owner: an instance that schedules a job it
+        already holds the lease for (a duplicate ``schedule_job`` before the
+        run claims it) keeps it. Once claimed, the lock belongs to that run
+        (``claim_job``) and is released when the run ends, before any retry
+        is scheduled.
 
         Returns ``True`` when the caller won the race (or renewed its own
         lease); ``False`` when a different owner holds a valid lease.
@@ -499,28 +500,81 @@ class SQLiteStore:
         A short, renewed lease lets restart recovery tell a dead worker from a
         live one without waiting out the long scheduling lease.
         """
-        # Only one worker can have claimed a running job (queued -> running is
-        # atomic), so that worker takes the lease over even if a peer holds it.
+        # ``claim_job`` made ``owner`` the lock holder; ``False`` means a
+        # successor recovered and claimed the job, so this run must stop.
         with self._connect() as conn:
             cursor = conn.execute(
                 """
-                update jobs set schedule_lock = ?, schedule_lock_expires_at = ?
-                where id = ? and status = 'running'
+                update jobs set schedule_lock_expires_at = ?
+                where id = ? and status in ('running', 'cancelling') and schedule_lock = ?
                 """,
-                (owner, time.time() + lease_seconds, job_id),
+                (time.time() + lease_seconds, job_id, owner),
             )
         return bool(cursor.rowcount)
 
-    def claim_job(self, job_id: str) -> bool:
+    @staticmethod
+    def _owned(owner: str | None, free_for: str | None = None) -> tuple[str, tuple[Any, ...]]:
+        """Extra ``WHERE`` terms for a job write: ``owner``'s run still holds the
+        job (claimed by it, not recovered since), and/or no run other than
+        ``free_for`` holds a live lock on it."""
+        sql: str = ""
+        params: tuple[Any, ...] = ()
+        if owner is not None:
+            sql += " and schedule_lock = ? and status in ('running', 'cancelling')"
+            params += (owner,)
+        if free_for is not None:
+            sql += (
+                " and status in ('queued', 'cancelling')"
+                " and (schedule_lock is null or schedule_lock = ? or schedule_lock_expires_at < ?)"
+            )
+            params += (free_for, time.time())
+        return sql, params
+
+    def _fence(
+        self, conn: sqlite3.Connection, job_id: str, owner: str | None, free_for: str | None = None
+    ) -> bool:
+        """Start the write and check the job is still ``owner``'s / free for ``free_for``.
+
+        A write as the first statement takes SQLite's write lock, so no peer
+        can claim the job between this check and the caller's writes.
+        """
+        if owner is None and free_for is None:
+            return True
+        extra, params = self._owned(owner, free_for)
+        cursor = conn.execute(
+            f"update jobs set updated_at = ? where id = ?{extra}",
+            (time.time(), job_id, *params),
+        )
+        return bool(cursor.rowcount)
+
+    def claim_job(
+        self, job_id: str, owner: str | None = None, *, lease_seconds: float | None = None
+    ) -> bool:
+        """``queued`` -> ``running``; with ``owner``, that run also takes the lock.
+
+        Taking the lock here (even from a peer's scheduling lease) is what
+        fences a stalled predecessor out: its renewals and writes stop matching.
+        """
+        now = time.time()
         with self._connect() as conn:
             cursor = conn.execute(
                 """
                 update jobs
-                set status = 'running', error = null, updated_at = ?
+                set status = 'running', error = null, updated_at = ?,
+                    schedule_lock = coalesce(?, schedule_lock),
+                    schedule_lock_expires_at = case when ? is null
+                        then schedule_lock_expires_at else ? end
                 where id = ? and status = 'queued' and cancel_requested = 0
                   and available_at <= ?
                 """,
-                (time.time(), job_id, time.time()),
+                (
+                    now,
+                    owner,
+                    owner,
+                    now + (lease_seconds or DEFAULT_SCHEDULE_LEASE_SECONDS),
+                    job_id,
+                    now,
+                ),
             )
             claimed = bool(cursor.rowcount)
             if claimed:
@@ -533,7 +587,12 @@ class SQLiteStore:
         status: str,
         result: dict[str, Any] | None = None,
         error: str | None = None,
-    ) -> None:
+        *,
+        owner: str | None = None,
+        free_for: str | None = None,
+    ) -> bool:
+        """Finish a job; with ``owner``, only while that run still holds it;
+        with ``free_for``, only if no other run holds a live lock on it."""
         now = time.time()
         stored_result = result
         documents: list[dict[str, Any]] = []
@@ -542,6 +601,8 @@ class SQLiteStore:
             stored_result = {**result, "documents": []}
             stored_result.setdefault("metadata", {})["document_count"] = len(documents)
         with self._connect() as conn:
+            if not self._fence(conn, job_id, owner, free_for):
+                return False
             # The worker looks for a cancel only between pages, so one that
             # lands during the last page was accepted ('cancelling') and then
             # overwritten here. Honour it; the pages already scraped are kept.
@@ -599,6 +660,7 @@ class SQLiteStore:
                 },
                 now,
             )
+        return True
 
     @staticmethod
     def _mark_failure_resolved(
@@ -670,10 +732,13 @@ class SQLiteStore:
         *,
         event_type: str = "requeued",
         payload: dict[str, Any] | None = None,
-    ) -> None:
+        owner: str | None = None,
+    ) -> bool:
         now = time.time()
         with self._connect() as conn:
-            conn.execute(
+            if not self._fence(conn, job_id, owner):
+                return False
+            cursor = conn.execute(
                 """
                 update jobs
                 set status = 'queued', available_at = ?, error = null, updated_at = ?
@@ -681,6 +746,8 @@ class SQLiteStore:
                 """,
                 (available_at, now, job_id),
             )
+            if not cursor.rowcount:  # cancelled meanwhile: the caller finishes it
+                return False
             self._insert_job_event(
                 conn,
                 job_id,
@@ -688,13 +755,19 @@ class SQLiteStore:
                 {"available_at": available_at, **(payload or {})},
                 now,
             )
+        return True
 
-    def update_job_progress(self, job_id: str, progress: dict[str, Any]) -> None:
+    def update_job_progress(
+        self, job_id: str, progress: dict[str, Any], *, owner: str | None = None
+    ) -> bool:
+        """``False`` when ``owner``'s run no longer holds the job."""
+        extra, params = self._owned(owner)
         with self._connect() as conn:
-            conn.execute(
-                "update jobs set progress_json = ?, updated_at = ? where id = ?",
-                (json.dumps(progress), time.time(), job_id),
+            cursor = conn.execute(
+                f"update jobs set progress_json = ?, updated_at = ? where id = ?{extra}",
+                (json.dumps(progress), time.time(), job_id, *params),
             )
+        return bool(cursor.rowcount)
 
     def save_job_checkpoint(
         self,
@@ -702,9 +775,25 @@ class SQLiteStore:
         checkpoint: dict[str, Any],
         progress: dict[str, Any],
         document: dict[str, Any] | None = None,
-    ) -> None:
+        *,
+        owner: str | None = None,
+    ) -> bool:
+        """``False`` when ``owner``'s run no longer holds the job (nothing saved)."""
         now = time.time()
+        extra, params = self._owned(owner)
         with self._connect() as conn:
+            # The job row first: its WHERE is the ownership check, and the
+            # write lock it takes covers the document insert below.
+            cursor = conn.execute(
+                f"""
+                update jobs
+                set checkpoint_json = ?, progress_json = ?, updated_at = ?
+                where id = ?{extra}
+                """,
+                (json.dumps(checkpoint), json.dumps(progress), now, job_id, *params),
+            )
+            if not cursor.rowcount:
+                return False
             if document is not None:
                 document_url = str(document["url"])
                 conn.execute(
@@ -716,14 +805,7 @@ class SQLiteStore:
                     (job_id, document_url, json.dumps(document), now),
                 )
                 self._mark_failure_resolved(conn, job_id, document_url, now)
-            conn.execute(
-                """
-                update jobs
-                set checkpoint_json = ?, progress_json = ?, updated_at = ?
-                where id = ?
-                """,
-                (json.dumps(checkpoint), json.dumps(progress), now, job_id),
-            )
+        return True
 
     def get_job_documents(
         self,
