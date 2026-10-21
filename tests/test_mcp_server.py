@@ -177,3 +177,19 @@ def test_search_web_forwards_formats(monkeypatch) -> None:
     search_web("agent crawlers", formats=["markdown", "summary"])
 
     assert calls[0][1]["formats"] == ["markdown", "summary"]
+
+
+def test_local_search_web_forwards_formats(monkeypatch) -> None:
+    calls = []
+
+    class FakeCrawler:
+        def search(self, query, **kwargs):
+            calls.append(kwargs)
+            return {"results": []}
+
+    monkeypatch.setattr("agentcrawl.mcp_server._client", lambda: None)
+    monkeypatch.setattr("agentcrawl.mcp_server._crawler", lambda: FakeCrawler())
+
+    search_web("agent crawlers", formats=["summary"])
+
+    assert calls[0]["formats"] == ["summary"]

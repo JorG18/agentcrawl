@@ -18,7 +18,8 @@ from .serializers import to_jsonable
 
 mcp = FastMCP("agentcrawl")
 # FastMCP takes no version, so initialize reported the MCP SDK version instead of ours.
-mcp._mcp_server.version = __version__
+if (_lowlevel := getattr(mcp, "_mcp_server", None)) is not None:
+    _lowlevel.version = __version__
 
 # Hints for clients (permission prompts, parallel calls). Reads change nothing
 # on the user's side; the server cache they fill is not the user's data.
@@ -179,7 +180,9 @@ def scrape_many(
     ],
     formats: Annotated[
         list[str] | None,
-        Field(description="Any of: markdown, text, links, metadata, html, chunks."),
+        Field(
+            description="Any of: markdown, text, links, metadata, html, chunks, summary (needs AGENTCRAWL_LLM_MODEL)."
+        ),
     ] = None,
     only_main_content: Annotated[
         bool | None,
@@ -253,7 +256,7 @@ def search_web(
     formats: Annotated[
         list[str] | None,
         Field(
-            description="Formats for each result page, as in scrape_url, e.g. summary (needs AGENTCRAWL_LLM_MODEL)."
+            description="With scrape=true, formats for each result page: markdown, text, links, metadata, html, chunks, summary (needs AGENTCRAWL_LLM_MODEL)."
         ),
     ] = None,
 ) -> dict[str, Any]:

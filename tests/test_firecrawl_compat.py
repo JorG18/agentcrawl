@@ -378,13 +378,17 @@ def test_running_crawl_status_pages_by_the_saved_document_count(offline_v2) -> N
 
 
 def test_scrape_reports_the_page_language(tmp_path: Path) -> None:
-    """``metadata.language`` comes from ``<html lang>``; it was always missing."""
+    """``language`` (first ``<html lang>``) and ``ogImage`` were never filled."""
     client, _page = _client(tmp_path)
     page = tmp_path / "es.html"
     page.write_text(
-        "<html lang='es-AR'><head><title>Guía</title></head>"
-        "<body><main><h1>Guía</h1><p>Instalalo con pip.</p></main></body></html>",
+        "<html lang='es-AR'><head><title>Guía</title>"
+        "<meta property='og:image' content='https://example.com/card.png'></head>"
+        "<body><main><h1>Guía</h1><p>Instalalo con pip.</p>"
+        # A demo snippet must not replace the document's language.
+        "<textarea><html lang='fr'></textarea></main></body></html>",
         encoding="utf-8",
     )
     body = client.post("/v2/scrape", json={"url": str(page)}).json()
     assert body["data"]["metadata"]["language"] == "es-AR"
+    assert body["data"]["metadata"]["ogImage"] == "https://example.com/card.png"

@@ -75,6 +75,14 @@ def test_a_batch_over_the_page_cap_is_refused_before_any_call(model: list[str]) 
     assert model == []
 
 
+def test_a_summary_batch_over_the_page_cap_is_refused(model: list[str]) -> None:
+    """``summary`` is one LLM call per page too (search_web can ask for it on 20 results)."""
+    crawler = AgentCrawl({"llm_max_pages": 1})
+    with pytest.raises(ValueError, match="llm_max_pages=1"):
+        crawler.scrape_many(["https://a.example", "https://b.example"], formats=["summary"])
+    assert model == []
+
+
 def test_mcp_schema_asks_for_json_without_the_markdown() -> None:
     assert _json_request(None, None)[0] == ["markdown", "links", "metadata"]
     assert _json_request(None, SCHEMA) == (["metadata", "json"], {"schema": SCHEMA})
