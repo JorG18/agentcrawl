@@ -23,3 +23,6 @@ graphify-out/
 
 # Neutral corpus snapshots are third-party pages: fetch locally, never commit
 benchmarks/corpus/snapshots/
+
+# Local agent state (holds absolute paths to private notes)
+.hermes/

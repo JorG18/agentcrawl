@@ -36,6 +36,9 @@ class HTMLFactsParser(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attrs_dict = {key.lower(): value for key, value in attrs if value is not None}
         tag = tag.lower()
+        if tag == "html" and attrs_dict.get("lang", "").strip():
+            # The first <html> wins, as in browsers: later ones sit inside <svg> or <textarea> demos.
+            self.metadata.setdefault("language", attrs_dict["lang"].strip())
         if tag == "title":
             self._in_title = True
         if tag == "script" and attrs_dict.get("type", "").lower() == "application/ld+json":
@@ -56,6 +59,7 @@ class HTMLFactsParser(HTMLParser):
                     "description",
                     "og:title",
                     "og:description",
+                    "og:image",
                     "og:type",
                     "og:url",
                     "twitter:title",

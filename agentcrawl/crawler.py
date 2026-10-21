@@ -1452,10 +1452,11 @@ def check_formats(formats: list[str] | None) -> list[str] | None:
 
 
 def check_json_pages(formats: list[str] | None, pages: int, config: CrawlConfig) -> None:
-    """Refuse a ``json`` batch over ``llm_max_pages``: each page is a paid LLM call."""
-    if formats and "json" in formats and pages > config.llm_max_pages:
+    """Refuse a ``json``/``summary`` batch over ``llm_max_pages``: each page is a paid LLM call."""
+    paid = sorted(set(formats or ()) & {"json", "summary"})
+    if paid and pages > config.llm_max_pages:
         raise ValueError(
-            f"formats=['json'] sends each page to the LLM; {pages} pages exceed "
+            f"formats={paid} sends each page to the LLM; {pages} pages exceed "
             f"llm_max_pages={config.llm_max_pages} (AGENTCRAWL_LLM_MAX_PAGES). "
             "Split the batch or raise the limit."
         )

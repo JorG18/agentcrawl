@@ -37,6 +37,11 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 
 ### Fixed
 
+- **`metadata.language` and `/v2` `ogImage` are filled:** the language comes from the first `<html lang>` and `og:image` is kept; neither was ever set, so `/v2` scrape answers never carried Firecrawl's `metadata.language` or `metadata.ogImage`. Pages cached before the upgrade lack them until they expire.
+- **The MCP server reports AgentCrawl's version** in `initialize` (`serverInfo.version`); it answered the MCP SDK's version (1.27.2).
+- **MCP `search_web` takes `formats`** like `scrape_url`, so an agent can ask for a `summary` of each result; `scrape_url` now lists `summary` among its formats (it worked but was not described).
+- **`summary` counts against `AGENTCRAWL_LLM_MAX_PAGES`** like `json` (one LLM call per page): a batch, crawl or search asking for more summaries than the cap is refused before any call.
+- `.hermes/` (local agent state) is in `.gitignore`, not only in a local exclude a fresh clone does not have.
 - **HTML with omitted end tags** (`<li>a<li>b`, `<td>1<td>2`, `<p>a<div>`) nested one level per item: a list of ~400 items raised `RecursionError` out of `scrape()` and aborted the crawl. Implied end tags are closed as browsers do, in the extractor and in CSS extraction (`ul > li`, `tr > td` now match); deeper markup falls back instead of crashing.
 - **Links** resolve against the final URL after redirects (also in the browser) and the page's `<base href>`, the same in `links`, the Markdown and CSS extraction; `metadata.source_url` stays the URL you asked for.
 - **A page rescued by the browser retry** takes the normal path: `section`, `max_tokens`, `json`, `summary` and `markdown_sha256` were skipped (and `diff()` raised).
