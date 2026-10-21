@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agentcrawl import __version__
 from agentcrawl.mcp_server import (
     _crawler,
     cache_stats,
@@ -9,8 +10,10 @@ from agentcrawl.mcp_server import (
     get_job,
     inspect_failures,
     job_events,
+    mcp,
     retry_failures,
     scrape_url,
+    search_web,
 )
 
 
@@ -148,3 +151,29 @@ def test_every_tool_tells_clients_whether_it_changes_anything() -> None:
     assert tools["crawl_site"].readOnlyHint is False
     assert tools["crawl_site"].destructiveHint is False
     assert tools["clear_cache"].destructiveHint is True
+
+
+def test_mcp_reports_the_agentcrawl_version() -> None:
+    """``initialize`` answered the MCP SDK's version (1.27.2), not ours."""
+    options = mcp._mcp_server.create_initialization_options()
+    assert options.server_version == __version__
+
+
+def test_scrape_url_lists_the_summary_format() -> None:
+    formats = mcp._tool_manager.get_tool("scrape_url").parameters["properties"]["formats"]
+    assert "summary" in formats["description"]
+
+
+def test_search_web_forwards_formats(monkeypatch) -> None:
+    calls = []
+
+    class FakeClient:
+        def search(self, query, **kwargs):
+            calls.append((query, kwargs))
+            return {"results": []}
+
+    monkeypatch.setattr("agentcrawl.mcp_server._client", lambda: FakeClient())
+
+    search_web("agent crawlers", formats=["markdown", "summary"])
+
+    assert calls[0][1]["formats"] == ["markdown", "summary"]
