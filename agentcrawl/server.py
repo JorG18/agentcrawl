@@ -23,7 +23,7 @@ from .config import (
     local_files_root_from_env,
 )
 from .dashboard import dashboard_summary, render_dashboard_html
-from .errors import classify_error
+from .errors import classify_error, sanitize_error_message
 from .crawler import AgentCrawl, check_formats, check_json_pages
 from .css_extract import validate_css_schema
 from .html_tools import validate_url_patterns
@@ -409,7 +409,11 @@ class AgentCrawlServer:
                 status_code=503, detail="Authentication is enabled but no API keys are configured."
             )
         api_key = authorization.split(" ", 1)[1].strip()
-        if not any(secrets.compare_digest(api_key, expected) for expected in self.api_keys):
+        # Bytes, not str: compare_digest raises on non-ASCII strings (a 500).
+        if not any(
+            secrets.compare_digest(api_key.encode(), expected.encode())
+            for expected in self.api_keys
+        ):
             raise HTTPException(status_code=403, detail="Invalid API key.")
         key_id = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
         if not self.is_owner_key(authorization):
@@ -425,7 +429,10 @@ class AgentCrawlServer:
         if not authorization or not authorization.lower().startswith("bearer "):
             return False
         api_key = authorization.split(" ", 1)[1].strip()
-        return any(secrets.compare_digest(api_key, owner) for owner in self.owner_api_keys)
+        return any(
+            secrets.compare_digest(api_key.encode(), owner.encode())
+            for owner in self.owner_api_keys
+        )
 
     def job_scope(self, authorization: str | None = Header(default=None)) -> JobScope:
         """Dependency for job-scoped endpoints: authenticate and classify the caller."""
@@ -989,7 +996,7 @@ def _scrape_batch(urls: list[str], api_key: str | None, **fields: Any) -> list[d
         try:
             return {"url": url, **_scrape_one(ScrapeRequest(url=url, **fields), api_key)}
         except Exception as exc:  # one broken page must not sink the batch
-            return {"url": url, "success": False, "error": str(exc)}
+            return {"url": url, "success": False, "error": sanitize_error_message(str(exc))}
 
     if not urls:
         return []
@@ -1028,7 +1035,9 @@ def search(
             ),
         )[: request.limit]
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Web search failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Web search failed: {sanitize_error_message(str(exc))}"
+        ) from exc
     results: list[dict[str, Any]] = [
         {"title": hit.title, "url": hit.url, "snippet": hit.snippet} for hit in hits
     ]
@@ -1491,7 +1500,9 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
             log.exception("job %s failed before its claim", job_id)
         else:
             try:
-                ended = server.store.update_job(job_id, "failed", error=str(exc), owner=run)
+                ended = server.store.update_job(
+                    job_id, "failed", error=sanitize_error_message(str(exc)), owner=run
+                )
             except Exception:  # noqa: BLE001 - the worker thread must survive; recovery retries
                 log.exception("could not record the failure of job %s", job_id)
     finally:

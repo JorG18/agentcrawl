@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from importlib.metadata import PackageNotFoundError, version
 from contextlib import closing
@@ -20,6 +21,7 @@ from . import __version__
 from .crawler import SUPPORTED_FORMATS, AgentCrawl
 from .config import CrawlConfig, config_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
+from .errors import redact_credentials
 from .exceptions import FetchError
 from .parsing import html_to_markdown
 from .remote_client import AgentCrawlClient
@@ -670,7 +672,7 @@ def _check_local_scrape() -> dict[str, Any]:
         markdown = getattr(document, "markdown", "")
         return _check_bool("AgentCrawl Doctor" in markdown)
     except Exception as exc:
-        return {"ok": False, "detail": str(exc)}
+        return {"ok": False, "detail": redact_credentials(str(exc))}
 
 
 def _check_browser(installed: bool) -> dict[str, Any]:
@@ -708,7 +710,7 @@ def _check_remote_config() -> dict[str, Any]:
     return {
         "ok": True,
         "detail": {
-            "base_url": base_url.rstrip("/"),
+            "base_url": redact_credentials(base_url.rstrip("/")),
             "api_key_configured": bool(os.getenv("AGENTCRAWL_API_KEY")),
         },
     }
@@ -726,7 +728,17 @@ def _check_remote_health() -> dict[str, Any]:
     except urllib.error.HTTPError as exc:
         return {"ok": False, "detail": f"HTTP {exc.code}"}
     except Exception as exc:
-        return {"ok": False, "detail": str(exc)}
+        return {"ok": False, "detail": _hide_userinfo(str(exc), base_url)}
+
+
+def _hide_userinfo(text: str, url: str) -> str:
+    """Redact ``url``'s user:password from ``text``, also where urllib echoes it bare."""
+    parts = urllib.parse.urlsplit(url)
+    text = redact_credentials(text)
+    for secret in (parts.netloc.rpartition("@")[0], parts.password):
+        if secret:
+            text = text.replace(secret, "***")
+    return text
 
 
 def _backup(db_path: str, output_dir: str, env_file: str | None = None) -> dict[str, Any]:

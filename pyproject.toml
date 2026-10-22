@@ -71,10 +71,12 @@ ollama = [
 server = [
   "fastapi>=0.125.0,<1.0.0",
   "pydantic>=2.13.4,<3.0.0",
+  # Security floor for fastapi's transitive dependency (CVE-2026-54282/54283).
+  "starlette>=1.3.1,<2.0.0",
   "uvicorn[standard]>=0.38.0,<1.0.0",
 ]
 mcp = [
-  "mcp>=1.27.1,<2.0.0",
+  "mcp>=1.30.0,<2.0.0",
   "pydantic>=2.13.4,<3.0.0",
 ]
 dev = ["httpx2>=2.0.0,<3.0.0", "pytest>=8.0.0", "ruff>=0.13.0,<0.17"]

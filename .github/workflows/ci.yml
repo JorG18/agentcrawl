@@ -26,6 +26,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[server,mcp,dev]"
+      - name: Dependency audit
+        # A fresh resolution, as users get it; fails when a known vulnerability appears.
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pip install pip-audit
+          python -m pip_audit --skip-editable --progress-spinner off
       - name: Ruff
         run: python -m ruff check agentcrawl tests examples benchmarks
       - name: Format
