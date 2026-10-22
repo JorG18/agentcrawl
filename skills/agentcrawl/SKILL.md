@@ -32,7 +32,7 @@ pipx install "agentcrawl-ai[mcp]"      # or: python3 -m pip install "agentcrawl-
 agentcrawl doctor                      # says what works and what is missing
 ```
 
-Plain HTTP pages need nothing else. For pages that only render with JavaScript, add the browser (about 150 MB, only when needed):
+Plain HTTP pages need nothing else. For pages that only render with JavaScript, add the browser (several hundred MB on disk, only when needed):
 
 ```bash
 pipx inject agentcrawl-ai playwright && python3 -m playwright install chromium
