@@ -144,7 +144,15 @@ def test_self_clearing_interstitial_is_waited_out(site) -> None:
 
 
 @browser
-def test_interstitial_that_never_clears_stays_a_challenge(site) -> None:
+def test_interstitial_that_never_clears_stays_a_challenge(site, monkeypatch) -> None:
+    waits = []
+    real_wait = fetchers._wait_out_interstitial
+
+    def counted_wait(*args, **kwargs):
+        waits.append(1)
+        return real_wait(*args, **kwargs)
+
+    monkeypatch.setattr(fetchers, "_wait_out_interstitial", counted_wait)
     doc = _crawler(browser_challenge_wait_ms=2_000).scrape(f"{site}/stuck")
     assert not doc.ok
     assert doc.metadata["error_type"] == "client_challenge"
@@ -155,6 +163,9 @@ def test_interstitial_that_never_clears_stays_a_challenge(site) -> None:
     engines = [attempt["engine"] for attempt in attempts]
     assert engines in (["playwright"], ["playwright", "patchright"])
     assert all(1_500 <= attempt["challenge_waited_ms"] < 3_000 for attempt in attempts)
+    # A second outer browser retry would replace challenge_attempts, so count
+    # the browser runs directly.
+    assert len(waits) == len(attempts)
 
 
 @browser
