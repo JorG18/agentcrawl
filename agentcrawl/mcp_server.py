@@ -13,6 +13,7 @@ from pydantic import Field
 from . import __version__
 from .config import config_from_env
 from .crawler import AgentCrawl
+from .errors import sanitize_error_message
 from .remote_client import AgentCrawlClient
 from .serializers import to_jsonable
 
@@ -275,7 +276,7 @@ def search_web(
             query, limit=limit, scrape=scrape, formats=formats, only_main_content=only_main_content
         )
     except Exception as exc:
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": sanitize_error_message(str(exc)) or type(exc).__name__}
     return {
         "success": all(item.get("success", True) for item in payload["results"]),
         "data": payload,

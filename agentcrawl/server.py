@@ -23,7 +23,7 @@ from .config import (
     local_files_root_from_env,
 )
 from .dashboard import dashboard_summary, render_dashboard_html
-from .errors import classify_error, sanitize_error_message
+from .errors import classify_error, redact_credentials, sanitize_error_message
 from .crawler import AgentCrawl, check_formats, check_json_pages
 from .css_extract import validate_css_schema
 from .html_tools import validate_url_patterns
@@ -996,7 +996,11 @@ def _scrape_batch(urls: list[str], api_key: str | None, **fields: Any) -> list[d
         try:
             return {"url": url, **_scrape_one(ScrapeRequest(url=url, **fields), api_key)}
         except Exception as exc:  # one broken page must not sink the batch
-            return {"url": url, "success": False, "error": sanitize_error_message(str(exc))}
+            return {
+                "url": url,
+                "success": False,
+                "error": sanitize_error_message(str(exc)) or type(exc).__name__,
+            }
 
     if not urls:
         return []
@@ -1036,7 +1040,8 @@ def search(
         )[: request.limit]
     except Exception as exc:
         raise HTTPException(
-            status_code=502, detail=f"Web search failed: {sanitize_error_message(str(exc))}"
+            status_code=502,
+            detail=f"Web search failed: {sanitize_error_message(str(exc)) or type(exc).__name__}",
         ) from exc
     results: list[dict[str, Any]] = [
         {"title": hit.title, "url": hit.url, "snippet": hit.snippet} for hit in hits
@@ -1499,10 +1504,11 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
         if not claimed:  # still queued (or another run's): recovery reschedules it
             log.exception("job %s failed before its claim", job_id)
         else:
+            log.exception("job %s failed", job_id)
+            # Full text for the caller (only credentials hidden); never empty.
+            error = redact_credentials(str(exc)) or type(exc).__name__
             try:
-                ended = server.store.update_job(
-                    job_id, "failed", error=sanitize_error_message(str(exc)), owner=run
-                )
+                ended = server.store.update_job(job_id, "failed", error=error, owner=run)
             except Exception:  # noqa: BLE001 - the worker thread must survive; recovery retries
                 log.exception("could not record the failure of job %s", job_id)
     finally:

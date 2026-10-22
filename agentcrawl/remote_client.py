@@ -7,11 +7,25 @@ import urllib.request
 from typing import Any
 
 
+def check_base_url(base_url: str) -> str:
+    """``base_url`` without a trailing slash; refuses ``user:password@`` without echoing it.
+
+    urllib cannot send URL credentials (it reads the password as a port and
+    puts both in its error), so such a URL never worked and only leaked.
+    """
+    if "@" in urllib.parse.urlsplit(base_url).netloc:
+        raise ValueError(
+            "AGENTCRAWL_BASE_URL must not contain user:password@; "
+            "set the API key in AGENTCRAWL_API_KEY instead."
+        )
+    return base_url.rstrip("/")
+
+
 class AgentCrawlClient:
     def __init__(
         self, base_url: str = "http://127.0.0.1:8000", api_key: str | None = None, timeout: int = 60
     ):
-        self.base_url = base_url.rstrip("/")
+        self.base_url = check_base_url(base_url)
         self.api_key = api_key
         self.timeout = timeout
 

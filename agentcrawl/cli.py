@@ -10,7 +10,6 @@ import sys
 import tempfile
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from importlib.metadata import PackageNotFoundError, version
 from contextlib import closing
@@ -24,7 +23,7 @@ from .dashboard import dashboard_summary, render_dashboard_html
 from .errors import redact_credentials
 from .exceptions import FetchError
 from .parsing import html_to_markdown
-from .remote_client import AgentCrawlClient
+from .remote_client import AgentCrawlClient, check_base_url
 from .serializers import to_jsonable
 from .storage import SQLiteStore
 
@@ -707,10 +706,14 @@ def _check_remote_config() -> dict[str, Any]:
     base_url = os.getenv("AGENTCRAWL_BASE_URL")
     if not base_url:
         return {"ok": True, "skipped": True, "detail": "AGENTCRAWL_BASE_URL not set"}
+    try:
+        base_url = check_base_url(base_url)
+    except ValueError as exc:
+        return {"ok": False, "detail": str(exc)}
     return {
         "ok": True,
         "detail": {
-            "base_url": redact_credentials(base_url.rstrip("/")),
+            "base_url": base_url,
             "api_key_configured": bool(os.getenv("AGENTCRAWL_API_KEY")),
         },
     }
@@ -721,24 +724,14 @@ def _check_remote_health() -> dict[str, Any]:
     if not base_url:
         return {"ok": True, "skipped": True, "detail": "remote health skipped"}
     try:
-        request = urllib.request.Request(base_url.rstrip("/") + "/health")
+        request = urllib.request.Request(check_base_url(base_url) + "/health")
         with urllib.request.urlopen(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return {"ok": bool(payload.get("ok")), "detail": payload}
     except urllib.error.HTTPError as exc:
         return {"ok": False, "detail": f"HTTP {exc.code}"}
     except Exception as exc:
-        return {"ok": False, "detail": _hide_userinfo(str(exc), base_url)}
-
-
-def _hide_userinfo(text: str, url: str) -> str:
-    """Redact ``url``'s user:password from ``text``, also where urllib echoes it bare."""
-    parts = urllib.parse.urlsplit(url)
-    text = redact_credentials(text)
-    for secret in (parts.netloc.rpartition("@")[0], parts.password):
-        if secret:
-            text = text.replace(secret, "***")
-    return text
+        return {"ok": False, "detail": str(exc)}
 
 
 def _backup(db_path: str, output_dir: str, env_file: str | None = None) -> dict[str, Any]:

@@ -34,9 +34,10 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 - **ReDoS:** an `include`/`exclude` pattern such as `(a|aa)+$` froze the whole server (Python's `re` holds the GIL while it backtracks). Matching now times out; a timed-out exclude still excludes.
 - Hidden text no longer reaches the Markdown when hidden by a valueless `hidden` attribute or `display:none !important` (`hidden="until-found"` stays: it is collapsed content).
 - URL credentials (`user:pass@`, e.g. a proxy) are redacted from error messages.
-- **`agentcrawl doctor` no longer prints the password in `AGENTCRAWL_BASE_URL`**: the remote config showed the URL as is and the remote-health error echoed the password. The same redaction now covers `/v1/scrape_many` per-URL errors, `/v1/search` failures and the error stored (and served) for a failed crawl job.
+- **`AGENTCRAWL_BASE_URL` with `user:password@` is refused** with a clear message (`--remote` commands, MCP remote mode, `agentcrawl doctor`). urllib cannot send URL credentials, so such a URL never worked, and its error printed the password (`doctor` also showed the URL as is). Put the key in `AGENTCRAWL_API_KEY`.
+- URL credentials are also redacted from `/v1/scrape_many` per-URL errors, `/v1/search` failures (API and MCP) and the error stored and served for a failed crawl job. A job's error keeps its full text (now also logged with its traceback) and names the exception type when it has no message.
 - A bearer token with non-ASCII characters is refused with `403` instead of crashing the key check (`500`).
-- **Dependency floors:** the `server` extra requires `starlette>=1.3.1` (CVE-2026-54282, CVE-2026-54283) and the `mcp` extra `mcp>=1.30.0`; CI runs `pip-audit` on a fresh resolution.
+- **Dependency floors:** the `server` extra requires `starlette>=1.3.1` (CVE-2026-54282, CVE-2026-54283) and so `fastapi>=0.133.0`; the `mcp` extra requires `mcp>=1.30.0`. CI audits the runtime extras with `pip-audit`.
 
 ### Fixed
 
