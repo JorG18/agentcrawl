@@ -209,6 +209,22 @@ def test_version_fallback_stays_in_sync_with_pyproject() -> None:
     assert agentcrawl._pyproject_version() == expected
 
 
+def test_published_skill_and_sdk_versions_match_pyproject() -> None:
+    """The ClawHub skill and the TypeScript SDK carry hand-written copies of the
+    version; release.yml runs this test, so a bump that misses one fails."""
+    import re
+
+    import agentcrawl
+
+    root = Path(agentcrawl.__file__).resolve().parent.parent
+    expected = agentcrawl._pyproject_version()
+    skill = (root / "skills" / "agentcrawl" / "SKILL.md").read_text(encoding="utf-8")
+    sdk = json.loads((root / "sdk" / "typescript" / "package.json").read_text(encoding="utf-8"))
+
+    assert re.search(r'(?m)^version:\s*"([^"]+)"', skill).group(1) == expected
+    assert sdk["version"] == expected
+
+
 def test_doctor_browser_check_without_the_extra_is_skipped() -> None:
     from agentcrawl.cli import _check_browser
 
