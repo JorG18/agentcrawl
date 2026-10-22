@@ -20,9 +20,10 @@ from . import __version__
 from .crawler import SUPPORTED_FORMATS, AgentCrawl
 from .config import CrawlConfig, config_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
+from .errors import redact_credentials
 from .exceptions import FetchError
 from .parsing import html_to_markdown
-from .remote_client import AgentCrawlClient
+from .remote_client import AgentCrawlClient, check_base_url
 from .serializers import to_jsonable
 from .storage import SQLiteStore
 
@@ -670,7 +671,7 @@ def _check_local_scrape() -> dict[str, Any]:
         markdown = getattr(document, "markdown", "")
         return _check_bool("AgentCrawl Doctor" in markdown)
     except Exception as exc:
-        return {"ok": False, "detail": str(exc)}
+        return {"ok": False, "detail": redact_credentials(str(exc))}
 
 
 def _check_browser(installed: bool) -> dict[str, Any]:
@@ -705,10 +706,14 @@ def _check_remote_config() -> dict[str, Any]:
     base_url = os.getenv("AGENTCRAWL_BASE_URL")
     if not base_url:
         return {"ok": True, "skipped": True, "detail": "AGENTCRAWL_BASE_URL not set"}
+    try:
+        base_url = check_base_url(base_url)
+    except ValueError as exc:
+        return {"ok": False, "detail": str(exc)}
     return {
         "ok": True,
         "detail": {
-            "base_url": base_url.rstrip("/"),
+            "base_url": base_url,
             "api_key_configured": bool(os.getenv("AGENTCRAWL_API_KEY")),
         },
     }
@@ -719,14 +724,14 @@ def _check_remote_health() -> dict[str, Any]:
     if not base_url:
         return {"ok": True, "skipped": True, "detail": "remote health skipped"}
     try:
-        request = urllib.request.Request(base_url.rstrip("/") + "/health")
+        request = urllib.request.Request(check_base_url(base_url) + "/health")
         with urllib.request.urlopen(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return {"ok": bool(payload.get("ok")), "detail": payload}
     except urllib.error.HTTPError as exc:
         return {"ok": False, "detail": f"HTTP {exc.code}"}
     except Exception as exc:
-        return {"ok": False, "detail": str(exc)}
+        return {"ok": False, "detail": redact_credentials(str(exc))}
 
 
 def _backup(db_path: str, output_dir: str, env_file: str | None = None) -> dict[str, Any]:
@@ -927,7 +932,10 @@ def _run_local(args: argparse.Namespace) -> Any:
 
 
 def _run_remote(args: argparse.Namespace) -> Any:
-    client = AgentCrawlClient(args.base_url, args.api_key)
+    try:
+        client = AgentCrawlClient(args.base_url, args.api_key)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
     if args.command == "scrape":
         return client.scrape(
             args.url,
