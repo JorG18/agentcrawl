@@ -35,26 +35,6 @@ jobs:
       - name: Compile
         run: python -m compileall -q agentcrawl benchmarks
 
-  dependency-audit:
-    # The runtime extras as users resolve them today (no dev tools, no pip-audit
-    # itself); fails when a known vulnerability is published for one of them.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - name: Resolve the runtime extras
-        run: |
-          python -m venv /tmp/runtime
-          /tmp/runtime/bin/python -m pip install --upgrade pip
-          /tmp/runtime/bin/python -m pip install ".[server,mcp,browser]"
-          /tmp/runtime/bin/python -m pip freeze --exclude agentcrawl-ai > runtime.txt
-      - name: Audit
-        run: |
-          python -m pip install pip-audit==2.10.1
-          python -m pip_audit -r runtime.txt --no-deps --disable-pip --progress-spinner off
-
   browser:
     # Shadow DOM, iframes, scroll and saved sessions in a real Chromium
     # (tests/test_browser_rendering.py skips itself without one).

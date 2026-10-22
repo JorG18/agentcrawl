@@ -6,6 +6,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
+import traceback
 import os
 import queue
 import secrets
@@ -23,7 +24,7 @@ from .config import (
     local_files_root_from_env,
 )
 from .dashboard import dashboard_summary, render_dashboard_html
-from .errors import classify_error, redact_credentials, sanitize_error_message
+from .errors import classify_error, sanitize_error_message
 from .crawler import AgentCrawl, check_formats, check_json_pages
 from .css_extract import validate_css_schema
 from .html_tools import validate_url_patterns
@@ -1501,12 +1502,14 @@ def _run_crawl_job(job_id: str, payload: dict[str, Any], api_key: str | None) ->
         ended = server.store.update_job(job_id, status, result=result, owner=run, bill=True)
     except Exception as exc:
         log = logging.getLogger(__name__)
+        # Credentials hidden, bounded, never empty; the log gets the traceback's
+        # frames but only this redacted message (no raw exception text).
+        error = sanitize_error_message(str(exc), max_chars=4_000) or type(exc).__name__
+        frames = "".join(traceback.format_tb(exc.__traceback__))
         if not claimed:  # still queued (or another run's): recovery reschedules it
-            log.exception("job %s failed before its claim", job_id)
+            log.error("job %s failed before its claim: %s\n%s", job_id, error, frames)
         else:
-            log.exception("job %s failed", job_id)
-            # Full text for the caller (only credentials hidden); never empty.
-            error = redact_credentials(str(exc)) or type(exc).__name__
+            log.error("job %s failed: %s\n%s", job_id, error, frames)
             try:
                 ended = server.store.update_job(job_id, "failed", error=error, owner=run)
             except Exception:  # noqa: BLE001 - the worker thread must survive; recovery retries

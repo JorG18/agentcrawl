@@ -20,15 +20,15 @@ def redact_credentials(text: str) -> str:
     return _USERINFO_RE.sub(r"\1***@", text)
 
 
-def sanitize_error_message(message: str | None) -> str:
-    """One line, no control characters, at most ``ERROR_MESSAGE_MAX_CHARS``."""
+def sanitize_error_message(message: str | None, max_chars: int = ERROR_MESSAGE_MAX_CHARS) -> str:
+    """One line, no control characters, credentials redacted, at most ``max_chars``."""
     if not message:
         return ""
     text = _CONTROL_RE.sub(" ", str(message))
     text = _SPACE_RE.sub(" ", text).strip()
     text = redact_credentials(text)
-    if len(text) > ERROR_MESSAGE_MAX_CHARS:
-        text = text[: ERROR_MESSAGE_MAX_CHARS - 1].rstrip() + "…"
+    if len(text) > max_chars:
+        text = text[: max_chars - 1].rstrip() + "…"
     return text
 
 

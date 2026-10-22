@@ -731,7 +731,7 @@ def _check_remote_health() -> dict[str, Any]:
     except urllib.error.HTTPError as exc:
         return {"ok": False, "detail": f"HTTP {exc.code}"}
     except Exception as exc:
-        return {"ok": False, "detail": str(exc)}
+        return {"ok": False, "detail": redact_credentials(str(exc))}
 
 
 def _backup(db_path: str, output_dir: str, env_file: str | None = None) -> dict[str, Any]:
@@ -932,7 +932,10 @@ def _run_local(args: argparse.Namespace) -> Any:
 
 
 def _run_remote(args: argparse.Namespace) -> Any:
-    client = AgentCrawlClient(args.base_url, args.api_key)
+    try:
+        client = AgentCrawlClient(args.base_url, args.api_key)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
     if args.command == "scrape":
         return client.scrape(
             args.url,

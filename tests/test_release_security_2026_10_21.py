@@ -44,11 +44,44 @@ def test_doctor_refuses_base_url_credentials_without_printing_them(capsys, monke
         assert "must not contain user:password@" in checks[check]["detail"]
 
 
-def test_remote_client_refuses_base_url_credentials_without_echoing_them() -> None:
+@pytest.mark.parametrize(
+    "base_url", ["http://user:SECRETPW@remote.example", "user:SECRETPW@remote.example:8000"]
+)
+def test_remote_client_refuses_base_url_credentials_without_echoing_them(base_url) -> None:
+    # Without a scheme, urlsplit reads "user" as the scheme and finds no netloc.
     with pytest.raises(ValueError) as refused:
-        AgentCrawlClient("http://user:SECRETPW@remote.example")
+        AgentCrawlClient(base_url)
 
     assert "SECRETPW" not in str(refused.value)
+
+
+def test_doctor_does_not_print_a_scheme_less_base_url_with_credentials(capsys, monkeypatch) -> None:
+    monkeypatch.setenv("AGENTCRAWL_BASE_URL", "admin:SECRETPW@localhost:8000")
+
+    assert main(["doctor"]) == 1
+    assert "SECRETPW" not in capsys.readouterr().out
+
+
+def test_cli_remote_with_credentials_exits_with_a_message(monkeypatch) -> None:
+    monkeypatch.setenv("AGENTCRAWL_BASE_URL", "http://user:SECRETPW@remote.example")
+
+    with pytest.raises(SystemExit) as exited:
+        main(["--remote", "scrape", "https://example.com"])
+
+    assert "must not contain user:password@" in str(exited.value.code)
+    assert "SECRETPW" not in str(exited.value.code)
+
+
+def test_mcp_server_refuses_credentials_at_startup(monkeypatch) -> None:
+    from agentcrawl import mcp_server
+
+    monkeypatch.setenv("AGENTCRAWL_BASE_URL", "http://user:SECRETPW@remote.example")
+    monkeypatch.setattr(mcp_server.mcp, "run", lambda: pytest.fail("server started"))
+
+    with pytest.raises(SystemExit) as exited:
+        mcp_server.main()
+
+    assert "SECRETPW" not in str(exited.value.code)
 
 
 def test_doctor_reports_a_malformed_base_url(capsys, monkeypatch) -> None:
@@ -128,24 +161,32 @@ def _failed_job(tmp_path: Path, monkeypatch, scrape) -> tuple[dict, list]:
     return job, store.list_job_events(job_id)
 
 
-def test_failed_job_error_and_event_are_redacted(tmp_path: Path, monkeypatch) -> None:
+def test_failed_job_error_event_and_log_are_redacted(tmp_path: Path, monkeypatch, caplog) -> None:
     job, events = _failed_job(tmp_path, monkeypatch, _boom)
 
     assert "SECRETPW" not in json.dumps([job, events], default=str)
     assert "***@proxy.example" in job["error"]
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert f"job {job['id']} failed" in logged and "SECRETPW" not in caplog.text
 
 
-def test_failed_job_error_is_complete_and_never_empty(tmp_path: Path, monkeypatch) -> None:
+def test_failed_job_error_is_long_bounded_and_never_empty(tmp_path: Path, monkeypatch) -> None:
     long_message = "field missing; " * 40
 
-    def long_error(*_args, **_kwargs):
-        raise ValueError(long_message)
+    def raising(message: str):
+        def scrape(*_args, **_kwargs):
+            raise ValueError(message)
+
+        return scrape
 
     def silent_error(*_args, **_kwargs):
         raise TimeoutError()
 
-    long_job, _ = _failed_job(tmp_path / "long", monkeypatch, long_error)
+    long_job, _ = _failed_job(tmp_path / "long", monkeypatch, raising(long_message))
+    huge_job, _ = _failed_job(tmp_path / "huge", monkeypatch, raising("x\x1b[31m" * 5_000))
     silent_job, _ = _failed_job(tmp_path / "silent", monkeypatch, silent_error)
 
-    assert long_job["error"] == long_message  # not cut to the 300-char error-line cap
+    # Longer than the 300-char error-line cap, but bounded and without escapes.
+    assert long_job["error"] == long_message.strip()
+    assert len(huge_job["error"]) <= 4_000 and "\x1b" not in huge_job["error"]
     assert silent_job["error"] == "TimeoutError"

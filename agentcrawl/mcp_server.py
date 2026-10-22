@@ -634,6 +634,10 @@ def apply_profile(profile: str | None = None) -> list[str]:
 
 
 def main() -> None:
+    try:
+        _client()  # a bad AGENTCRAWL_BASE_URL fails at startup, not on every tool call
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
     apply_profile()
     mcp.run()
 
