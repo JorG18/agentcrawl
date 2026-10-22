@@ -144,13 +144,28 @@ def test_self_clearing_interstitial_is_waited_out(site) -> None:
 
 
 @browser
-def test_interstitial_that_never_clears_stays_a_challenge(site) -> None:
-    started = time.monotonic()
+def test_interstitial_that_never_clears_stays_a_challenge(site, monkeypatch) -> None:
+    waits = []
+    real_wait = fetchers._wait_out_interstitial
+
+    def counted_wait(*args, **kwargs):
+        waits.append(1)
+        return real_wait(*args, **kwargs)
+
+    monkeypatch.setattr(fetchers, "_wait_out_interstitial", counted_wait)
     doc = _crawler(browser_challenge_wait_ms=2_000).scrape(f"{site}/stuck")
     assert not doc.ok
     assert doc.metadata["error_type"] == "client_challenge"
-    # One browser run with one bounded wait, not a second browser retry.
-    assert time.monotonic() - started < 12
+    # At most one run per engine (playwright, plus the patchright stealth retry
+    # when the extra is installed), each with one bounded wait. Checked on the
+    # metadata, not wall-clock time: Chromium launches slow down under load.
+    attempts = doc.metadata["challenge_attempts"]
+    engines = [attempt["engine"] for attempt in attempts]
+    assert engines in (["playwright"], ["playwright", "patchright"])
+    assert all(1_500 <= attempt["challenge_waited_ms"] < 3_000 for attempt in attempts)
+    # A second outer browser retry would replace challenge_attempts, so count
+    # the browser runs directly.
+    assert len(waits) == len(attempts)
 
 
 @browser
