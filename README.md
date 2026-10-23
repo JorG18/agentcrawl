@@ -399,10 +399,12 @@ python -m patchright install chromium
 export AGENTCRAWL_BROWSER_ENGINE=patchright   # optional: use it for every page
 ```
 
-Another opt-in engine is CloakBrowser's patched Chromium. In two 400-page runs
-it opened 7 to 9 Cloudflare pages plain Chromium could not, but lost a few others
-(eBay, Prime Video) and is slower, so the total stayed level; try it on a site
-the `[stealth]` retry does not open.
+Another opt-in engine is CloakBrowser's patched Chromium. In a 400-page run
+([38089980548](https://github.com/JorG18/agentcrawl/actions/runs/38089980548),
+summary in [`cloak-web-60s.json`](benchmarks/results/0.5.6/cloak-web-60s.json))
+it read 9 pages plain Chromium could not, 8 of them Cloudflare challenges, but
+lost 9 others (eBay, Prime Video), so the total stayed level at 252; try it on a
+site the `[stealth]` retry does not open.
 
 ```bash
 python -m pip install "agentcrawl-ai[cloak]"

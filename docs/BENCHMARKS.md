@@ -70,7 +70,7 @@ AgentCrawl against each tool, counting the (page, run) pairs where only one of t
 
 Firecrawl and Scrapling also show no significant difference from each other (p = 0.67 and 1.0). Raising the cap from 60 s to 180 s changes any tool's coverage by 1.5 points or less.
 
-Part of the gap with Crawl4AI is its main-content filter rather than fetching. In each run, 17–18 pages came back from Crawl4AI with at least 1,500 characters of raw Markdown but under 300 after `fit_markdown`'s filter, so they count as not read.
+Part of the gap with Crawl4AI is its main-content filter rather than fetching. Some pages came back from Crawl4AI with raw Markdown but under 300 characters after `fit_markdown`'s filter, so they count as not read. The per-page data behind the count went with the deleted runs; the next release's runs will give it again.
 
 ### Offline quality (35 pages, same HTML for every tool)
 

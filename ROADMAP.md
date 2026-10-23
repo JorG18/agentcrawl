@@ -30,7 +30,7 @@ AgentCrawl Community is a serious self-hosted alpha surface. The core paths work
 - Boilerplate reduction: page chrome, cookie banners, sidebars, related posts, hidden content, unsafe tags.
 - Cookie-consent node-level filter (0.1.1) — drops text-only consent blocks inside generic containers, preserves documentation that mentions cookies as a feature.
 - Markdown table + fenced-code-block preservation with language tags.
-- Quality extraction hardening: 19 → 20 checked-in fixtures, browser-rendered SPA coverage, score thresholds, JSON report, richer provenance, JSON-LD/Product schema + rating extraction, hidden-class filtering.
+- Quality extraction hardening: checked-in fixtures (23 today, see [docs/QUALITY_BENCHMARKS.md](docs/QUALITY_BENCHMARKS.md)), browser-rendered SPA coverage, score thresholds, JSON report, richer provenance, JSON-LD/Product schema + rating extraction, hidden-class filtering.
 
 ### Crawler & ops
 - Sitemap index expansion and `robots.txt` discovery.
