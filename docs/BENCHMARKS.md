@@ -1,8 +1,33 @@
-# Benchmarks (0.6.0)
+# Benchmarks
 
 How AgentCrawl compares with Crawl4AI, Scrapling and Firecrawl on real websites, measured in October 2026. Every number below comes from a GitHub Actions run or a command in this repository, and the summaries and samples behind it are committed in [`benchmarks/results/0.6.0/`](../benchmarks/results/0.6.0/).
 
-## Summary
+## Fresh sample (October 2026)
+
+Before the next release we drew a new sample, so that the coverage numbers no longer come from pages the engine was tuned on. The rules (hypothesis, test and the wording for each outcome) were written down before the sample was drawn. Measured on 2026-10-24 at commit `9737c5f`, which is 0.6.0 plus fixes and before the extraction fixes of PR #59. Summaries and the sample are in [`benchmarks/results/2026-10-fresh/`](../benchmarks/results/2026-10-fresh/).
+
+- **Sample:** 400 sites drawn with seed 20261024 from the Tranco top 100,000 by the same script and strata as 0.6.0: 323 homepages and 77 inner pages (70 from sitemaps, 7 from Common Crawl index `CC-MAIN-2026-43`).
+- **Runs:** two runs with a 60 s cap, AgentCrawl with its stealth extra, Scrapling 0.5, Crawl4AI 0.9.5. All three tools ran on the same runner at the same time. Firecrawl was not run.
+- **Test:** an exact McNemar test on the pages where only one of two tools got content, **in each run separately**. A difference counts only if both runs give p < 0.05 in the same direction, because the two runs repeat the same pages and pooling them would shrink p.
+
+Pages with readable content, both runs pooled (pages tried in brackets):
+
+| tool | fresh sample | 0.6.0 sample, same day and versions |
+|---|---|---|
+| Scrapling | 63.6 % (800) | 64.5 % (400) |
+| AgentCrawl | 60.8 % (800) | 63.5 % (400) |
+| Crawl4AI | 52.4 % (800) | 54.8 % (400) |
+
+| pair | run 1: only AgentCrawl / only other | p | run 2 | p | verdict |
+|---|---|---|---|---|---|
+| vs Scrapling | 21 / 32 | 0.17 | 19 / 31 | 0.12 | no significant difference (this sample cannot detect gaps under about 3 points) |
+| vs Crawl4AI | 48 / 18 | < 0.001 | 52 / 15 | < 0.001 | AgentCrawl reads more pages |
+
+On the fresh sample the gap to Scrapling is −2.9 points. On the 0.6.0 sample, measured the same day with the same versions, it is −1.0 point. Scrapling read more pages in both fresh runs, but neither run reaches significance. The gap is in homepages: the 77 inner pages are level (66 and 65 for AgentCrawl, 66 and 68 for Scrapling).
+
+The 0.6.0 results below are kept as published. Their 400-site sample was also used to tune the engine, so they are labelled as such.
+
+## 0.6.0 summary (sample also used for tuning)
 
 - **Pages read (400 random real sites, two runs per time cap):** AgentCrawl, Firecrawl and Scrapling show no significant difference, at about 64–66 % of pages with readable content. AgentCrawl reads more pages than Crawl4AI (p < 0.001).
 - **What comes back, on 23 randomly drawn pages with checked expectations:** AgentCrawl kept 99 % of the checked text with 10.5 % noise offline, and 99 % with 8 % live. It is ahead of Scrapling on quality (p < 0.001). **Against Firecrawl and Crawl4AI the quality difference is not significant** (p = 0.13 and 0.07).
@@ -189,9 +214,11 @@ python -m benchmarks.compare --corpus benchmarks/corpus/neutral.json \
 
 The offline numbers can only be re-scored on the original page bytes. A fresh `snapshot` saves today's pages, and a page whose bytes changed is listed as `snapshot changed` and left unscored.
 
+The fresh-sample runs are public: [40128584435](https://github.com/JorG18/agentcrawl/actions/runs/40128584435) and [40130001503](https://github.com/JorG18/agentcrawl/actions/runs/40130001503) (fresh sample), [40128594303](https://github.com/JorG18/agentcrawl/actions/runs/40128594303) (0.6.0 sample, same day). Their per-run summaries were made with `python -m benchmarks.web.aggregate --run runs/<id> --out <file>`, one run at a time. The pooled `web-60s.json` also carries a p for the two runs together (0.03 against Scrapling); it is descriptive only, since the runs repeat the same pages, and the verdict uses the per-run tests.
+
 To run it yourself, dispatch the **Web benchmark** workflow with `stealth=1`, a `page_timeout` of `60` or `180`, and either of:
 
-- `sample_path=benchmarks/results/0.6.0/web-sample.json`: the same 400 sites;
+- `sample_path=benchmarks/results/0.6.0/web-sample.json` or `benchmarks/results/2026-10-fresh/web-sample.json`: the same 400 sites;
 - `sample_path=benchmarks/corpus/live_quality.json`: the 35 quality pages.
 
 Firecrawl needs a `FIRECRAWL_API_KEY` repository secret and spends its credits.
