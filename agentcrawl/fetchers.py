@@ -633,6 +633,8 @@ def _render_if_js_shell(
 # characters) is rendered in the local browser as well: its HTML carries text
 # (menus, footers, inline data) but the article arrives through scripts.
 THIN_EXTRACTION_CHARS = 500
+# The same for a page with <noscript> but no scripts at all.
+NOSCRIPT_ONLY_CHARS = 50
 
 
 def _extracted_chars(html: str) -> int:
@@ -653,14 +655,16 @@ def _thin_extraction_chars(content: str, metadata: dict[str, Any]) -> int | None
     or enough text already.
     """
     head = content[:2_000_000].lower()
-    # <noscript> also says the page expects scripts (disqus.com serves plain
-    # HTTP a script-less "browser unsupported" page).
-    if metadata.get("document_type") or ("<script" not in head and "<noscript" not in head):
+    scripts = "<script" in head
+    if metadata.get("document_type") or not (scripts or "<noscript" in head):
         return None
     from .challenge import detect_challenge, html_to_plain_text
 
     chars = _extracted_chars(content)
-    if chars >= THIN_EXTRACTION_CHARS:
+    # Without scripts, <noscript> alone is usually a theme's CSS/image fallback;
+    # only a page that extracts to (almost) nothing is worth a browser
+    # (disqus.com serves plain HTTP a script-less "browser unsupported" page).
+    if chars >= (THIN_EXTRACTION_CHARS if scripts else NOSCRIPT_ONLY_CHARS):
         return None
     if detect_challenge(content, html_to_plain_text(content)).is_challenge:
         return None

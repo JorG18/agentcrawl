@@ -120,3 +120,16 @@ def test_short_static_page_without_scripts_is_not_rendered(monkeypatch) -> None:
     )
     fetchers.fetch_source("https://static.example.org/", CrawlConfig())
     assert calls == []
+
+
+def test_short_static_page_with_a_noscript_fallback_is_not_rendered(monkeypatch) -> None:
+    # Static themes carry <noscript> image/CSS fallbacks; only an (almost) empty
+    # script-less page is worth a browser.
+    http_html = (
+        "<html><head><noscript><link rel='stylesheet' href='/no-js.css'></noscript></head>"
+        "<body><main><h1>About us</h1><p>We are a small bakery in the old town, baking bread"
+        " every morning since 1987 with flour from the valley.</p></main></body></html>"
+    )
+    calls = _patch(monkeypatch, available=True, browser_html=ARTICLE_RENDERED, http_html=http_html)
+    fetchers.fetch_source("https://bakery.example.org/", CrawlConfig())
+    assert calls == []

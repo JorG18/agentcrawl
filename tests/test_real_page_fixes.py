@@ -192,3 +192,27 @@ def test_link_heavy_header_inside_main_is_still_dropped() -> None:
     markdown = _md(_page(body))
     assert "systematically browses the web" in markdown
     assert "Language 7" not in markdown
+
+
+def test_heading_only_section_header_inside_main_is_kept() -> None:
+    body = (
+        "<main><h1>Our Leadership</h1><p>Leaders set strategic priorities for the university.</p>"
+        "<section><header><h2>President Jonathan Levin</h2></header>"
+        "<p>He serves as the 13th president of the university since 2024.</p></section></main>"
+    )
+    assert "President Jonathan Levin" in _md(_page(body))
+
+
+def test_site_header_inside_a_page_wide_section_is_dropped() -> None:
+    article = "".join(
+        f"<p>Store news paragraph {i} with enough words to count.</p>" for i in range(6)
+    )
+    body = (
+        "<section class='page'><header><h3>Acme Hardware Store</h3>"
+        "<p>Open every day from nine to five, closed on holidays.</p><a href='/'>Home</a></header>"
+        f"<article><h1>Spring sale</h1>{article}</article><div><p>Extra block one here.</p>"
+        "<p>Extra block two here.</p></div></section>"
+    )
+    markdown = _md(_page(body))
+    assert "Store news paragraph 3" in markdown
+    assert "Acme Hardware Store" not in markdown
