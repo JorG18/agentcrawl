@@ -333,8 +333,14 @@ def _extract_content_tree(html: str, *, only_main_content: bool) -> str:
     return serialized
 
 
+# A tag, with quoted attribute values that may hold ">" (Tailwind "[&>*]:p-0").
+_TAG_RE = re.compile(r"""<(?:[^>"']|"[^"]*"|'[^']*')*>""")
+
+
 def _html_text_chars(html: str) -> int:
-    return len("".join(re.sub(r"(?s)<[^>]+>", " ", html_module.unescape(html)).split()))
+    # Strip tags before unescaping: an escaped "&gt;" in a class name would
+    # otherwise end the tag early and count the class names as text.
+    return len("".join(html_module.unescape(_TAG_RE.sub(" ", html)).split()))
 
 
 def extraction_provenance(html: str, *, only_main_content: bool = True) -> dict[str, Any]:
@@ -471,7 +477,11 @@ def _content_score(node: _HTMLNode) -> float:
 
 
 def _serialize_node(
-    node: _HTMLNode, *, only_main_content: bool, honor_hidden_classes: bool = True
+    node: _HTMLNode,
+    *,
+    only_main_content: bool,
+    honor_hidden_classes: bool = True,
+    in_content: bool = False,
 ) -> str:
     if node.tag in _ALWAYS_REMOVE_TAGS or _is_hidden(node, classes=honor_hidden_classes):
         return ""
@@ -484,11 +494,14 @@ def _serialize_node(
             only_main_content
             and node.tag in _BOILERPLATE_TAGS
             and not (node.tag == "form" and _is_page_form(node))
+            # Inside main/article/section a <header> heads that section, not the site.
+            and not (node.tag == "header" and in_content and not _is_link_heavy(node))
         ):
             return ""
         if _is_cookie_consent_text(node):
             return ""
 
+    in_content = in_content or node.tag in {"main", "article", "section"} or _is_main_landmark(node)
     children = "".join(
         html_module.escape(child, quote=False)
         if isinstance(child, str)
@@ -496,6 +509,7 @@ def _serialize_node(
             child,
             only_main_content=only_main_content,
             honor_hidden_classes=honor_hidden_classes,
+            in_content=in_content,
         )
         for child in node.children
     )

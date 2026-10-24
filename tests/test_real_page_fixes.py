@@ -163,3 +163,32 @@ def test_small_hidden_panels_stay_hidden() -> None:
     markdown = _md(html)
     assert "Article paragraph 14" in markdown
     assert "Secret menu" not in markdown
+
+
+def test_section_header_inside_main_is_content() -> None:
+    # stanford.edu puts every block (h2 + text) in <header data-testid="section-header">
+    # inside <main>; only the site header (outside main/article/section) is chrome.
+    body = (
+        "<header><nav><a href='/'>Home</a><a href='/about'>About</a></nav>Site banner text</header>"
+        "<main><h1>Our Leadership</h1><p>Leaders set strategic priorities for the university.</p>"
+        "<section><header><h2>President Jonathan Levin</h2>"
+        "<p>Jonathan Levin, a distinguished economist, serves as the 13th president.</p></header>"
+        "<p>More about the office of the president and its work.</p></section></main>"
+    )
+    markdown = _md(_page(body))
+    assert "President Jonathan Levin" in markdown
+    assert "13th president" in markdown
+    assert "Site banner text" not in markdown
+
+
+def test_link_heavy_header_inside_main_is_still_dropped() -> None:
+    # Wikipedia's title bar is a <header> inside <main> holding the language menu.
+    langs = "".join(f"<li><a href='/{i}'>Language {i}</a></li>" for i in range(40))
+    body = (
+        f"<main><header><h1>Web crawler</h1><ul>{langs}</ul></header>"
+        "<p>A web crawler is an Internet bot that systematically browses the web.</p>"
+        "<p>It is typically operated by search engines for the purpose of indexing.</p></main>"
+    )
+    markdown = _md(_page(body))
+    assert "systematically browses the web" in markdown
+    assert "Language 7" not in markdown

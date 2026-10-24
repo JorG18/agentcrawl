@@ -21,13 +21,15 @@ def test_shell_needs_javascript_and_real_pages_do_not() -> None:
     assert not needs_javascript("<html><body><p>Hello</p></body></html>")
 
 
-def _patch(monkeypatch, *, available: bool, browser_html: str | None) -> list[str]:
+def _patch(
+    monkeypatch, *, available: bool, browser_html: str | None, http_html: str = SHELL
+) -> list[str]:
     calls: list[str] = []
     monkeypatch.setattr(fetchers, "validate_remote_url", lambda url, **kwargs: None)
     monkeypatch.setattr(
         fetchers,
         "_fetch_http",
-        lambda source, config: (SHELL, {"fetcher": "http", "final_url": source}),
+        lambda source, config: (http_html, {"fetcher": "http", "final_url": source}),
     )
     monkeypatch.setattr(fetchers, "_browser_backend_available", lambda backend: available)
 
@@ -70,3 +72,51 @@ def test_fallback_off_never_starts_a_browser(monkeypatch) -> None:
     html, _ = fetchers.fetch_source("https://app.example.org/", CrawlConfig(browser_fallback=False))
     assert calls == []
     assert html == SHELL
+
+
+ARTICLE_RENDERED = (
+    "<html><body><main><h1>Leadership</h1>"
+    + "".join(f"<p>Paragraph {i} of the article the browser rendered.</p>" for i in range(30))
+    + "</main></body></html>"
+)
+
+
+def test_utility_classes_do_not_count_as_text(monkeypatch) -> None:
+    # stanford.edu: Tailwind classes such as "[&_.card>*:first-child]:h-full"
+    # carry ">", so the text counter read the class names as page text and a
+    # thin page was never rendered.
+    cls = " ".join(f"[&_.card>*:nth-child({i})]:h-full" for i in range(40))
+    http_html = (
+        f'<html><body><script src="/app.js"></script><main><div class="{cls}">'
+        f'<h1>Leadership</h1><p>One short lead sentence.</p><img class="{cls}" src="a.jpg">'
+        "</div></main></body></html>"
+    )
+    calls = _patch(monkeypatch, available=True, browser_html=ARTICLE_RENDERED, http_html=http_html)
+    html, metadata = fetchers.fetch_source("https://www.example.edu/", CrawlConfig())
+    assert calls == ["https://www.example.edu/"]
+    assert metadata["fallback_reason"] == "thin_extraction"
+
+
+def test_empty_page_without_scripts_but_with_noscript_is_rendered(monkeypatch) -> None:
+    # disqus.com: plain HTTP gets a script-less page whose only text is a
+    # <noscript> "browser unsupported" notice; the browser gets the real page.
+    http_html = (
+        '<html><body><noscript id="unsupportedBrowser">Sorry, your browser is unsupported.'
+        '</noscript><iframe src="https://p.example.net/px" style="display:none"></iframe>'
+        "</body></html>"
+    )
+    calls = _patch(monkeypatch, available=True, browser_html=ARTICLE_RENDERED, http_html=http_html)
+    html, metadata = fetchers.fetch_source("https://disqus.example.com/", CrawlConfig())
+    assert calls == ["https://disqus.example.com/"]
+    assert metadata["fallback_reason"] == "thin_extraction"
+
+
+def test_short_static_page_without_scripts_is_not_rendered(monkeypatch) -> None:
+    calls = _patch(
+        monkeypatch,
+        available=True,
+        browser_html=ARTICLE_RENDERED,
+        http_html="<html><body><p>Hello</p></body></html>",
+    )
+    fetchers.fetch_source("https://static.example.org/", CrawlConfig())
+    assert calls == []

@@ -648,11 +648,14 @@ def _extracted_chars(html: str) -> int:
 def _thin_extraction_chars(content: str, metadata: dict[str, Any]) -> int | None:
     """Characters the HTTP page extracts to, when that is thin enough to render.
 
-    ``None`` means rendering cannot help: not an HTML page with scripts, a
+    ``None`` means rendering cannot help: an HTML page with no scripts or <noscript>, a
     converted document, a challenge page (the crawler retries those itself),
     or enough text already.
     """
-    if metadata.get("document_type") or "<script" not in content[:2_000_000].lower():
+    head = content[:2_000_000].lower()
+    # <noscript> also says the page expects scripts (disqus.com serves plain
+    # HTTP a script-less "browser unsupported" page).
+    if metadata.get("document_type") or ("<script" not in head and "<noscript" not in head):
         return None
     from .challenge import detect_challenge, html_to_plain_text
 
