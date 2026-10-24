@@ -1,16 +1,16 @@
 # Benchmarks
 
-How AgentCrawl compares with Crawl4AI, Scrapling and Firecrawl on real websites, measured in October 2026. Every number below comes from a GitHub Actions run or a command in this repository, and the summaries and samples behind it are committed in [`benchmarks/results/0.6.0/`](../benchmarks/results/0.6.0/).
+How AgentCrawl compares with Crawl4AI, Scrapling and Firecrawl on real websites, measured in October 2026. Every number below comes from a GitHub Actions run or a command in this repository, and the summaries and samples behind it are committed in [`benchmarks/results/2026-10-fresh/`](../benchmarks/results/2026-10-fresh/) and [`benchmarks/results/0.6.0/`](../benchmarks/results/0.6.0/). Firecrawl is only in the 0.6.0 numbers.
 
 ## Fresh sample (October 2026)
 
 Before the next release we drew a new sample, so that the coverage numbers no longer come from pages the engine was tuned on. The rules (hypothesis, test and the wording for each outcome) were written down before the sample was drawn. Measured on 2026-10-24 at commit `9737c5f`, which is 0.6.0 plus fixes and before the extraction fixes of PR #59. Summaries and the sample are in [`benchmarks/results/2026-10-fresh/`](../benchmarks/results/2026-10-fresh/).
 
 - **Sample:** 400 sites drawn with seed 20261024 from the Tranco top 100,000 by the same script and strata as 0.6.0: 323 homepages and 77 inner pages (70 from sitemaps, 7 from Common Crawl index `CC-MAIN-2026-43`).
-- **Runs:** two runs with a 60 s cap, AgentCrawl with its stealth extra, Scrapling 0.5, Crawl4AI 0.9.5. All three tools ran on the same runner at the same time. Firecrawl was not run.
+- **Runs:** two runs on the fresh sample plus one control run on the 0.6.0 sample, all with a 60 s cap and the same day, AgentCrawl with its stealth extra, Scrapling 0.5, Crawl4AI 0.9.5. All three tools ran on the same runner at the same time. Firecrawl was not run.
 - **Test:** an exact McNemar test on the pages where only one of two tools got content, **in each run separately**. A difference counts only if both runs give p < 0.05 in the same direction, because the two runs repeat the same pages and pooling them would shrink p.
 
-Pages with readable content, both runs pooled (pages tried in brackets):
+Pages with readable content (pages tried in brackets; the fresh sample pools its two runs, the 0.6.0 sample is one control run):
 
 | tool | fresh sample | 0.6.0 sample, same day and versions |
 |---|---|---|
@@ -23,7 +23,7 @@ Pages with readable content, both runs pooled (pages tried in brackets):
 | vs Scrapling | 21 / 32 | 0.17 | 19 / 31 | 0.12 | no significant difference (this sample cannot detect gaps under about 3 points) |
 | vs Crawl4AI | 48 / 18 | < 0.001 | 52 / 15 | < 0.001 | AgentCrawl reads more pages |
 
-On the fresh sample the gap to Scrapling is −2.9 points. On the 0.6.0 sample, measured the same day with the same versions, it is −1.0 point. Scrapling read more pages in both fresh runs, but neither run reaches significance. The gap is in homepages: the 77 inner pages are level (66 and 65 for AgentCrawl, 66 and 68 for Scrapling).
+On the fresh sample the gap to Scrapling is −2.9 points. On the 0.6.0 sample, measured the same day with the same versions, it is −1.0 point. The rule written before the draw counts that 1.9-point difference as no evidence of a change; this design cannot detect shifts under about 5 points, so it does not rule them out either. Scrapling read more pages in both fresh runs, but neither run reaches significance. By page kind (from the run artifacts, not in the committed summaries), the 77 inner pages are close (66 and 65 for AgentCrawl, 66 and 68 for Scrapling) and the gap comes from homepages.
 
 The 0.6.0 results below are kept as published. Their 400-site sample was also used to tune the engine, so they are labelled as such.
 
@@ -161,7 +161,7 @@ One of the 6 pages counted for AgentCrawl against Firecrawl, and one of the 7 ag
   - Pages refused for lack of credits (HTTP 402) are left out, not counted as failures, and the pairwise tests only compare pages both tools were tried on.
   - Firecrawl's coverage therefore rests on 1,253 pages instead of 1,600.
   - The sample is ordered by rank, so those second-run pages are almost all top-1,000 sites (180 s) or top-10,000 sites (60 s). Firecrawl's pooled coverage over-weights popular sites.
-- **The signals were written by this project.** The 23 drawn pages were picked mechanically and their signals written before any tool ran on them, but by us. AgentCrawl's extractor has been fixed against the 12 chosen pages in the past, so its score there is optimistic. That is why the drawn pages are reported on their own. Between the draw of the 400-site sample and these runs, AgentCrawl's engine was also fixed against pages of that same sample that other tools read and it did not, so its web coverage here is optimistic; a fresh draw for the next release removes that bias.
+- **The signals were written by this project.** The 23 drawn pages were picked mechanically and their signals written before any tool ran on them, but by us. AgentCrawl's extractor has been fixed against the 12 chosen pages in the past, so its score there is optimistic. That is why the drawn pages are reported on their own. Between the draw of the 400-site sample and these runs, AgentCrawl's engine was also fixed against pages of that same sample that other tools read and it did not, so its web coverage here may be optimistic; the fresh sample at the top of this page found no evidence of a change.
 - **Live ran about two hours after the pages were saved** (22:22 UTC on 15 October vs 00:08 UTC on 16 October). A page that changed in between lowers every tool's recall.
 - **Small samples.** 23 drawn pages can separate large differences (vs Scrapling) but not small ones (vs Firecrawl, vs Crawl4AI).
 - **What "content" lets through.** The 300-character threshold also counts navigation-only output as content, which helps tools that return the whole page.

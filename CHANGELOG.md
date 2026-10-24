@@ -65,7 +65,7 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 
 ### Docs
 
-- `docs/BENCHMARKS.md`: the 0.6.0 web runs were deleted (they also carried results of a hosted tool whose terms do not allow publishing them); the committed summaries are the record. Added: the engine was fixed against pages of the same 400-site sample, so its coverage there is optimistic; the quality pages were filtered by a plain HTTP fetch; the drawn pages' signals were written by a separate AI agent.
+- `docs/BENCHMARKS.md`: the 0.6.0 web runs were deleted (they also carried results of a hosted tool whose terms do not allow publishing them); the committed summaries are the record. Added: the engine was fixed against pages of the same 400-site sample, so its coverage there may be optimistic; the quality pages were filtered by a plain HTTP fetch; the drawn pages' signals were written by a separate AI agent.
 - `docs/BENCHMARKS.md`: **web coverage on a fresh 400-site sample** (drawn 2026-10-24, rules written before the draw): no significant difference with Scrapling, AgentCrawl ahead of Crawl4AI; measured before the thin-page fixes above. The 0.6.0 numbers stay, labelled as a sample also used for tuning. Every other published number points to its run.
 - SECURITY.md says what the default browser mode does and does not check. Examples use a page that reads over plain HTTP, install the extra they need, and list the tools the MCP server really exposes.
 
