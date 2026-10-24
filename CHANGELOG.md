@@ -57,6 +57,7 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 - `/v2/crawl` `includePaths`/`excludePaths` were rejected with `400` (regexes wrapped in `*`); anchored Firecrawl path patterns (`^/blog/`) now match. Bad or out-of-range numbers on `/v2` are `400`, not `500`; running `/v2` jobs page past 100 documents.
 - `agentcrawl restore --force` no longer replays a stale WAL over the restored file and replaces a corrupt target; `failures --export` writes the CSV in remote mode.
 - TypeScript SDK: `outline` format, `scroll_to_end` / `virtual_scroll` actions, `section` and `maxTokens` on `scrape()`.
+- **Fewer thin pages:** the text count behind the thin-page check read utility-CSS class names (`[&_.card>*]:h-full`) as page text, so a thin page looked long enough and was never rendered in the browser. A `<header>` inside `<main>` or `<article>` (a section heading, not the site header) is kept unless it is mostly links. A page with `<noscript>` and no scripts that extracts to almost nothing (under 50 characters) is now rendered too.
 
 ### Performance
 
@@ -65,6 +66,7 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 ### Docs
 
 - `docs/BENCHMARKS.md`: the 0.6.0 web runs were deleted (they also carried results of a hosted tool whose terms do not allow publishing them); the committed summaries are the record. Added: the engine was fixed against pages of the same 400-site sample, so its coverage there is optimistic; the quality pages were filtered by a plain HTTP fetch; the drawn pages' signals were written by a separate AI agent.
+- `docs/BENCHMARKS.md`: **web coverage on a fresh 400-site sample** (drawn 2026-10-24, rules written before the draw): no significant difference with Scrapling, AgentCrawl ahead of Crawl4AI; measured before the thin-page fixes above. The 0.6.0 numbers stay, labelled as a sample also used for tuning. Every other published number points to its run.
 - SECURITY.md says what the default browser mode does and does not check. Examples use a page that reads over plain HTTP, install the extra they need, and list the tools the MCP server really exposes.
 
 ## 0.6.0 - 2026-10-16
