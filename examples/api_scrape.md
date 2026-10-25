@@ -25,6 +25,6 @@ curl http://127.0.0.1:8000/v1/scrape \
   -d '{"url":"https://docs.python.org/3/library/json.html","formats":["markdown","links","metadata"]}'
 ```
 
-Expected result: JSON containing Markdown from the AgentCrawl PyPI project page.
+Expected result: JSON containing Markdown from the Python `json` module docs page.
 
 Do not expose the API publicly without TLS, authentication, request limits, and network controls.

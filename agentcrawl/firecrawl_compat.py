@@ -38,7 +38,8 @@ _FORMATS = {
     "summary": "summary",  # needs AGENTCRAWL_LLM_MODEL on the server
     "json": "json",  # same; the request picks the schema, never the model
 }
-# Accepted, with no effect on the result here.
+# Accepted without an error; all have no effect here except storeInCache and
+# zeroDataRetention, which turn the cache off (handled where the cache is chosen).
 _IGNORED = {
     "origin",
     "integration",

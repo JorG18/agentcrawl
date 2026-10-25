@@ -6,7 +6,22 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ## Unreleased
 
-A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes on common HTML, jobs stuck after a restart, `/v2` options that failed or were dropped, and docs that promised more than the code did. Behaviour changes for callers are listed first.
+## 0.7.0 - 2026-10-25
+
+A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes on common HTML, jobs stuck after a restart, `/v2` options that failed or were dropped, fewer thin pages, and docs that promised more than the code did. Breaking: some requests that used to pass silently are now refused, and servers sharing a database must restart together (see "Upgrading from 0.6").
+
+### Upgrading from 0.6
+
+- **Restart every server process that shares the database together.** An older process does not know the new run token and would requeue jobs a new one is running.
+- An unknown format (including `raw_html`) raises `ValueError` in the library, `422` in the API and a usage error in the CLI, instead of an empty document.
+- `/v2` refuses options it cannot honour instead of dropping them: `scrapeOptions.formats` other than markdown/html/links or `onlyMainContent: false` on crawl, `sitemap` other than `include` on map, `zeroDataRetention` on crawl and batch.
+- API `config` overrides above the new caps are refused (`crawl_max_pages` 10,000, `max_response_bytes` 50 MB, `timeout_ms`/`page_budget_ms` 5 min, `page_budget_ms` 0, `browser_wait_ms` 60 s, retry delays 60 s, `http_retries`/`crawl_url_retries` 5, more than 20 `include`/`exclude` patterns), and so are request bodies over 1 MB (`AGENTCRAWL_MAX_REQUEST_BYTES`).
+- `crawl()` no longer crawls a site whose `robots.txt` answers 5xx/429 or does not answer: pass `--no-robots` if you must.
+- `agentcrawl doctor` exits 1 when a check fails, and `doctor --client` exits 1 for a stale or unreadable client, or a named client that is not registered: scripts that ignored its output may now fail.
+- **The server now reads the engine variables local mode reads** (`AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AUDIT`, `AGENTCRAWL_PAGE_BUDGET_MS`, `AGENTCRAWL_BROWSER_ENGINE`, `AGENTCRAWL_OCR`, retries, crawl defaults): check the server's environment, for example a `.env` shared with the MCP server. With `AGENTCRAWL_AIRGAP` set, it refuses every target outside the allowlist.
+- `summary` counts against `AGENTCRAWL_LLM_MAX_PAGES` (default 20), like `json`: a batch asking for more summaries than that is refused.
+- A remote base URL with `user:password@`, or without `http://`/`https://`, is refused at startup: pass the key as `AGENTCRAWL_API_KEY` or `--api-key`.
+- `regex` is a new core dependency; the `server` extra needs `starlette>=1.3.1`/`fastapi>=0.133.0` and the `mcp` extra `mcp>=1.30.0`.
 
 ### Changed
 
@@ -21,8 +36,8 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 - **Unknown formats are refused** (library `ValueError`, API `422`, CLI usage error) instead of returning a document with nothing in it. `raw_html` was never supported (the TypeScript `Format` type listed it).
 - **API limits:** request bodies over `AGENTCRAWL_MAX_REQUEST_BYTES` (1 MB) are refused before authentication; `config` overrides are capped at `crawl_max_pages` 10,000, `max_response_bytes` 50 MB, `timeout_ms`/`page_budget_ms` 5 min (`page_budget_ms` 0 refused), `browser_wait_ms` 60 s, retry delays 60 s and `http_retries`/`crawl_url_retries` 5; at most 20 `include`/`exclude` patterns.
 - **`regex` is a core dependency**: `include`/`exclude` matches are limited to 50 ms each.
-- **`agentcrawl doctor`** exits 1 when a check fails; `doctor --client` exits 1 for a stale client. With local files disabled (the Docker image) its scrape check runs on HTML in memory instead of failing.
-- **The server reads every documented `AGENTCRAWL_*` engine variable** (it ignored `AGENTCRAWL_BROWSER_ENGINE`, `AGENTCRAWL_CDP_URL`, `AGENTCRAWL_PAGE_BUDGET_MS`, `AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AUDIT`), and local mode reads the Camofox, retry and crawl variables the server documented.
+- **`agentcrawl doctor`** exits 1 when a check fails; `doctor --client` exits 1 for a stale or unreadable client, or a named client that is not registered. With local files disabled (the Docker image) its scrape check runs on HTML in memory instead of failing.
+- **The server reads every documented `AGENTCRAWL_*` engine variable** (it ignored `AGENTCRAWL_BROWSER_ENGINE`, `AGENTCRAWL_PAGE_BUDGET_MS`, `AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AUDIT`), except the `cdp` engine, which stays local-mode only (the server ignores `AGENTCRAWL_BROWSER_ENGINE=cdp` and `AGENTCRAWL_CDP_URL`), and local mode reads the Camofox, retry and crawl variables the server documented.
 - **`/v2`:** options the engine cannot honour are refused instead of dropped (`scrapeOptions.formats` other than markdown/html/links on crawl, `onlyMainContent: false` on crawl, `sitemap` other than `include` on map); `storeInCache: false` and `zeroDataRetention: true` skip the cache, and `zeroDataRetention` is refused on crawl and batch.
 - `metadata.dns_pinned` is `false` whenever an HTTP(S) proxy is configured in the environment.
 
@@ -31,7 +46,7 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 - **SSRF read-back through iframes (default browser mode).** Outside `browser_strict_network` Chromium follows an iframe's redirects itself; a public frame redirecting to a loopback, private or metadata address had that page's HTML copied into the Markdown. Frames (and the page) whose URL the guard refuses when their HTML is read are no longer returned. The request itself still happens outside strict mode (SECURITY.md).
 - NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`), 6to4 and IPv4-compatible IPv6 addresses are checked by the IPv4 address they carry.
 - Page text and HTML sent to the LLM (extraction, schema generation, summaries) are fenced as untrusted data.
-- **ReDoS:** an `include`/`exclude` pattern such as `(a|aa)+$` froze the whole server (Python's `re` holds the GIL while it backtracks). Matching now times out; a timed-out exclude still excludes.
+- **ReDoS:** an `include`/`exclude` pattern such as `(a|aa)+$` froze the whole server (Python's `re` holds the GIL while it backtracks). Matching now times out; a timed-out exclude still excludes. The `regex` fields of CSS schemas (`/v1/extract_css`, MCP `extract_structured`) have the same 50 ms limit; a timed-out field is `null`.
 - Hidden text no longer reaches the Markdown when hidden by a valueless `hidden` attribute or `display:none !important` (`hidden="until-found"` stays: it is collapsed content).
 - URL credentials (`user:pass@`, e.g. a proxy) are redacted from error messages.
 - **A remote base URL with `user:password@`, or without `http://`/`https://`, is refused** with a clear message: `AgentCrawlClient(...)` raises `ValueError`, `--remote` commands exit with it, the MCP server stops at startup and `agentcrawl doctor` reports it. urllib cannot send URL credentials, so such a URL never worked, and its error printed the password (`doctor` also showed the URL as is). Pass the key as `AGENTCRAWL_API_KEY` or `--api-key`.
