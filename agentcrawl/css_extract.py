@@ -41,7 +41,7 @@ from html.parser import HTMLParser
 from typing import Any
 
 from .html_tools import _MATCH_TIMEOUT_S, _PATTERN_ERRORS, _regex
-from .parsing import _close_implied
+from .parsing import _close_implied, _OpenStack
 
 _VOID = frozenset("area base br col embed hr img input link meta param source track wbr".split())
 _SKIP_TEXT = frozenset({"script", "style", "template", "noscript"})
@@ -107,14 +107,14 @@ class _TreeBuilder(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.root = Node("#document")
-        self.stack: list[Node] = [self.root]
+        self.stack = _OpenStack(self.root)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         _close_implied(self.stack, tag)  # <li>a<li>b are siblings, not nested
         node = Node(tag, {name: value or "" for name, value in attrs}, parent=self.stack[-1])
         self.stack[-1].children.append(node)
         if tag not in _VOID:
-            self.stack.append(node)
+            self.stack.push(node)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         _close_implied(self.stack, tag)
@@ -123,10 +123,7 @@ class _TreeBuilder(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         # Tolerant close: pop to the matching open element; ignore stray ends.
-        for index in range(len(self.stack) - 1, 0, -1):
-            if self.stack[index].tag == tag:
-                del self.stack[index:]
-                return
+        self.stack.close(tag)
 
     def handle_data(self, data: str) -> None:
         self.stack[-1].children.append(data)

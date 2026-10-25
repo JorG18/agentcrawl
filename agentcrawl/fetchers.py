@@ -1055,7 +1055,8 @@ def _read_bounded(
             raise FetchError(
                 f"Response body took longer than {deadline_seconds:.0f}s to arrive"
                 + (f" for {url}" if url else "")
-                + f" (read deadline is {READ_DEADLINE_FACTOR}x timeout_ms)."
+                + f" (read deadline is {READ_DEADLINE_FACTOR}x timeout_ms).",
+                error_type="timeout",
             )
     return b"".join(chunks)
 

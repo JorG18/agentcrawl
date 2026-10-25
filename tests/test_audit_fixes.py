@@ -104,6 +104,31 @@ def test_schedule_job_skips_when_other_instance_holds_lease(tmp_path: Path, monk
     assert put_calls == []
 
 
+def test_a_fired_retry_waiting_for_a_worker_is_not_queued_again(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The recovery sweep runs every 60 s: a delayed retry whose timer fired
+    sits in the queue until a worker frees up and must not be queued twice."""
+    import queue
+
+    monkeypatch.setattr(server, "store", SQLiteStore(tmp_path / "sweep-dup.db"))
+    monkeypatch.setattr(server, "instance_id", "instance-test")
+    monkeypatch.setattr(server, "_workers_started", True)  # no worker drains the queue
+    monkeypatch.setattr(server, "_job_queue", queue.Queue())
+    monkeypatch.setattr(server, "_queued_jobs", set())
+    monkeypatch.setattr(server, "_job_threads", {})
+    job_id = server.store.create_job("crawl", {"url": "https://example.com"})
+
+    assert server.schedule_job(job_id, {"url": "https://example.com"}, None, time.time() + 0.05)
+    deadline = time.monotonic() + 5
+    while server._job_queue.qsize() == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert server._job_queue.qsize() == 1  # the timer fired
+
+    assert server.recover_jobs() == 0
+    assert server._job_queue.qsize() == 1
+
+
 # ---------------------------------------------------------------------------
 # BUG #2 (Media): audit trail preserved across retries
 # ---------------------------------------------------------------------------

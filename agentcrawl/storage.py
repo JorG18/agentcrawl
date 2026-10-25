@@ -229,14 +229,14 @@ class SQLiteStore:
                     conn.execute(
                         "alter table jobs add column billed_pages integer not null default 0"
                     )
-                    # Jobs finished before the column existed were billed for
-                    # their pages already; a later retry must not bill them again.
+                    # Completed and cancelled jobs were billed for their pages
+                    # already; failed ones never were, so a retry bills them.
                     conn.execute(
                         """
                         update jobs set billed_pages = (
                             select count(*) from crawl_documents where job_id = jobs.id
                         )
-                        where status in ('completed', 'failed', 'cancelled')
+                        where status in ('completed', 'cancelled')
                         """
                     )
                 conn.execute(

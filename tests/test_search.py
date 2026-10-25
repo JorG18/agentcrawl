@@ -189,3 +189,20 @@ def test_duckduckgo_page_without_results_is_still_zero_results(monkeypatch) -> N
 
     _duckduckgo_answers(monkeypatch, '<div class="no-results">No results.</div>')
     assert search_web("zzqx", AgentCrawl({"search_engine": "duckduckgo"}).config) == []
+
+
+def test_api_search_summaries_count_against_the_llm_page_cap(
+    fake_search, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(server, "store", SQLiteStore(tmp_path / "search-cap.db"))
+    monkeypatch.setattr(server, "auth_enabled", False)
+    monkeypatch.setattr(server, "search_engine", "duckduckgo")
+    monkeypatch.setitem(server.default_config, "llm_max_pages", 1)
+
+    response = TestClient(app).post(
+        "/v1/search", json={"query": "q", "limit": 2, "formats": ["summary"]}
+    )
+
+    assert response.status_code == 400
+    assert "llm_max_pages=1" in response.json()["detail"]
+    assert fake_search == []  # refused before the search, so no LLM call either

@@ -345,6 +345,7 @@ def _robots_error(code: int) -> urllib.error.HTTPError:
         (_robots_error(503), False),
         (_robots_error(429), False),
         (urllib.error.URLError("timed out"), False),
+        (FetchError("body stalled", error_type="timeout"), False),  # read deadline
     ],
 )
 def test_unreachable_robots_txt_disallows_everything(monkeypatch, error, allowed) -> None:
@@ -360,6 +361,39 @@ def test_unreachable_robots_txt_disallows_everything(monkeypatch, error, allowed
 
     assert (robots is None or robots.can_fetch("AgentCrawl", "https://example.com/a")) is allowed
     assert (robots is not None and robots.agentcrawl_unreachable) is not allowed
+
+
+def test_pages_blocked_by_an_unreachable_robots_txt_stay_retryable(tmp_path, monkeypatch) -> None:
+    import agentcrawl.crawler as crawler_module
+
+    def fail(*_a, **_k):
+        raise _robots_error(503)
+
+    monkeypatch.setattr(crawler_module, "_guarded_urlopen", fail)
+    crawler = AgentCrawl({"fetcher": "http", "respect_robots_txt": True})
+
+    run = crawler.crawl("https://example.com/", max_pages=1)
+
+    (failure,) = run.metadata["terminal_failures"]
+    assert "unreachable" in failure["message"]
+    assert failure["retryable"] is True  # an outage, not the site's rules
+
+
+def test_a_stalled_robots_txt_is_not_fetched_twice(monkeypatch) -> None:
+    import agentcrawl.crawler as crawler_module
+
+    calls = []
+
+    def stall(*_a, **_k):
+        calls.append(1)
+        raise FetchError("body stalled", error_type="timeout")
+
+    monkeypatch.setattr(crawler_module, "_guarded_urlopen", stall)
+
+    robots = crawler_module._load_robots("https://example.com/", CrawlConfig())
+
+    assert robots.agentcrawl_unreachable
+    assert len(calls) == 1  # a stall already used a whole read deadline
 
 
 def test_robots_txt_is_retried_once_after_a_network_error(monkeypatch) -> None:
