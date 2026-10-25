@@ -6,7 +6,20 @@ Each entry gives a one-line "what changed" up front, then the engineering detail
 
 ## Unreleased
 
-A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes on common HTML, jobs stuck after a restart, `/v2` options that failed or were dropped, and docs that promised more than the code did. Behaviour changes for callers are listed first.
+## 0.7.0 - 2026-10-25
+
+A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes on common HTML, jobs stuck after a restart, `/v2` options that failed or were dropped, fewer thin pages, and docs that promised more than the code did. Breaking: some requests that used to pass silently are now refused, and servers sharing a database must restart together (see "Upgrading from 0.6").
+
+### Upgrading from 0.6
+
+- **Restart every server process that shares the database together.** An older process does not know the new run token and would requeue jobs a new one is running.
+- An unknown format (including `raw_html`) raises `ValueError` in the library, `422` in the API and a usage error in the CLI, instead of an empty document.
+- `/v2` refuses options it cannot honour instead of dropping them: `scrapeOptions.formats` other than markdown/html/links or `onlyMainContent: false` on crawl, `sitemap` other than `include` on map, `zeroDataRetention` on crawl and batch.
+- API `config` overrides above the new caps are refused (`crawl_max_pages` 10,000, `max_response_bytes` 50 MB, `timeout_ms`/`page_budget_ms` 5 min, `page_budget_ms` 0, `browser_wait_ms` 60 s, retry delays 60 s, `http_retries`/`crawl_url_retries` 5, more than 20 `include`/`exclude` patterns), and so are request bodies over 1 MB (`AGENTCRAWL_MAX_REQUEST_BYTES`).
+- `crawl()` no longer crawls a site whose `robots.txt` answers 5xx/429 or does not answer: pass `--no-robots` if you must.
+- `agentcrawl doctor` exits 1 when a check fails, and `doctor --client` exits 1 for a stale client: scripts that ignored its output may now fail.
+- A remote base URL with `user:password@`, or without `http://`/`https://`, is refused at startup: pass the key as `AGENTCRAWL_API_KEY` or `--api-key`.
+- `regex` is a new core dependency; the `server` extra needs `starlette>=1.3.1`/`fastapi>=0.133.0` and the `mcp` extra `mcp>=1.30.0`.
 
 ### Changed
 
