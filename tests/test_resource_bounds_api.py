@@ -139,7 +139,7 @@ def test_oversized_body_is_refused_before_auth(client: TestClient) -> None:
     assert response.status_code == 413
 
 
-def test_chunked_body_over_the_cap_is_not_parsed(client: TestClient) -> None:
+def test_chunked_body_over_the_cap_is_refused_with_413(client: TestClient) -> None:
     def chunks():
         yield b'{"url": "https://example.com/", "pad": "'
         for _ in range(12):
@@ -149,4 +149,5 @@ def test_chunked_body_over_the_cap_is_not_parsed(client: TestClient) -> None:
     response = client.post(
         "/v1/scrape", content=chunks(), headers={"content-type": "application/json"}
     )
-    assert response.status_code == 400  # cut off mid-stream, never parsed
+    assert response.status_code == 413  # cut off mid-stream, never parsed
+    assert "over" in response.json()["detail"]
