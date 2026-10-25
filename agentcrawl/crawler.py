@@ -937,9 +937,10 @@ class AgentCrawl:
                     ):
                         visited.add(url)
                         failed_urls.append(url)
+                        unreachable = getattr(robots, "agentcrawl_unreachable", False)
                         message = (
                             "robots.txt unreachable, crawl disallowed (RFC 9309)"
-                            if getattr(robots, "agentcrawl_unreachable", False)
+                            if unreachable
                             else "blocked by robots.txt"
                         )
                         errors.append(f"{url}: {message}")
@@ -949,7 +950,8 @@ class AgentCrawl:
                                 attempt=item["attempt"],
                                 error_type="blocked",
                                 message=message,
-                                retryable=False,
+                                # A robots.txt outage is temporary: a failures retry may succeed.
+                                retryable=unreachable,
                             )
                         )
                         report(checkpoint=True)
@@ -1656,6 +1658,7 @@ def _robots_body(robots_url: str, config: CrawlConfig) -> str | None:
     if context is not None and cache is not None and robots_url in cache:
         return cache[robots_url]
     content: str | None = None
+    stalled = False
     for _ in range(2):  # one retry, so a single hiccup does not block the whole crawl
         try:
             # Bounded read: a hostile robots.txt could otherwise stream without
@@ -1667,9 +1670,12 @@ def _robots_body(robots_url: str, config: CrawlConfig) -> str | None:
             content = _UNREACHABLE if exc.code >= 500 or exc.code == 429 else None
         except OSError:  # timeout, refused connection, DNS failure
             content = _UNREACHABLE
+        except FetchError as exc:  # a body that stalls past the read deadline is a timeout too
+            stalled = exc.error_type == "timeout"
+            content = _UNREACHABLE if stalled else None
         except Exception:  # oversized or undecodable body: no rules, as before
             content = None
-        if content is not _UNREACHABLE:
+        if content is not _UNREACHABLE or stalled:  # a stall already took a whole read deadline
             break
     if context is not None and cache is not None:
         cache[robots_url] = content

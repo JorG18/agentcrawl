@@ -143,3 +143,37 @@ def test_list_item_inside_a_table_cell_does_not_close_the_outer_item() -> None:
     html = "<ul><li>a<table><tr><td><li>b</td></tr></table>tail</li></ul>"
     out = extract_content_html(html, only_main_content=False)
     assert "<td><li>b</li></td>" in out.replace("\n", "")
+
+
+def test_deeply_nested_markup_parses_in_linear_time() -> None:
+    import time
+
+    from agentcrawl.parsing import extract_content_html
+
+    # 40,000 nested <div> (200 KB) took 25 s when each start tag scanned the
+    # whole open-element stack for an implied </p>.
+    for html in (
+        "<html><body>" + "<div>" * 40_000 + "text</body></html>",
+        "<div>" * 40_000 + "</span>" * 40_000,  # end tags with nothing to close
+        "<p>" + "<div>" * 40_000,  # an open <p> that each <div> could close
+    ):
+        started = time.monotonic()
+        extract_content_html(html, only_main_content=False)
+        assert time.monotonic() - started < 3
+
+
+def test_implied_p_still_closes_under_a_few_levels() -> None:
+    from agentcrawl.parsing import extract_content_html
+
+    out = extract_content_html("<body><p>one<div>two</div></body>", only_main_content=False)
+    assert "<p>one</p><div>two</div>" in out.replace("\n", "")
+
+
+def test_large_pages_skip_the_extraction_cache() -> None:
+    from agentcrawl.parsing import _extract_content_html_cached, extract_content_html
+
+    _extract_content_html_cached.cache_clear()
+    extract_content_html("<p>" + "x" * 1_000_001 + "</p>")
+    assert _extract_content_html_cached.cache_info().currsize == 0
+    extract_content_html("<p>small</p>")
+    assert _extract_content_html_cached.cache_info().currsize == 1

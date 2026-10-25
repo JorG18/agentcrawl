@@ -19,7 +19,7 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 - `crawl()` no longer crawls a site whose `robots.txt` answers 5xx/429 or does not answer: pass `--no-robots` if you must.
 - `agentcrawl doctor` exits 1 when a check fails, and `doctor --client` exits 1 for a stale or unreadable client, or a named client that is not registered: scripts that ignored its output may now fail.
 - **The server now reads the engine variables local mode reads** (`AGENTCRAWL_AIRGAP`, `AGENTCRAWL_AUDIT`, `AGENTCRAWL_PAGE_BUDGET_MS`, `AGENTCRAWL_BROWSER_ENGINE`, `AGENTCRAWL_OCR`, retries, crawl defaults): check the server's environment, for example a `.env` shared with the MCP server. With `AGENTCRAWL_AIRGAP` set, it refuses every target outside the allowlist.
-- `summary` counts against `AGENTCRAWL_LLM_MAX_PAGES` (default 20), like `json`: a batch asking for more summaries than that is refused.
+- `summary` counts against `AGENTCRAWL_LLM_MAX_PAGES` (default 20), like `json`: a batch, or a `/v1/search` with `scrape`, asking for more summaries than that is refused.
 - A remote base URL with `user:password@`, or without `http://`/`https://`, is refused at startup: pass the key as `AGENTCRAWL_API_KEY` or `--api-key`.
 - `regex` is a new core dependency; the `server` extra needs `starlette>=1.3.1`/`fastapi>=0.133.0` and the `mcp` extra `mcp>=1.30.0`.
 
@@ -43,6 +43,8 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 
 ### Security
 
+- **Deeply nested HTML** (40,000 nested `<div>`, 200 KB) took 25 s per parse after the implied-end-tag fix below, and thousands of end tags with nothing to close were quadratic too; open elements are now indexed by tag, so both lookups take logarithmic time and give the same tree as before.
+- `/v1/search` with `scrape` and `json`/`summary` formats checks `AGENTCRAWL_LLM_MAX_PAGES` before searching; it sent every result page to the operator's LLM.
 - **SSRF read-back through iframes (default browser mode).** Outside `browser_strict_network` Chromium follows an iframe's redirects itself; a public frame redirecting to a loopback, private or metadata address had that page's HTML copied into the Markdown. Frames (and the page) whose URL the guard refuses when their HTML is read are no longer returned. The request itself still happens outside strict mode (SECURITY.md).
 - NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`), 6to4 and IPv4-compatible IPv6 addresses are checked by the IPv4 address they carry.
 - Page text and HTML sent to the LLM (extraction, schema generation, summaries) are fenced as untrusted data.
@@ -56,6 +58,11 @@ A full review of 0.6.0: an SSRF read-back in the default browser mode, crashes o
 
 ### Fixed
 
+- `agentcrawl restore --force` on a database that is locked or read-only (the server still has it open) stops with a message instead of deleting the live database and its WAL.
+- A crawl blocked because `robots.txt` was unreachable records its pages as retryable failures (an outage, not the site's rules), and a `robots.txt` whose body stalls past the read deadline counts as unreachable instead of "no rules".
+- The recovery sweep no longer queues a second copy of a delayed retry that is waiting for a free worker.
+- Upgrading a database from 0.6.0 no longer marks failed jobs as billed: they never were, so their pages are billed when a retry finishes them.
+- Pages over 1 MB skip the extraction cache, which kept up to four whole pages in memory for the life of the process.
 - **`metadata.language` and `/v2` `ogImage` are filled:** the language comes from the first `<html lang>` and `og:image` is kept; neither was ever set, so `/v2` scrape answers never carried Firecrawl's `metadata.language` or `metadata.ogImage`. Pages cached before the upgrade lack them until they expire.
 - **The MCP server reports AgentCrawl's version** in `initialize` (`serverInfo.version`); it answered the MCP SDK's version (1.27.2).
 - **MCP `search_web` takes `formats`** like `scrape_url`, so an agent can ask for a `summary` of each result; `scrape_url` now lists `summary` among its formats (it worked but was not described).

@@ -4,6 +4,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from agentcrawl.cli import main
 from agentcrawl.config import CrawlConfig
 
@@ -170,6 +172,41 @@ def test_restore_copies_integrity_checked_backup_with_force(tmp_path: Path, caps
     assert payload["integrity_check"] == "ok"
     with sqlite3.connect(target) as conn:
         assert conn.execute("select value from sample").fetchone()[0] == "restored"
+
+
+def test_restore_keeps_a_target_it_cannot_write(tmp_path: Path, monkeypatch) -> None:
+    import agentcrawl.cli as cli_module
+
+    backup = tmp_path / "backup.db"
+    target = tmp_path / "target.db"
+    with sqlite3.connect(backup) as conn:
+        conn.execute("create table sample (value text)")
+    with sqlite3.connect(target) as conn:
+        conn.execute("create table live (value text)")
+    real_connect = sqlite3.connect
+
+    class Locked:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def backup(self, _dst):
+            raise sqlite3.OperationalError("database is locked")
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    def connect(path, *args, **kwargs):
+        conn = real_connect(path, *args, **kwargs)
+        return Locked(conn) if Path(path) == backup else conn
+
+    monkeypatch.setattr(cli_module.sqlite3, "connect", connect)
+
+    with pytest.raises(SystemExit, match="Stop the server"):
+        cli_module._restore(str(backup), str(target), force=True)
+
+    monkeypatch.setattr(cli_module.sqlite3, "connect", real_connect)
+    with sqlite3.connect(target) as conn:  # the live database was not deleted
+        assert conn.execute("select name from sqlite_master").fetchone()[0] == "live"
 
 
 def test_doctor_reads_the_installed_distribution(capsys, monkeypatch) -> None:

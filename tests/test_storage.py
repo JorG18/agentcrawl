@@ -429,6 +429,25 @@ def test_jobs_finished_before_billed_pages_existed_count_as_billed(tmp_path) -> 
         assert conn.execute("select billed_pages from jobs").fetchone()[0] == 1
 
 
+def test_jobs_that_failed_before_billed_pages_existed_are_billed_on_retry(tmp_path) -> None:
+    import sqlite3
+
+    database = tmp_path / "legacy.db"
+    store = SQLiteStore(database)
+    job = store.create_job("crawl", {"url": "https://example.com/"})
+    store.update_job(  # 0.6.0 never billed failed jobs
+        job, "failed", result={"documents": [{"url": "https://e.com/a"}]}, error="boom"
+    )
+    with sqlite3.connect(database) as conn:
+        conn.execute("alter table jobs drop column billed_pages")
+    SQLiteStore._migrated_paths.discard(str(database))
+
+    SQLiteStore(database)
+
+    with sqlite3.connect(database) as conn:
+        assert conn.execute("select billed_pages from jobs").fetchone()[0] == 0
+
+
 def test_a_cancel_marks_an_earlier_result_cancelled(tmp_path) -> None:
     import sqlite3
 

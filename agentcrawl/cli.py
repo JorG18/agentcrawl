@@ -793,7 +793,13 @@ def _restore(backup_db: str, db_path: str, *, force: bool = False) -> dict[str, 
     try:
         with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
             src.backup(dst)
-    except sqlite3.DatabaseError:
+    except sqlite3.DatabaseError as exc:
+        # Locked or read-only (e.g. the server still has it open): never delete
+        # it. Other errors (not a database, disk I/O on a torn file) mean corrupt.
+        if any(word in str(exc).lower() for word in ("locked", "readonly", "busy")):
+            raise SystemExit(
+                f"Could not write {target}: {exc}. Stop the server and retry."
+            ) from exc
         # The target is not a database (corrupt): the case restore exists for.
         for suffix in ("", "-wal", "-shm", "-journal"):
             Path(f"{target}{suffix}").unlink(missing_ok=True)

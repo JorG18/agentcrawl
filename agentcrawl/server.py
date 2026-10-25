@@ -693,15 +693,10 @@ class AgentCrawlServer:
     ) -> None:
         with self._job_threads_lock:
             self._job_threads.pop(job_id, None)
+        # The de-dup entry stays until a run takes the job (``_run_crawl_job``
+        # forgets it whether or not it claims): dropping it here let the
+        # recovery sweep queue the same job again while it waited for a worker.
         self._job_queue.put((job_id, payload, api_key))
-        # Drop the in-process de-dup entry as soon as the job lands on
-        # the queue. Without this, a transient ``claim_job`` failure (the
-        # row flipped status while we were waking the timer) would leave
-        # ``_queued_jobs`` holding the id until the next process restart,
-        # blocking future ``schedule_job`` calls for the same id. The
-        # cross-process lease remains the safety net for inter-worker
-        # dedupe.
-        self._queued_jobs.discard(job_id)
 
     def _drop_entry(self, job_id: str) -> None:
         """Forget the job's in-process entry and cancel its pending retry timer
@@ -1043,6 +1038,13 @@ def search(
             detail="Web search is not enabled on this server (set AGENTCRAWL_SEARCH_ENGINE).",
         )
     config = server.merged_config(request.config)
+    if request.scrape:
+        try:
+            check_json_pages(
+                request.formats, request.limit, CrawlConfig.from_dict(server.merged_config({}))
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     if api_key is not None and request.scrape and not server.is_owner_key(authorization):
         # One unit per result page; ``require_key`` already charged the search.
         server.check_rate_limit(api_key, units=request.limit)

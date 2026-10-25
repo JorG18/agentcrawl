@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import bisect
 import hashlib
 import html as html_module
 import re
@@ -104,47 +105,73 @@ _IMPLIED_END = {
 _P_BOUNDARIES = frozenset({"table", "td", "th", "li", "button", "object", "template"})
 
 
-def _close_implied(stack: list, tag: str) -> None:
+class _OpenStack(list):
+    """Open elements, indexed by tag, so finding an open tag never scans the
+    whole stack (a scan per tag made deeply nested pages quadratic: a DoS)."""
+
+    def __init__(self, root: Any) -> None:
+        super().__init__([root])
+        self.where: dict[str, list[int]] = {}  # tag -> its stack indexes, ascending
+
+    def push(self, node: Any) -> None:
+        self.where.setdefault(node.tag, []).append(len(self))
+        self.append(node)
+
+    def truncate(self, index: int) -> None:
+        for node in self[index:]:
+            self.where[node.tag].pop()
+        del self[index:]
+
+    def innermost(self, tag: str) -> int:
+        positions = self.where.get(tag)
+        return positions[-1] if positions else 0
+
+    def close(self, tag: str) -> None:
+        """Pop to the innermost open ``tag``; ignore an end tag with none open."""
+        index = self.innermost(tag)
+        if index:
+            self.truncate(index)
+
+
+def _close_implied(stack: _OpenStack, tag: str) -> None:
     if tag in _P_CLOSERS:
         closes, boundaries = {"p"}, _P_BOUNDARIES
     elif tag in _IMPLIED_END:
         closes, boundaries = _IMPLIED_END[tag]
     else:
         return
-    # The outermost match wins: <tr> closes both the open <td> and its <tr>.
+    # The outermost match above the innermost boundary wins: <tr> closes both
+    # the open <td> and its <tr>.
+    boundary = max((stack.innermost(name) for name in boundaries), default=0)
     found = 0
-    for index in range(len(stack) - 1, 0, -1):
-        if stack[index].tag in boundaries:
-            break
-        if stack[index].tag in closes:
-            found = index
+    for name in closes:
+        positions = stack.where.get(name) or []
+        after = bisect.bisect_right(positions, boundary)
+        if after < len(positions) and (not found or positions[after] < found):
+            found = positions[after]
     if found:
-        del stack[found:]
+        stack.truncate(found)
 
 
 class _HTMLTreeParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.root = _HTMLNode("document")
-        self._stack = [self.root]
+        self._stack = _OpenStack(self.root)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         node = _HTMLNode(tag.lower(), attrs)
         _close_implied(self._stack, node.tag)
         self._stack[-1].children.append(node)
         if node.tag not in _VOID_TAGS:
-            self._stack.append(node)
+            self._stack.push(node)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         _close_implied(self._stack, tag.lower())  # <hr/> closes a <p> like <hr>
         self._stack[-1].children.append(_HTMLNode(tag.lower(), attrs))
 
     def handle_endtag(self, tag: str) -> None:
-        tag = tag.lower()
-        for index in range(len(self._stack) - 1, 0, -1):
-            if self._stack[index].tag == tag:
-                del self._stack[index:]
-                return
+        self._stack.close(tag.lower())
 
     def handle_data(self, data: str) -> None:
         self._stack[-1].children.append(data)
@@ -294,13 +321,25 @@ _MIN_PAGE_CHARS_FOR_FALLBACK = 500
 
 
 # The thin-page check and the Markdown conversion extract the same HTML back
-# to back; a small cache keeps the second one free.
-@lru_cache(maxsize=4)
+# to back; a small cache keeps the second one free. Pages over this size skip
+# it, so the cache never pins more than a few MB for the life of the process.
+_EXTRACT_CACHE_MAX_CHARS = 1_000_000
+
+
 def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
+    if len(html) > _EXTRACT_CACHE_MAX_CHARS:
+        return _extract_content_html(html, only_main_content=only_main_content)
+    return _extract_content_html_cached(html, only_main_content=only_main_content)
+
+
+def _extract_content_html(html: str, *, only_main_content: bool = True) -> str:
     try:
         return _extract_content_tree(html, only_main_content=only_main_content)
     except RecursionError:  # markup nested deeper than the tree walk can follow
         return _legacy_strip_boilerplate(html) if only_main_content else html
+
+
+_extract_content_html_cached = lru_cache(maxsize=4)(_extract_content_html)
 
 
 def _extract_content_tree(html: str, *, only_main_content: bool) -> str:
