@@ -16,18 +16,9 @@ Heuristics:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .fetchers import FetchError, fetch_source
-from .html_tools import extract_html_facts
-from .models import ScrapeDocument
-from .parsing import (
-    budget_markdown,
-    extraction_provenance,
-    html_to_markdown,
-    markdown_structure_metrics,
-)
-from .utils import estimate_tokens
 
 if TYPE_CHECKING:
     from .config import CrawlConfig
@@ -45,15 +36,13 @@ def attempt_browser_retry(
     *,
     blocked_reason: str,
     original_config: "CrawlConfig",
-    only_main_content: bool | None,
-    requested: list[str],
-    query: str | None = None,
     diagnostics: dict | None = None,
-) -> ScrapeDocument | None:
+) -> tuple[str, dict[str, Any]] | None:
     """Try fetching ``source`` with the configured browser backend.
 
-    Returns a fully populated ScrapeDocument on success, or ``None`` on any
-    failure (so the caller can fall back to the original challenge error).
+    Returns the page's ``(html, fetch_metadata)`` on success, for the caller's
+    normal scrape path, or ``None`` on any failure (so the caller can fall
+    back to the original challenge error).
     When the browser met a challenge too, its ``challenge_attempts`` go into
     ``diagnostics`` so the challenge error can still show them.
     """
@@ -85,56 +74,4 @@ def attempt_browser_retry(
             diagnostics["challenge_attempts"] = fetch_metadata["challenge_attempts"]
         return None
 
-    try:
-        links, metadata = extract_html_facts(html, source)
-        main_content = True if only_main_content is None else only_main_content
-        markdown = html_to_markdown(
-            html, browser_config, only_main_content=main_content, base_url=source
-        )
-        markdown_chars_full = len(markdown)
-        markdown, chars_omitted, selection = budget_markdown(
-            markdown,
-            browser_config.max_input_chars,
-            query if browser_config.relevance_chunking else None,
-        )
-        provenance = extraction_provenance(html, only_main_content=main_content)
-        from .crawler import _markdown_to_text
-
-        text = _markdown_to_text(markdown)
-        structure = markdown_structure_metrics(markdown)
-        source_url = str(metadata.get("source_url") or source)
-        return ScrapeDocument(
-            url=source,
-            markdown=markdown,
-            text=text,
-            html=html if "html" in requested else "",
-            links=links,
-            metadata={
-                **metadata,
-                **fetch_metadata,
-                **provenance,
-                **structure,
-                "source_url": source_url,
-                "final_url": str(fetch_metadata.get("final_url") or source_url),
-                "only_main_content": main_content,
-                "content_format": "markdown",
-                "markdown_chars": len(markdown),
-                "markdown_chars_full": markdown_chars_full,
-                "markdown_truncated": chars_omitted > 0,
-                "chars_omitted": chars_omitted,
-                **selection,
-                "text_chars": len(text),
-                "link_count": len(links),
-                # Same Token Efficiency fields the HTTP path reports: the
-                # documented contract is that they ride on every document,
-                # and rescuing a page through the browser is no exception.
-                "estimated_tokens": estimate_tokens(text),
-                "raw_html_bytes": len(html.encode("utf-8", errors="replace")),
-                "raw_html_tokens_estimate": estimate_tokens(html),
-                "browser_retry": True,
-                "browser_retry_reason": blocked_reason,
-            },
-            errors=[],
-        )
-    except Exception:  # noqa: BLE001
-        return None
+    return html, fetch_metadata

@@ -142,6 +142,9 @@ class SQLiteStore:
                         created_at real not null,
                         updated_at real not null
                     );
+                    -- Pages a job's documents in insertion (rowid) order without a sort.
+                    create index if not exists idx_crawl_documents_job
+                        on crawl_documents(job_id);
                     create index if not exists idx_crawl_failures_job_status
                         on crawl_failures(job_id, status);
                     create index if not exists idx_crawl_failures_url
@@ -175,6 +178,9 @@ class SQLiteStore:
                     create index if not exists idx_scrape_cache_expires_at on scrape_cache(expires_at);
                     """
                 )
+                # Processes restarted together migrate one at a time: the
+                # second sees the first's columns instead of re-adding them.
+                conn.execute("begin immediate")
                 columns = {
                     str(row["name"]) for row in conn.execute("pragma table_info(jobs)").fetchall()
                 }
@@ -196,6 +202,43 @@ class SQLiteStore:
                     conn.execute("alter table jobs add column schedule_lock text")
                 if "schedule_lock_expires_at" not in columns:
                     conn.execute("alter table jobs add column schedule_lock_expires_at real")
+                if "run_expires_at" not in columns:
+                    conn.execute("alter table jobs add column run_expires_at real")
+                if "run_token" not in columns:
+                    conn.execute("alter table jobs add column run_token text")
+                    # One lock used to mean both the scheduling lease and the
+                    # run token; a running job's lock was its run's token. A
+                    # 'cancelling' job's lock may be a queued job's scheduling
+                    # lease, so it moves nothing: the sweep finishes that cancel.
+                    conn.execute(
+                        """
+                        update jobs
+                        set run_token = schedule_lock,
+                            run_expires_at = schedule_lock_expires_at,
+                            schedule_lock = null, schedule_lock_expires_at = null
+                        where status = 'running'
+                        """
+                    )
+                    conn.execute(
+                        """
+                        update jobs set schedule_lock = null, schedule_lock_expires_at = null
+                        where status = 'cancelling'
+                        """
+                    )
+                if "billed_pages" not in columns:
+                    conn.execute(
+                        "alter table jobs add column billed_pages integer not null default 0"
+                    )
+                    # Jobs finished before the column existed were billed for
+                    # their pages already; a later retry must not bill them again.
+                    conn.execute(
+                        """
+                        update jobs set billed_pages = (
+                            select count(*) from crawl_documents where job_id = jobs.id
+                        )
+                        where status in ('completed', 'failed', 'cancelled')
+                        """
+                    )
                 conn.execute(
                     """
                     create unique index if not exists idx_jobs_idempotency
@@ -229,7 +272,7 @@ class SQLiteStore:
         """Requeue ``running`` jobs that no live process still owns.
 
         In a multi-worker deployment every process runs this on startup, so
-        a peer's in-flight job (its schedule lease alive) must be left alone:
+        a peer's in-flight job (its run's lease alive) must be left alone:
         reverting it paused the job until the lease expired and stamped a
         misleading 'recovered' error on a job that never stopped. Only a
         missing or expired lease means the worker really died. The return
@@ -238,52 +281,117 @@ class SQLiteStore:
         now = time.time()
         recovered = 0
         with self._connect() as conn:
-            finalized_ids = [
-                str(row["id"])
-                for row in conn.execute(
-                    "select id from jobs where status = 'cancelling'"
-                ).fetchall()
-            ]
+            # A live worker keeps its lease fresh; only a missing or expired
+            # lease means nobody will finish this job (safe to run periodically).
+            dead = """
+                (run_token is null
+                 or run_expires_at is null
+                 or run_expires_at < ?)
+            """
             cursor = conn.execute(
-                """
+                f"""
                 update jobs
                 set status = 'queued',
-                    error = 'Recovered interrupted job after server restart.',
+                    error = 'Recovered interrupted job (its worker stopped).',
+                    run_token = null, run_expires_at = null,
                     updated_at = ?
-                where status = 'running'
-                  and (
-                      schedule_lock is null
-                      or schedule_lock_expires_at is null
-                      or schedule_lock_expires_at < ?
-                  )
+                where status = 'running' and {dead}
+                  -- claimed without a run token (no owner, or a process from
+                  -- before run_token existed): its lock is still the old one
+                  and (schedule_lock is null
+                       or schedule_lock_expires_at is null
+                       or schedule_lock_expires_at < ?)
                 """,
-                (now, now),
+                (now, now, now),
             )
             recovered = int(cursor.rowcount or 0)
-            conn.execute(
-                """
-                update jobs
-                set status = 'cancelled',
-                    error = 'Cancellation completed during server restart.',
-                    checkpoint_json = null,
-                    updated_at = ?
-                where status = 'cancelling'
-                """,
-                (now,),
-            )
-            # Same cleanup contract as ``update_job(..., 'cancelled')``:
-            # a job that ends cancelled loses its documents; recovered jobs
-            # keep theirs so the resumed run does not duplicate pages.
-            if finalized_ids:
-                placeholders = ", ".join("?" for _ in finalized_ids)
-                conn.execute(
-                    f"""
-                    delete from crawl_documents
-                    where job_id in ({placeholders})
-                    """,
-                    tuple(finalized_ids),
+            for row in conn.execute(
+                f"select id from jobs where status = 'cancelling' and {dead}", (now,)
+            ).fetchall():
+                self._finish_cancel(
+                    conn, str(row["id"]), "Cancellation completed (its worker stopped).", now
                 )
         return recovered
+
+    def _finish_cancel(
+        self, conn: sqlite3.Connection, job_id: str, error: str | None, now: float
+    ) -> bool:
+        """End a queued/cancelling job ``cancelled`` without a result from a run.
+
+        Pages scraped before the cancel are kept and their unbilled part is
+        billed; the result (unless the job already has one) lists them, and
+        the checkpoint's failures are recorded. Shared by a queue entry
+        finishing a cancel and by the recovery sweep.
+        """
+        row = conn.execute(
+            "select status, result_json, checkpoint_json from jobs where id = ?", (job_id,)
+        ).fetchone()
+        if row is None or row["status"] not in ("queued", "cancelling"):
+            return False
+        pages = self._document_count(conn, job_id)
+        failures = list(json.loads(row["checkpoint_json"] or "{}").get("terminal_failures") or [])
+        self._record_crawl_failures(conn, job_id, failures, now)
+        result_json = row["result_json"]
+        if result_json is not None:  # an earlier result now describes a cancelled job
+            stored = json.loads(result_json)
+            stored.setdefault("metadata", {})["cancelled"] = True
+            result_json = json.dumps(stored)
+        elif pages:
+            result_json = json.dumps({"documents": [], "metadata": {"cancelled": True}})
+        conn.execute(
+            """
+            update jobs
+            set status = 'cancelled', result_json = ?, error = ?, checkpoint_json = null,
+                available_at = 0, updated_at = ?,
+                schedule_lock = null, schedule_lock_expires_at = null,
+                run_token = null, run_expires_at = null
+            where id = ?
+            """,
+            (result_json, error, now, job_id),
+        )
+        self._insert_job_event(
+            conn,
+            job_id,
+            "cancelled",
+            {"error": error, "document_count": pages, "terminal_failures": len(failures)},
+            now,
+        )
+        # No run ended here, so no one-unit minimum: only pages are billed.
+        self._bill_job_pages(conn, job_id, pages, minimum=0, now=now)
+        return True
+
+    @staticmethod
+    def _document_count(conn: sqlite3.Connection, job_id: str) -> int:
+        row = conn.execute(
+            "select count(*) as total from crawl_documents where job_id = ?", (job_id,)
+        ).fetchone()
+        return int(row["total"])
+
+    @staticmethod
+    def _insert_usage(
+        conn: sqlite3.Connection, api_key: str | None, endpoint: str, units: int, now: float
+    ) -> None:
+        conn.execute(
+            "insert into usage_events values (?, ?, ?, ?, ?)",
+            (uuid.uuid4().hex, api_key, endpoint, units, now),
+        )
+
+    def _bill_job_pages(
+        self, conn: sqlite3.Connection, job_id: str, pages: int, *, minimum: int, now: float
+    ) -> None:
+        """Bill the job's key for pages not billed yet (a failures retry keeps
+        the pages an earlier run already paid for), at least ``minimum`` units."""
+        row = conn.execute(
+            "select owner_key, billed_pages from jobs where id = ?", (job_id,)
+        ).fetchone()
+        if row is None:
+            return
+        units = max(minimum, pages - int(row["billed_pages"]))
+        if units:
+            self._insert_usage(conn, row["owner_key"] or None, "/v1/crawl", units, now)
+        conn.execute(
+            "update jobs set billed_pages = max(billed_pages, ?) where id = ?", (pages, job_id)
+        )
 
     @staticmethod
     def _insert_job_event(
@@ -426,12 +534,10 @@ class SQLiteStore:
         ``schedule_lock_expires_at`` on the row only when no other owner
         currently holds a live lease.
 
-        Re-entrant for the same owner: an instance renewing its own lease
-        succeeds, which is what the delayed-retry path needs — the worker
-        that requeued the job re-schedules it seconds later while the
-        300s lease it took at claim time is still live. Without the
-        re-entrant clause the renewal silently failed and delayed retries
-        sat in ``queued`` until process restart.
+        Re-entrant for the same owner: an instance that schedules a job it
+        already holds the lease for (a duplicate ``schedule_job`` before the
+        run claims it) keeps it. ``claim_job`` clears it: a running job holds
+        its run's token (``run_token``) instead, released when the run ends.
 
         Returns ``True`` when the caller won the race (or renewed its own
         lease); ``False`` when a different owner holds a valid lease.
@@ -471,8 +577,9 @@ class SQLiteStore:
     def release_schedule_lease(self, job_id: str, owner: str) -> None:
         """Drop a scheduling lease we previously acquired.
 
-        Called when we successfully run (or fail) the scheduling so other
-        workers don't have to wait for the natural TTL. Idempotent:
+        Called by a queue entry that could not claim the job, so other
+        workers don't have to wait for the natural TTL (a claimed job's
+        lease ends at the claim; its run holds ``run_token``). Idempotent:
         clearing a lease we never owned is a no-op so the queue worker
         can call this defensively.
         """
@@ -488,16 +595,109 @@ class SQLiteStore:
                 (time.time(), job_id, owner),
             )
 
-    def claim_job(self, job_id: str) -> bool:
+    def release_run(self, job_id: str, run: str) -> None:
+        """Drop ``run``'s token when the run ends; a successor's is left alone."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update jobs set run_token = null, run_expires_at = null, updated_at = ?
+                where id = ? and run_token = ?
+                """,
+                (time.time(), job_id, run),
+            )
+
+    def renew_job_lease(self, job_id: str, owner: str, lease_seconds: float) -> bool:
+        """Heartbeat for a ``running`` job: push its run's lease ``lease_seconds`` out.
+
+        A short, renewed lease lets restart recovery tell a dead worker from a
+        live one.
+        """
+        # ``claim_job`` made ``owner`` the run token; ``False`` means a
+        # successor recovered and claimed the job, so this run must stop.
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                update jobs set run_expires_at = ?
+                where id = ? and status in ('running', 'cancelling') and run_token = ?
+                """,
+                (time.time() + lease_seconds, job_id, owner),
+            )
+        return bool(cursor.rowcount)
+
+    @staticmethod
+    def _owned(owner: str | None, unclaimed: bool = False) -> tuple[str, tuple[Any, ...]]:
+        """Extra ``WHERE`` terms for a job write: ``owner``'s run still holds the
+        job (claimed by it, not recovered since), and/or (``unclaimed``) no run
+        holds a live token on it. A scheduling lease is not a run."""
+        sql: str = ""
+        params: tuple[Any, ...] = ()
+        if owner is not None:
+            sql += " and run_token = ? and status in ('running', 'cancelling')"
+            params += (owner,)
+        if unclaimed:
+            sql += (
+                " and status in ('queued', 'cancelling')"
+                " and (run_token is null"
+                " or run_expires_at is null or run_expires_at < ?)"
+            )
+            params += (time.time(),)
+        return sql, params
+
+    def _fence(
+        self, conn: sqlite3.Connection, job_id: str, owner: str | None, unclaimed: bool = False
+    ) -> bool:
+        """Start the write and check the job is still ``owner``'s / not being run.
+
+        A write as the first statement takes SQLite's write lock, so no peer
+        can claim the job between this check and the caller's writes.
+        """
+        if owner is None and not unclaimed:
+            return True
+        extra, params = self._owned(owner, unclaimed)
+        cursor = conn.execute(
+            f"update jobs set updated_at = ? where id = ?{extra}",
+            (time.time(), job_id, *params),
+        )
+        return bool(cursor.rowcount)
+
+    def claim_job(
+        self, job_id: str, owner: str | None = None, *, lease_seconds: float | None = None
+    ) -> bool:
+        """``queued`` -> ``running``; with ``owner``, that run also takes the run token.
+
+        With ``owner`` the scheduling lease ends here, and taking the token is
+        what fences a stalled predecessor out: its renewals and writes stop
+        matching. Without one the job keeps its scheduling lease as its
+        liveness, as before run tokens existed.
+        """
+        now = time.time()
         with self._connect() as conn:
             cursor = conn.execute(
                 """
                 update jobs
-                set status = 'running', error = null, updated_at = ?
+                set status = 'running', error = null, updated_at = ?,
+                    schedule_lock = case when ? is null then schedule_lock end,
+                    schedule_lock_expires_at = case when ? is null
+                        then schedule_lock_expires_at end,
+                    run_token = ?,
+                    run_expires_at = case when ? is null then null else ? end
                 where id = ? and status = 'queued' and cancel_requested = 0
                   and available_at <= ?
                 """,
-                (time.time(), job_id, time.time()),
+                (
+                    now,
+                    owner,
+                    owner,
+                    owner,
+                    owner,
+                    now
+                    + max(
+                        1.0,
+                        DEFAULT_SCHEDULE_LEASE_SECONDS if lease_seconds is None else lease_seconds,
+                    ),
+                    job_id,
+                    now,
+                ),
             )
             claimed = bool(cursor.rowcount)
             if claimed:
@@ -510,7 +710,15 @@ class SQLiteStore:
         status: str,
         result: dict[str, Any] | None = None,
         error: str | None = None,
-    ) -> None:
+        *,
+        owner: str | None = None,
+        unclaimed: bool = False,
+        bill: bool = False,
+    ) -> bool:
+        """Finish a job; with ``owner``, only while that run still holds it;
+        with ``unclaimed``, only if no run holds a live token on it. With
+        ``bill``, the job's unbilled pages are billed in the same transaction
+        (a run costs at least one unit)."""
         now = time.time()
         stored_result = result
         documents: list[dict[str, Any]] = []
@@ -519,6 +727,10 @@ class SQLiteStore:
             stored_result = {**result, "documents": []}
             stored_result.setdefault("metadata", {})["document_count"] = len(documents)
         with self._connect() as conn:
+            if not self._fence(conn, job_id, owner, unclaimed):
+                return False
+            if status == "cancelled" and result is None and owner is None:
+                return self._finish_cancel(conn, job_id, error, now)
             # The worker looks for a cancel only between pages, so one that
             # lands during the last page was accepted ('cancelling') and then
             # overwritten here. Honour it; the pages already scraped are kept.
@@ -530,9 +742,9 @@ class SQLiteStore:
             for document in documents:
                 conn.execute(
                     """
-                    insert or replace into crawl_documents (
-                        job_id, url, document_json, created_at
-                    ) values (?, ?, ?, ?)
+                    insert into crawl_documents (job_id, url, document_json, created_at)
+                    values (?, ?, ?, ?)
+                    on conflict (job_id, url) do update set document_json = excluded.document_json
                     """,
                     (job_id, str(document["url"]), json.dumps(document), now),
                 )
@@ -548,7 +760,9 @@ class SQLiteStore:
                 """
                 update jobs
                 set status = ?, result_json = ?, error = ?, checkpoint_json = null,
-                    available_at = 0, updated_at = ?
+                    available_at = 0, updated_at = ?,
+                    schedule_lock = null, schedule_lock_expires_at = null,
+                    run_token = null, run_expires_at = null
                 where id = ?
                 """,
                 (
@@ -559,8 +773,6 @@ class SQLiteStore:
                     job_id,
                 ),
             )
-            if status == "cancelled" and result is None:
-                conn.execute("delete from crawl_documents where job_id = ?", (job_id,))
             self._insert_job_event(
                 conn,
                 job_id,
@@ -576,6 +788,10 @@ class SQLiteStore:
                 },
                 now,
             )
+            if bill:
+                pages = self._document_count(conn, job_id)
+                self._bill_job_pages(conn, job_id, pages, minimum=1, now=now)
+        return True
 
     @staticmethod
     def _mark_failure_resolved(
@@ -647,17 +863,24 @@ class SQLiteStore:
         *,
         event_type: str = "requeued",
         payload: dict[str, Any] | None = None,
-    ) -> None:
+        owner: str | None = None,
+    ) -> bool:
         now = time.time()
+        extra, params = self._owned(owner)
         with self._connect() as conn:
-            conn.execute(
-                """
+            cursor = conn.execute(
+                f"""
                 update jobs
-                set status = 'queued', available_at = ?, error = null, updated_at = ?
-                where id = ? and cancel_requested = 0
+                set status = 'queued', available_at = ?, error = null, updated_at = ?,
+                    run_token = null, run_expires_at = null
+                where id = ? and cancel_requested = 0{extra}
                 """,
-                (available_at, now, job_id),
+                (available_at, now, job_id, *params),
             )
+            # Refused: cancelled meanwhile (the caller finishes it) or not
+            # ``owner``'s any more.
+            if not cursor.rowcount:
+                return False
             self._insert_job_event(
                 conn,
                 job_id,
@@ -665,13 +888,19 @@ class SQLiteStore:
                 {"available_at": available_at, **(payload or {})},
                 now,
             )
+        return True
 
-    def update_job_progress(self, job_id: str, progress: dict[str, Any]) -> None:
+    def update_job_progress(
+        self, job_id: str, progress: dict[str, Any], *, owner: str | None = None
+    ) -> bool:
+        """``False`` when ``owner``'s run no longer holds the job."""
+        extra, params = self._owned(owner)
         with self._connect() as conn:
-            conn.execute(
-                "update jobs set progress_json = ?, updated_at = ? where id = ?",
-                (json.dumps(progress), time.time(), job_id),
+            cursor = conn.execute(
+                f"update jobs set progress_json = ?, updated_at = ? where id = ?{extra}",
+                (json.dumps(progress), time.time(), job_id, *params),
             )
+        return bool(cursor.rowcount)
 
     def save_job_checkpoint(
         self,
@@ -679,28 +908,37 @@ class SQLiteStore:
         checkpoint: dict[str, Any],
         progress: dict[str, Any],
         document: dict[str, Any] | None = None,
-    ) -> None:
+        *,
+        owner: str | None = None,
+    ) -> bool:
+        """``False`` when ``owner``'s run no longer holds the job (nothing saved)."""
         now = time.time()
+        extra, params = self._owned(owner)
         with self._connect() as conn:
+            # The job row first: its WHERE is the ownership check, and the
+            # write lock it takes covers the document insert below.
+            cursor = conn.execute(
+                f"""
+                update jobs
+                set checkpoint_json = ?, progress_json = ?, updated_at = ?
+                where id = ?{extra}
+                """,
+                (json.dumps(checkpoint), json.dumps(progress), now, job_id, *params),
+            )
+            if not cursor.rowcount:
+                return False
             if document is not None:
                 document_url = str(document["url"])
                 conn.execute(
                     """
-                    insert or replace into crawl_documents (
-                        job_id, url, document_json, created_at
-                    ) values (?, ?, ?, ?)
+                    insert into crawl_documents (job_id, url, document_json, created_at)
+                    values (?, ?, ?, ?)
+                    on conflict (job_id, url) do update set document_json = excluded.document_json
                     """,
                     (job_id, document_url, json.dumps(document), now),
                 )
                 self._mark_failure_resolved(conn, job_id, document_url, now)
-            conn.execute(
-                """
-                update jobs
-                set checkpoint_json = ?, progress_json = ?, updated_at = ?
-                where id = ?
-                """,
-                (json.dumps(checkpoint), json.dumps(progress), now, job_id),
-            )
+        return True
 
     def get_job_documents(
         self,
@@ -711,7 +949,7 @@ class SQLiteStore:
     ) -> list[dict[str, Any]]:
         query = """
             select document_json from crawl_documents
-            where job_id = ? order by created_at, url
+            where job_id = ? order by rowid
         """
         params: tuple[Any, ...] = (job_id,)
         if limit is not None:
@@ -723,11 +961,7 @@ class SQLiteStore:
 
     def job_document_count(self, job_id: str) -> int:
         with self._connect() as conn:
-            row = conn.execute(
-                "select count(*) as total from crawl_documents where job_id = ?",
-                (job_id,),
-            ).fetchone()
-        return int(row["total"])
+            return self._document_count(conn, job_id)
 
     def get_job_checkpoint(self, job_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
@@ -784,6 +1018,11 @@ class SQLiteStore:
             if requested:
                 self._insert_job_event(conn, job_id, "cancel_requested", {}, now)
             return requested
+
+    def job_status(self, job_id: str) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute("select status from jobs where id = ?", (job_id,)).fetchone()
+        return str(row["status"]) if row else None
 
     def job_cancel_requested(self, job_id: str) -> bool:
         with self._connect() as conn:
@@ -962,13 +1201,12 @@ class SQLiteStore:
             retry_urls = [failure["url"] for failure in failures]
             request = json.loads(job["request_json"])
             root = normalize_url(str(request["url"]), str(request["url"]))
-            request["max_pages"] = max(
-                int(request.get("max_pages") or 0),
-                len(visited) + len(retry_urls),
-            )
             checkpoint = {
                 "version": 2,
                 "root": root,
+                # Room for every page already read plus the re-queued ones; the
+                # stored request keeps the caller's max_pages (idempotency).
+                "min_pages": len(visited) + len(retry_urls),
                 "queue": [
                     {"url": url, "depth": 0, "attempt": 0, "ready_at": 0.0} for url in retry_urls
                 ],
@@ -1075,10 +1313,7 @@ class SQLiteStore:
 
     def record_usage(self, api_key: str | None, endpoint: str, units: int = 1) -> None:
         with self._connect() as conn:
-            conn.execute(
-                "insert into usage_events values (?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, api_key, endpoint, units, time.time()),
-            )
+            self._insert_usage(conn, api_key, endpoint, units, time.time())
 
     def usage_count(self, api_key: str | None = None) -> int:
         with self._connect() as conn:

@@ -547,4 +547,25 @@ def config_from_env(*, allow_local_files_default: bool = False) -> dict[str, Any
     timeout_ms = os.getenv("AGENTCRAWL_TIMEOUT_MS", "").strip()
     if timeout_ms.isdigit():
         config["timeout_ms"] = int(timeout_ms)
+    # Read here too so local mode honours what the server documents (only when set).
+    for variable, key, cast in (
+        ("AGENTCRAWL_CAMOFOX_URL", "camofox_base_url", str),
+        ("AGENTCRAWL_CAMOFOX_ACCESS_KEY", "camofox_access_key", str),
+        ("AGENTCRAWL_CAMOFOX_USER_ID", "camofox_user_id", str),
+        ("AGENTCRAWL_HTTP_RETRIES", "http_retries", int),
+        ("AGENTCRAWL_HTTP_RETRY_DELAY", "http_retry_delay", float),
+        ("AGENTCRAWL_DOMAIN_MIN_DELAY", "domain_min_delay", float),
+        ("AGENTCRAWL_CRAWL_DEPTH", "crawl_depth", int),
+        ("AGENTCRAWL_CRAWL_MAX_PAGES", "crawl_max_pages", int),
+        ("AGENTCRAWL_CRAWL_URL_RETRIES", "crawl_url_retries", int),
+        ("AGENTCRAWL_CRAWL_RETRY_DELAY", "crawl_retry_delay", float),
+        ("AGENTCRAWL_CRAWL_RETRY_MAX_DELAY", "crawl_retry_max_delay", float),
+    ):
+        value = os.getenv(variable, "").strip()
+        try:
+            if value:
+                config[key] = cast(value)
+        except ValueError:
+            pass  # malformed: keep the default, as the variables above do
+    config["headless"] = _env_flag("AGENTCRAWL_HEADLESS", True)
     return config

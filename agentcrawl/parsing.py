@@ -5,6 +5,7 @@ import html as html_module
 import re
 import textwrap
 from dataclasses import dataclass, field
+from functools import lru_cache
 from html.parser import HTMLParser
 from typing import Any, Iterator
 
@@ -75,6 +76,51 @@ class _HTMLNode:
                 return value
         return ""
 
+    def has_attr(self, name: str) -> bool:
+        return any(key.lower() == name for key, _ in self.attrs)
+
+
+# HTML lets these end tags be omitted (<li>a<li>b, <td>1<td>2, <p>x<div>):
+# a start tag closes the open element it implies, searching no further up
+# than the given boundary. Without this each item nests in the previous one.
+_P_CLOSERS = frozenset(
+    "address article aside blockquote details dialog div dl fieldset figcaption figure "
+    "footer form h1 h2 h3 h4 h5 h6 header hr main menu nav ol p pre section table ul".split()
+)
+# An open <li> inside a table cell or object is out of reach (HTML "scope").
+_DEFAULT_SCOPE = frozenset({"table", "td", "th", "caption", "object", "template"})
+_IMPLIED_END = {
+    "li": ({"li"}, {"ul", "ol", "menu", *_DEFAULT_SCOPE}),
+    "dt": ({"dt", "dd"}, {"dl", *_DEFAULT_SCOPE}),
+    "dd": ({"dt", "dd"}, {"dl", *_DEFAULT_SCOPE}),
+    "tr": ({"tr", "td", "th"}, {"table", "thead", "tbody", "tfoot"}),
+    "td": ({"td", "th"}, {"tr", "table"}),
+    "th": ({"td", "th"}, {"tr", "table"}),
+    "thead": ({"thead", "tbody", "tfoot", "tr", "td", "th"}, {"table"}),
+    "tbody": ({"thead", "tbody", "tfoot", "tr", "td", "th"}, {"table"}),
+    "tfoot": ({"thead", "tbody", "tfoot", "tr", "td", "th"}, {"table"}),
+    "option": ({"option"}, {"select", "datalist", "optgroup"}),
+}
+_P_BOUNDARIES = frozenset({"table", "td", "th", "li", "button", "object", "template"})
+
+
+def _close_implied(stack: list, tag: str) -> None:
+    if tag in _P_CLOSERS:
+        closes, boundaries = {"p"}, _P_BOUNDARIES
+    elif tag in _IMPLIED_END:
+        closes, boundaries = _IMPLIED_END[tag]
+    else:
+        return
+    # The outermost match wins: <tr> closes both the open <td> and its <tr>.
+    found = 0
+    for index in range(len(stack) - 1, 0, -1):
+        if stack[index].tag in boundaries:
+            break
+        if stack[index].tag in closes:
+            found = index
+    if found:
+        del stack[found:]
+
 
 class _HTMLTreeParser(HTMLParser):
     def __init__(self) -> None:
@@ -84,11 +130,13 @@ class _HTMLTreeParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         node = _HTMLNode(tag.lower(), attrs)
+        _close_implied(self._stack, node.tag)
         self._stack[-1].children.append(node)
         if node.tag not in _VOID_TAGS:
             self._stack.append(node)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        _close_implied(self._stack, tag.lower())  # <hr/> closes a <p> like <hr>
         self._stack[-1].children.append(_HTMLNode(tag.lower(), attrs))
 
     def handle_endtag(self, tag: str) -> None:
@@ -245,7 +293,17 @@ _MIN_SELECTED_SHARE = 0.25
 _MIN_PAGE_CHARS_FOR_FALLBACK = 500
 
 
+# The thin-page check and the Markdown conversion extract the same HTML back
+# to back; a small cache keeps the second one free.
+@lru_cache(maxsize=4)
 def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
+    try:
+        return _extract_content_tree(html, only_main_content=only_main_content)
+    except RecursionError:  # markup nested deeper than the tree walk can follow
+        return _legacy_strip_boilerplate(html) if only_main_content else html
+
+
+def _extract_content_tree(html: str, *, only_main_content: bool) -> str:
     parser = _HTMLTreeParser()
     try:
         parser.feed(html)
@@ -276,10 +334,23 @@ def extract_content_html(html: str, *, only_main_content: bool = True) -> str:
 
 
 def _html_text_chars(html: str) -> int:
-    return len("".join(re.sub(r"(?s)<[^>]+>", " ", html_module.unescape(html)).split()))
+    # Strip tags before unescaping: an escaped "&gt;" in a class name
+    # (Tailwind "[&>*]:p-0") would otherwise end the tag early and count the
+    # class names as text.
+    return len("".join(html_module.unescape(re.sub(r"(?s)<[^>]+>", " ", html)).split()))
 
 
 def extraction_provenance(html: str, *, only_main_content: bool = True) -> dict[str, Any]:
+    try:
+        return _extraction_provenance_tree(html, only_main_content=only_main_content)
+    except RecursionError:
+        return {
+            "extraction_strategy": "legacy_strip_boilerplate",
+            "selected_content_hint": "legacy_regex",
+        }
+
+
+def _extraction_provenance_tree(html: str, *, only_main_content: bool) -> dict[str, Any]:
     parser = _HTMLTreeParser()
     try:
         parser.feed(html)
@@ -403,7 +474,11 @@ def _content_score(node: _HTMLNode) -> float:
 
 
 def _serialize_node(
-    node: _HTMLNode, *, only_main_content: bool, honor_hidden_classes: bool = True
+    node: _HTMLNode,
+    *,
+    only_main_content: bool,
+    honor_hidden_classes: bool = True,
+    in_content: bool = False,
 ) -> str:
     if node.tag in _ALWAYS_REMOVE_TAGS or _is_hidden(node, classes=honor_hidden_classes):
         return ""
@@ -416,11 +491,14 @@ def _serialize_node(
             only_main_content
             and node.tag in _BOILERPLATE_TAGS
             and not (node.tag == "form" and _is_page_form(node))
+            # Inside main/article a <header> heads a section, not the site.
+            and not (node.tag == "header" and in_content and not _is_link_heavy(node, min_text=0))
         ):
             return ""
         if _is_cookie_consent_text(node):
             return ""
 
+    in_content = in_content or node.tag == "article" or _is_main_landmark(node)
     children = "".join(
         html_module.escape(child, quote=False)
         if isinstance(child, str)
@@ -428,6 +506,7 @@ def _serialize_node(
             child,
             only_main_content=only_main_content,
             honor_hidden_classes=honor_hidden_classes,
+            in_content=in_content,
         )
         for child in node.children
     )
@@ -532,10 +611,10 @@ def _is_boilerplate(node: _HTMLNode) -> bool:
 _SOFT_HINTS = {"banner", "modal", "promo", "sidebar", "sticky", "rail"}
 
 
-def _is_link_heavy(node: _HTMLNode) -> bool:
+def _is_link_heavy(node: _HTMLNode, *, min_text: int = 40) -> bool:
     text = len(_node_text(node))
     links = sum(len(_node_text(child)) for child in _walk_nodes(node) if child.tag == "a")
-    return text < 40 or links >= 0.5 * text
+    return text < min_text or links >= 0.5 * text
 
 
 def _is_page_form(node: _HTMLNode) -> bool:
@@ -564,9 +643,12 @@ def _is_hidden(node: _HTMLNode, *, classes: bool = True) -> bool:
     visually_hidden = any(token in identity.replace("_", "-").split() for token in hidden_tokens)
     # A table header kept only for screen readers (GitHub Docs) still names the
     # columns; without it the Markdown table has no header row at all.
-    if node.tag in {"thead", "caption"} and visually_hidden and not node.attr("hidden"):
+    # <div hidden> has no value; hidden="until-found" is collapsed content the
+    # browser reveals on find-in-page, like the aria-hidden panels below.
+    hidden_attr = node.has_attr("hidden") and node.attr("hidden").lower() != "until-found"
+    if node.tag in {"thead", "caption"} and visually_hidden and not hidden_attr:
         return False
-    if node.attr("hidden"):
+    if hidden_attr:
         return True
     if node.attr("aria-hidden").lower() == "true":
         # Collapsed accordion and FAQ panels are aria-hidden until clicked;
@@ -586,11 +668,14 @@ def _is_hidden(node: _HTMLNode, *, classes: bool = True) -> bool:
 
 
 _ZERO_SIZE_RE = re.compile(r"0+(?:\.0+)?(?:px|pt|em|rem|%)?$")
+_IMPORTANT_RE = re.compile(r"\s*!\s*important\s*$")
 
 
 def _style(node: _HTMLNode) -> dict[str, str]:
     declarations = (part.partition(":") for part in node.attr("style").lower().split(";"))
-    return {name.strip(): value.strip() for name, _, value in declarations if value.strip()}
+    # "display: none !important" still hides: drop the priority before comparing.
+    values = ((name, _IMPORTANT_RE.sub("", value).strip()) for name, _, value in declarations)
+    return {name.strip(): value for name, value in values if value}
 
 
 def _legacy_strip_boilerplate(html: str) -> str:

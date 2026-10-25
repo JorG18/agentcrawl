@@ -10,12 +10,17 @@ except ImportError as exc:  # pragma: no cover
     raise RuntimeError("Install agentcrawl[mcp] to run the MCP server.") from exc
 from pydantic import Field
 
+from . import __version__
 from .config import config_from_env
 from .crawler import AgentCrawl
+from .errors import sanitize_error_message
 from .remote_client import AgentCrawlClient
 from .serializers import to_jsonable
 
 mcp = FastMCP("agentcrawl")
+# FastMCP takes no version, so initialize reported the MCP SDK version instead of ours.
+if (_lowlevel := getattr(mcp, "_mcp_server", None)) is not None:
+    _lowlevel.version = __version__
 
 # Hints for clients (permission prompts, parallel calls). Reads change nothing
 # on the user's side; the server cache they fill is not the user's data.
@@ -71,7 +76,7 @@ def scrape_url(
     formats: Annotated[
         list[str] | None,
         Field(
-            description="Any of: markdown, outline (section sizes), text, links, metadata, html, chunks (citable), screenshot (PNG), api (JSON calls); last two use a browser."
+            description="Any of: markdown, outline (section sizes), text, links, metadata, html, chunks (citable), screenshot (PNG), api (JSON calls), summary (needs AGENTCRAWL_LLM_MODEL); screenshot and api use a browser."
         ),
     ] = None,
     section: Annotated[
@@ -176,7 +181,9 @@ def scrape_many(
     ],
     formats: Annotated[
         list[str] | None,
-        Field(description="Any of: markdown, text, links, metadata, html, chunks."),
+        Field(
+            description="Any of: markdown, text, links, metadata, html, chunks, summary (needs AGENTCRAWL_LLM_MODEL)."
+        ),
     ] = None,
     only_main_content: Annotated[
         bool | None,
@@ -247,6 +254,12 @@ def search_web(
         bool | None,
         Field(description="True: main content only. False: whole page."),
     ] = None,
+    formats: Annotated[
+        list[str] | None,
+        Field(
+            description="With scrape=true, formats for each result page: markdown, text, links, metadata, html, chunks, summary (needs AGENTCRAWL_LLM_MODEL)."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Search the web and read the top results (for questions without a URL).
 
@@ -255,13 +268,15 @@ def search_web(
     """
     client = _client()
     if client is not None:
-        return client.search(query, limit=limit, scrape=scrape, only_main_content=only_main_content)
+        return client.search(
+            query, limit=limit, scrape=scrape, formats=formats, only_main_content=only_main_content
+        )
     try:
         payload = _crawler().search(
-            query, limit=limit, scrape=scrape, only_main_content=only_main_content
+            query, limit=limit, scrape=scrape, formats=formats, only_main_content=only_main_content
         )
     except Exception as exc:
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": sanitize_error_message(str(exc)) or type(exc).__name__}
     return {
         "success": all(item.get("success", True) for item in payload["results"]),
         "data": payload,
@@ -619,6 +634,10 @@ def apply_profile(profile: str | None = None) -> list[str]:
 
 
 def main() -> None:
+    try:
+        _client()  # a bad AGENTCRAWL_BASE_URL fails at startup, not on every tool call
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
     apply_profile()
     mcp.run()
 

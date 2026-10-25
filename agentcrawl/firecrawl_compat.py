@@ -7,10 +7,13 @@ request goes through the ``/v1`` handlers, so authentication, SSRF checks,
 cache, politeness, rate limits and usage are the same, and nothing is sent to
 Firecrawl.
 
-Options AgentCrawl cannot honour are refused with ``400`` and the reason,
-never silently dropped. Two are accepted and deliberately not honoured:
-``skipTlsVerification`` (certificates are always verified) and ``mobile:
-false``.
+Options AgentCrawl cannot honour are refused with ``400`` and the reason.
+Some are accepted without effect (``_IGNORED``: ``origin``, ``integration``,
+``removeBase64Images``, ``blockAds``, ``fastMode``, ``parsers``,
+``skipTlsVerification`` -- certificates are always verified -- and ``mobile:
+false``). ``storeInCache: false`` and ``zeroDataRetention: true`` turn the
+cache off for that scrape; ``zeroDataRetention`` is refused on crawl and
+batch, whose results are stored as a job.
 """
 
 from __future__ import annotations
@@ -35,7 +38,8 @@ _FORMATS = {
     "summary": "summary",  # needs AGENTCRAWL_LLM_MODEL on the server
     "json": "json",  # same; the request picks the schema, never the model
 }
-# Accepted, with no effect on the result here.
+# Accepted without an error; all have no effect here except storeInCache and
+# zeroDataRetention, which turn the cache off (handled where the cache is chosen).
 _IGNORED = {
     "origin",
     "integration",
@@ -74,6 +78,43 @@ def _refuse(reason: str) -> HTTPException:
     return HTTPException(status_code=400, detail=reason)
 
 
+def _refuse_zero_retention(body: dict[str, Any]) -> None:
+    """Crawl and batch results are kept as a job until fetched or deleted."""
+    options = body.get("scrapeOptions")
+    nested = options.get("zeroDataRetention") if isinstance(options, dict) else None
+    if body.get("zeroDataRetention") is True or nested is True:
+        raise _refuse("zeroDataRetention is supported on /v2/scrape and /v2/search only")
+
+
+def _int(value: Any, name: str) -> int:
+    # int() would turn true into 1 and 2.9 into 2; those are refused instead.
+    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+        raise _refuse(f"{name} must be an integer")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise _refuse(f"{name} must be an integer") from exc
+
+
+def _url_patterns(value: Any) -> Any:
+    """Firecrawl matches paths ("^/blog/"); AgentCrawl searches the full URL.
+
+    An anchored path pattern is re-anchored after the scheme and host, so
+    ``^/blog/.*$`` keeps meaning "paths under /blog/". Unanchored ones already
+    match as a substring of the URL.
+    """
+    if not isinstance(value, list):
+        return value
+    return [_path_pattern(p) if isinstance(p, str) and p.startswith("^/") else p for p in value]
+
+
+def _path_pattern(pattern: str) -> str:
+    # Firecrawl's "$" ends the path; here the query string may follow it.
+    if pattern.endswith("$") and not pattern.endswith("\\$"):
+        pattern = pattern[:-1] + r"(?:[?#].*)?$"
+    return r"^https?://[^/]+" + pattern[1:]
+
+
 def _formats(raw: Any) -> list[str]:
     formats: list[str] = []
     for item in raw or ["markdown"]:
@@ -106,7 +147,9 @@ def _actions(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if kind == "wait" and "selector" in action:
             steps.append({"type": "wait_for", "selector": action["selector"]})
         elif kind == "wait":
-            steps.append({"type": "wait", "ms": int(action.get("milliseconds") or 1000)})
+            steps.append(
+                {"type": "wait", "ms": _int(action.get("milliseconds") or 1000, "milliseconds")}
+            )
         elif kind == "click":
             focused = action.get("selector")
             steps.append({"type": "click", "selector": focused})
@@ -136,6 +179,8 @@ def _actions(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _scrape_fields(body: dict[str, Any], *, skip: set[str] = frozenset()) -> dict[str, Any]:
     """Firecrawl scrape options -> keyword arguments of the v1 request models."""
+    if not isinstance(body, dict):
+        raise _refuse("scrape options must be a JSON object")
     config: dict[str, Any] = {}
     fields: dict[str, Any] = {"formats": _formats(body.get("formats"))}
     if "json" in fields["formats"]:
@@ -148,10 +193,10 @@ def _scrape_fields(body: dict[str, Any], *, skip: set[str] = frozenset()) -> dic
         elif key == "maxAge":
             fields["cache"] = bool(value)
         elif key == "timeout":
-            config["page_budget_ms"] = int(value)
+            config["page_budget_ms"] = _int(value, "timeout")
         elif key == "waitFor":
             if value:
-                config.update(fetcher="playwright", browser_wait_ms=int(value))
+                config.update(fetcher="playwright", browser_wait_ms=_int(value, "waitFor"))
         elif key == "actions":
             if value:
                 config["fetcher"] = "playwright"
@@ -167,6 +212,8 @@ def _scrape_fields(body: dict[str, Any], *, skip: set[str] = frozenset()) -> dic
                 raise _refuse("mobile emulation is not supported by AgentCrawl")
         else:
             raise _refuse(f"option {key!r} is not supported by AgentCrawl")
+    if body.get("storeInCache") is False or body.get("zeroDataRetention") is True:
+        fields["cache"] = False  # no cached copy of a page the caller said not to keep
     if "screenshot" in fields["formats"]:
         config["fetcher"] = "playwright"
     if config:
@@ -257,9 +304,16 @@ async def map_site(request: Request, api_key: str | None = Depends(v1.server.req
     for key in body:
         if key not in {"url", "limit", "search", "sitemap", "includeSubdomains", *_IGNORED}:
             raise _refuse(f"option {key!r} is not supported by AgentCrawl")
-    result = v1.map_site(
-        v1.MapRequest(url=body.get("url") or "", max_urls=body.get("limit")), api_key
-    )
+    if body.get("sitemap") not in (None, "include"):
+        raise _refuse(f"sitemap={body['sitemap']!r} is not supported by AgentCrawl")
+    try:
+        limit = body.get("limit")
+        map_request = v1.MapRequest(
+            url=body.get("url") or "", max_urls=None if limit is None else _int(limit, "limit")
+        )
+    except ValueError as exc:
+        raise _refuse(str(exc)) from exc
+    result = v1.map_site(map_request, api_key)
     urls = (result.get("data") or {}).get("urls") or []
     search = str(body.get("search") or "").casefold()
     if search:
@@ -280,18 +334,20 @@ async def search(
     options = body.get("scrapeOptions")
     fields = _scrape_fields(options) if options else {}
     fields.pop("config", None)
+    if body.get("zeroDataRetention") is True or body.get("storeInCache") is False:
+        fields["cache"] = False  # no cached copy of the result pages
     if fields.pop("json_options", None):
         raise _refuse("the json format is for scrape and batch scrape, not search")
-    result = v1.search(
-        v1.SearchRequest(
+    try:
+        search_request = v1.SearchRequest(
             query=body.get("query") or "",
-            limit=int(body.get("limit") or 5),
+            limit=_int(body.get("limit") or 5, "limit"),
             scrape=bool(options),
             **fields,
-        ),
-        api_key,
-        authorization,
-    )
+        )
+    except ValueError as exc:
+        raise _refuse(str(exc)) from exc
+    result = v1.search(search_request, api_key, authorization)
     web = []
     for item in result["data"]["results"]:
         entry = {"url": item["url"], "title": item["title"], "description": item["snippet"]}
@@ -304,18 +360,19 @@ async def search(
 @router.post("/crawl")
 async def crawl(request: Request, api_key: str | None = Depends(v1.server.require_key)) -> Any:
     body = await _body(request)
+    _refuse_zero_retention(body)
     fields: dict[str, Any] = {}
     for key, value in body.items():
         if key in {"url", *_IGNORED} or value is None:
             continue
         if key == "limit":
-            fields["max_pages"] = int(value)
+            fields["max_pages"] = _int(value, "limit")
         elif key == "maxDiscoveryDepth":
-            fields["max_depth"] = int(value)
+            fields["max_depth"] = _int(value, "maxDiscoveryDepth")
         elif key == "includePaths":
-            fields["include"] = [f"*{path}*" for path in value]
+            fields["include"] = _url_patterns(value)
         elif key == "excludePaths":
-            fields["exclude"] = [f"*{path}*" for path in value]
+            fields["exclude"] = _url_patterns(value)
         elif key == "prompt":
             fields["query"] = str(value)
         elif key == "scrapeOptions":
@@ -323,6 +380,12 @@ async def crawl(request: Request, api_key: str | None = Depends(v1.server.requir
             if "json_options" in options:
                 # Each crawled page would be a paid LLM call nobody counted.
                 raise _refuse("the json format is for scrape and batch scrape, not crawl")
+            # Crawled pages come back with markdown, html, links and metadata,
+            # main content only: anything else would be dropped, not honoured.
+            if set(options["formats"]) - {"markdown", "html", "links", "metadata"}:
+                raise _refuse("crawl returns markdown, html and links only")
+            if options.get("only_main_content") is False:
+                raise _refuse("onlyMainContent=false is not supported by crawl")
             fields["config"] = options.get("config", {})
         elif key in _CRAWL_DEFAULTS:
             if value != _CRAWL_DEFAULTS[key]:
@@ -342,6 +405,7 @@ async def batch_scrape(
     request: Request, api_key: str | None = Depends(v1.server.require_key)
 ) -> Any:
     body = await _body(request)
+    _refuse_zero_retention(body)
     urls = [str(url) for url in body.get("urls") or []]
     if not urls or len(urls) > v1._MAX_BATCH_URLS:
         raise _refuse(f"urls must hold 1 to {v1._MAX_BATCH_URLS} URLs")
@@ -400,12 +464,15 @@ def _job_status(request: Request, job_id: str, skip: int, scope: Any) -> dict[st
     job = v1.get_job(job_id, offset=skip, limit=_PAGE, scope=scope)["data"]
     result = job.get("result") or {}
     documents = result.get("documents")
+    pagination = result.get("pagination") or {}
     if documents is None:  # still running: pages saved so far
         documents = v1.server.store.get_job_documents(job_id, offset=skip, limit=_PAGE)
+        saved = v1.server.store.job_document_count(job_id)
+        pagination = {"total": saved, "has_more": skip + len(documents) < saved}
     progress = job.get("progress") or {}
-    total = (result.get("pagination") or {}).get("total")
+    total = pagination.get("total")
     completed = total if total is not None else int(progress.get("completed") or len(documents))
-    has_more = bool((result.get("pagination") or {}).get("has_more"))
+    has_more = bool(pagination.get("has_more"))
     next_url = None
     if has_more:
         next_url = str(request.url.include_query_params(skip=skip + len(documents)))

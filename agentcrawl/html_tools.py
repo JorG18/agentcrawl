@@ -7,6 +7,18 @@ import re
 import urllib.parse
 from html.parser import HTMLParser
 
+try:
+    import regex as _regex  # matches with a timeout (a core dependency)
+except ImportError:  # pragma: no cover - broken install
+    _regex = None
+
+# re holds the GIL while it backtracks: one (a+)+ pattern froze the server.
+_MATCH_TIMEOUT_S = 0.05
+_MAX_PATTERNS = 20
+_PATTERN_ERRORS: tuple[type[Exception], ...] = (re.error, TimeoutError)
+if _regex is not None:
+    _PATTERN_ERRORS += (_regex.error,)
+
 
 class HTMLFactsParser(HTMLParser):
     def __init__(self, base_url: str):
@@ -24,6 +36,9 @@ class HTMLFactsParser(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attrs_dict = {key.lower(): value for key, value in attrs if value is not None}
         tag = tag.lower()
+        if tag == "html" and attrs_dict.get("lang", "").strip():
+            # The first <html> wins, as in browsers: later ones sit inside <svg> or <textarea> demos.
+            self.metadata.setdefault("language", attrs_dict["lang"].strip())
         if tag == "title":
             self._in_title = True
         if tag == "script" and attrs_dict.get("type", "").lower() == "application/ld+json":
@@ -44,6 +59,7 @@ class HTMLFactsParser(HTMLParser):
                     "description",
                     "og:title",
                     "og:description",
+                    "og:image",
                     "og:type",
                     "og:url",
                     "twitter:title",
@@ -70,6 +86,46 @@ class HTMLFactsParser(HTMLParser):
             self._title_parts.append(data)
         if self._in_jsonld:
             self._jsonld_parts.append(data)
+
+
+class _BaseHrefParser(HTMLParser):
+    """Finds the first <base href> the way a browser does: comments and script
+    text are not tags, and only the real ``href`` attribute counts."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.href: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "base":
+            href = dict(attrs).get("href")
+            if href:
+                self.href = href
+                raise _BaseFound
+        elif tag == "body":
+            raise _BaseFound  # <base> belongs in <head>; stop reading here
+
+
+class _BaseFound(Exception):
+    pass
+
+
+def document_base_url(html: str, url: str) -> str:
+    """The URL relative links resolve against: the first http(s) ``<base href>``, else ``url``."""
+    if "<base" not in html[:200_000].lower():
+        return url
+    parser = _BaseHrefParser()
+    try:
+        parser.feed(html[:200_000])
+    except _BaseFound:
+        pass
+    except Exception:  # noqa: BLE001 - a malformed head keeps the page URL
+        return url
+    if not parser.href:
+        return url
+    base = urllib.parse.urljoin(url, parser.href.strip())
+    # Browsers ignore a javascript:/data:/mailto: base; so do we.
+    return base if base.startswith(("http://", "https://")) else url
 
 
 def extract_html_facts(html: str, base_url: str) -> tuple[list[str], dict[str, str]]:
@@ -208,12 +264,13 @@ def same_domain(url: str, root_url: str) -> bool:
 
 
 def url_allowed(url: str, include: list[str], exclude: list[str]) -> bool:
+    # Both fail closed: a pattern that times out neither admits nor un-excludes.
     if include and not any(_pattern_matches(pattern, url) for pattern in include):
         return False
-    return not any(_pattern_matches(pattern, url) for pattern in exclude)
+    return not any(_pattern_matches(pattern, url, on_timeout=True) for pattern in exclude)
 
 
-def _pattern_matches(pattern: str, url: str) -> bool:
+def _pattern_matches(pattern: str, url: str, *, on_timeout: bool = False) -> bool:
     """``re.search`` that a caller's typo can never turn into an exception.
 
     ``include`` / ``exclude`` are user input (the CLI flags and the API's
@@ -224,8 +281,12 @@ def _pattern_matches(pattern: str, url: str) -> bool:
     simply matches nothing.
     """
     try:
+        if _regex is not None:
+            return _regex.search(pattern, url, timeout=_MATCH_TIMEOUT_S) is not None
         return re.search(pattern, url) is not None
-    except re.error:
+    except TimeoutError:
+        return on_timeout
+    except _PATTERN_ERRORS:
         return False
 
 
@@ -233,12 +294,16 @@ def validate_url_patterns(patterns: list[str] | None) -> list[str] | None:
     """Raise ``ValueError`` for a pattern that cannot compile, naming it."""
     if patterns is None:
         return None
+    if len(patterns) > _MAX_PATTERNS:
+        # Each URL is matched against every pattern, each up to the timeout.
+        raise ValueError(f"At most {_MAX_PATTERNS} patterns are accepted, got {len(patterns)}")
     for pattern in patterns:
         if not isinstance(pattern, str):
             raise ValueError(f"Patterns must be strings, got {type(pattern).__name__}")
         try:
-            re.compile(pattern)
-        except re.error as exc:
+            # Validate with the engine that will match.
+            (_regex or re).compile(pattern)
+        except _PATTERN_ERRORS as exc:
             raise ValueError(f"Invalid regular expression {pattern!r}: {exc}") from exc
     return patterns
 

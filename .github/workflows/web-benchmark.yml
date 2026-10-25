@@ -86,7 +86,8 @@ jobs:
           python - >> "$GITHUB_OUTPUT" <<'PY'
           import json, os
           tools = [t for t in os.environ["TOOLS"].split(",") if t]
-          # Same rule as benchmarks/web/report.is_local: variants run locally too.
+          # Same rule as benchmarks/web/report.is_local. A variant (agentcrawl-x) also
+          # needs an entry in run.TOOLS, or run.py --tool rejects it.
           local = [t for t in tools if t.split("-")[0] in {"agentcrawl", "crawl4ai", "scrapling"}]
           print("local=" + " ".join(local))
           print("hosted=" + json.dumps([t for t in tools if t not in local]))

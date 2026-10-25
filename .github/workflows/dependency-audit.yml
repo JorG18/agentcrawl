@@ -1,0 +1,33 @@
+name: Dependency audit
+
+# Every runtime extra as users resolve it today (no dev tools, no pip-audit
+# itself). Weekly too, so an advisory published between PRs is still caught.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Resolve the runtime extras
+        run: |
+          python -m venv /tmp/runtime
+          /tmp/runtime/bin/python -m pip install --upgrade pip
+          /tmp/runtime/bin/python -m pip install ".[browser,stealth,cloak,docs,llm,openai,anthropic,ollama,server,mcp]"
+          /tmp/runtime/bin/python -m pip freeze --exclude agentcrawl-ai > runtime.txt
+      - name: Audit
+        run: |
+          python -m pip install pip-audit==2.10.1
+          python -m pip_audit -r runtime.txt --no-deps --disable-pip --progress-spinner off

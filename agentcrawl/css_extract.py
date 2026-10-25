@@ -40,6 +40,9 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
 
+from .html_tools import _MATCH_TIMEOUT_S, _PATTERN_ERRORS, _regex
+from .parsing import _close_implied
+
 _VOID = frozenset("area base br col embed hr img input link meta param source track wbr".split())
 _SKIP_TEXT = frozenset({"script", "style", "template", "noscript"})
 _MAX_DEPTH = 8  # nested/list recursion in a schema
@@ -107,12 +110,14 @@ class _TreeBuilder(HTMLParser):
         self.stack: list[Node] = [self.root]
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        _close_implied(self.stack, tag)  # <li>a<li>b are siblings, not nested
         node = Node(tag, {name: value or "" for name, value in attrs}, parent=self.stack[-1])
         self.stack[-1].children.append(node)
         if tag not in _VOID:
             self.stack.append(node)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        _close_implied(self.stack, tag)
         node = Node(tag, {name: value or "" for name, value in attrs}, parent=self.stack[-1])
         self.stack[-1].children.append(node)
 
@@ -353,8 +358,8 @@ def validate_css_schema(schema: Any, *, _depth: int = 0) -> None:
             raise ValueError(f"{where}.attribute is required for type 'attribute'")
         if kind == "regex":
             try:
-                re.compile(spec.get("pattern", ""))
-            except (re.error, TypeError) as exc:
+                (_regex or re).compile(spec.get("pattern", ""))
+            except (*_PATTERN_ERRORS, TypeError) as exc:
                 raise ValueError(f"{where}.pattern is not a valid regex: {exc}") from exc
             if not spec.get("pattern"):
                 raise ValueError(f"{where}.pattern is required for type 'regex'")
@@ -414,7 +419,14 @@ def _value(node: Node, spec: dict[str, Any], base_url: str) -> Any:
     elif kind == "html":
         raw = node.inner_html()
     elif kind == "regex":
-        match = re.search(spec["pattern"], node.text())
+        try:
+            # Caller-supplied pattern on page text: time-limited, as include/exclude.
+            if _regex is not None:
+                match = _regex.search(spec["pattern"], node.text(), timeout=_MATCH_TIMEOUT_S)
+            else:
+                match = re.search(spec["pattern"], node.text())
+        except TimeoutError:
+            return None
         if not match:
             return None
         raw = match.group(1) if match.groups() else match.group(0)

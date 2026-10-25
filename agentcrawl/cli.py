@@ -17,13 +17,19 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .crawler import AgentCrawl
-from .config import config_from_env
+from .crawler import SUPPORTED_FORMATS, AgentCrawl
+from .config import CrawlConfig, config_from_env
 from .dashboard import dashboard_summary, render_dashboard_html
+from .errors import redact_credentials
 from .exceptions import FetchError
-from .remote_client import AgentCrawlClient
+from .parsing import html_to_markdown
+from .remote_client import AgentCrawlClient, check_base_url
 from .serializers import to_jsonable
 from .storage import SQLiteStore
+
+
+# json needs a schema or prompt the CLI cannot pass; use the API or library.
+_CLI_FORMATS = sorted(SUPPORTED_FORMATS - {"json"})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,7 +92,9 @@ def main(argv: list[str] | None = None) -> int:
 
     scrape = sub.add_parser("scrape", parents=[engine])
     scrape.add_argument("url")
-    scrape.add_argument("--format", action="append", dest="formats", default=None)
+    scrape.add_argument(
+        "--format", action="append", dest="formats", default=None, choices=_CLI_FORMATS
+    )
     scrape.add_argument("--no-cache", action="store_true")
     scrape.add_argument("--cache-ttl", type=int, default=None)
     scrape.add_argument("--full-page", action="store_true")
@@ -112,7 +120,9 @@ def main(argv: list[str] | None = None) -> int:
     scrape_many.add_argument(
         "--file", help="Read URLs from a file, one per line ('-' for stdin); '#' starts a comment."
     )
-    scrape_many.add_argument("--format", action="append", dest="formats", default=None)
+    scrape_many.add_argument(
+        "--format", action="append", dest="formats", default=None, choices=_CLI_FORMATS
+    )
     scrape_many.add_argument("--no-cache", action="store_true")
     scrape_many.add_argument("--full-page", action="store_true")
     scrape_many.add_argument("--query")
@@ -126,7 +136,9 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("--limit", type=int, default=5, help="Results, 1 to 20.")
     search.add_argument("--no-scrape", action="store_true", help="Titles, URLs and snippets only.")
     search.add_argument("--full-page", action="store_true")
-    search.add_argument("--format", action="append", dest="formats", default=None)
+    search.add_argument(
+        "--format", action="append", dest="formats", default=None, choices=_CLI_FORMATS
+    )
 
     extract_css = sub.add_parser(
         "extract-css",
@@ -291,7 +303,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         report = _doctor_clients(args.client) if args.client else _doctor()
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 0
+        if args.client:
+            # "missing" is normal under ``--client all`` (not every client is installed).
+            bad = {"stale", "unreadable"} | ({"missing"} if args.client != "all" else set())
+            return int(any(entry["state"] in bad for entry in report["clients"]))
+        return 0 if report["summary"]["ok"] else 1
     if args.command == "setup":
         return _setup(args)
     if args.command in {"login", "sessions", "logout"}:
@@ -376,12 +392,16 @@ def main(argv: list[str] | None = None) -> int:
         and _scrape_ok(result)
     ):
         _print_token_stats(result.get("metadata", {}))
+    # Remote mode answers {"data": {"failures": [...]}}; local mode a bare list.
+    failure_rows = result
+    if args.command == "failures" and isinstance(result, dict):
+        failure_rows = (result.get("data") or {}).get("failures") or []
     if (
         args.command == "failures"
         and getattr(args, "export_csv", None)
-        and isinstance(result, list)
+        and isinstance(failure_rows, list)
     ):
-        written = _export_failures_csv(result, args.export_csv)
+        written = _export_failures_csv(failure_rows, args.export_csv)
         payload: dict[str, Any] = {
             "exported_rows": written,
             "path": str(Path(args.export_csv).resolve()),
@@ -636,15 +656,22 @@ def _check_command(command: str) -> dict[str, Any]:
 
 
 def _check_local_scrape() -> dict[str, Any]:
+    html = "<main><h1>AgentCrawl Doctor</h1></main>"
     try:
+        config = config_from_env(allow_local_files_default=True)
+        if not config["allow_local_files"]:
+            # Deployments that turn local files off (the Docker image) still
+            # get the extractor checked, without reading a file.
+            markdown = html_to_markdown(html, CrawlConfig.from_dict(config), only_main_content=True)
+            return _check_bool("AgentCrawl Doctor" in markdown)
         with tempfile.TemporaryDirectory() as directory:
             page = Path(directory) / "doctor.html"
-            page.write_text("<main><h1>AgentCrawl Doctor</h1></main>", encoding="utf-8")
-            document = AgentCrawl(config_from_env(allow_local_files_default=True)).scrape(str(page))
+            page.write_text(html, encoding="utf-8")
+            document = AgentCrawl(config).scrape(str(page))
         markdown = getattr(document, "markdown", "")
         return _check_bool("AgentCrawl Doctor" in markdown)
     except Exception as exc:
-        return {"ok": False, "detail": str(exc)}
+        return {"ok": False, "detail": redact_credentials(str(exc))}
 
 
 def _check_browser(installed: bool) -> dict[str, Any]:
@@ -679,10 +706,14 @@ def _check_remote_config() -> dict[str, Any]:
     base_url = os.getenv("AGENTCRAWL_BASE_URL")
     if not base_url:
         return {"ok": True, "skipped": True, "detail": "AGENTCRAWL_BASE_URL not set"}
+    try:
+        base_url = check_base_url(base_url)
+    except ValueError as exc:
+        return {"ok": False, "detail": str(exc)}
     return {
         "ok": True,
         "detail": {
-            "base_url": base_url.rstrip("/"),
+            "base_url": base_url,
             "api_key_configured": bool(os.getenv("AGENTCRAWL_API_KEY")),
         },
     }
@@ -693,14 +724,14 @@ def _check_remote_health() -> dict[str, Any]:
     if not base_url:
         return {"ok": True, "skipped": True, "detail": "remote health skipped"}
     try:
-        request = urllib.request.Request(base_url.rstrip("/") + "/health")
+        request = urllib.request.Request(check_base_url(base_url) + "/health")
         with urllib.request.urlopen(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return {"ok": bool(payload.get("ok")), "detail": payload}
     except urllib.error.HTTPError as exc:
         return {"ok": False, "detail": f"HTTP {exc.code}"}
     except Exception as exc:
-        return {"ok": False, "detail": str(exc)}
+        return {"ok": False, "detail": redact_credentials(str(exc))}
 
 
 def _backup(db_path: str, output_dir: str, env_file: str | None = None) -> dict[str, Any]:
@@ -756,7 +787,18 @@ def _restore(backup_db: str, db_path: str, *, force: bool = False) -> dict[str, 
     if integrity != "ok":
         raise SystemExit(f"Backup integrity check failed: {integrity}")
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, target)
+    # SQLite's backup API writes through the target's own journal: a stale
+    # -wal or -journal left by a crash is applied first and then overwritten,
+    # instead of replaying over a file copied behind SQLite's back.
+    try:
+        with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
+            src.backup(dst)
+    except sqlite3.DatabaseError:
+        # The target is not a database (corrupt): the case restore exists for.
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            Path(f"{target}{suffix}").unlink(missing_ok=True)
+        with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
+            src.backup(dst)
     os.chmod(target, 0o600)
     return {
         "ok": True,
@@ -890,7 +932,10 @@ def _run_local(args: argparse.Namespace) -> Any:
 
 
 def _run_remote(args: argparse.Namespace) -> Any:
-    client = AgentCrawlClient(args.base_url, args.api_key)
+    try:
+        client = AgentCrawlClient(args.base_url, args.api_key)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
     if args.command == "scrape":
         return client.scrape(
             args.url,

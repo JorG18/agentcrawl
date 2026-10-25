@@ -12,16 +12,23 @@ _STATUS_ERROR_TYPES = {403: "blocked", 404: "not_found", 410: "not_found", 429: 
 ERROR_MESSAGE_MAX_CHARS = 300
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]|\x1b\[[0-9;]*[A-Za-z]")
 _SPACE_RE = re.compile(r"\s+")
+_USERINFO_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s?#]+@")
 
 
-def sanitize_error_message(message: str | None) -> str:
-    """One line, no control characters, at most ``ERROR_MESSAGE_MAX_CHARS``."""
+def redact_credentials(text: str) -> str:
+    """Hide the ``user:password@`` part of any URL in ``text`` (proxy errors)."""
+    return _USERINFO_RE.sub(r"\1***@", text)
+
+
+def sanitize_error_message(message: str | None, max_chars: int = ERROR_MESSAGE_MAX_CHARS) -> str:
+    """One line, no control characters, credentials redacted, at most ``max_chars``."""
     if not message:
         return ""
     text = _CONTROL_RE.sub(" ", str(message))
     text = _SPACE_RE.sub(" ", text).strip()
-    if len(text) > ERROR_MESSAGE_MAX_CHARS:
-        text = text[: ERROR_MESSAGE_MAX_CHARS - 1].rstrip() + "…"
+    text = redact_credentials(text)
+    if len(text) > max_chars:
+        text = text[: max_chars - 1].rstrip() + "…"
     return text
 
 
