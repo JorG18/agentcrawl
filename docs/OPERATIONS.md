@@ -165,6 +165,22 @@ AGENTCRAWL_BASE_URL=https://agentcrawl.internal.example AGENTCRAWL_API_KEY=<clie
 | `AGENTCRAWL_SEARCH_ENGINE` | `none` | Enables `/v1/search`, MCP `search_web` and CLI `search`: `serper` with `SERPER_API_KEY`, or `duckduckgo` (no key, but it often answers automated clients with a bot check, reported as an error). Queries leave the host for that engine, so it is off by default and a request cannot choose it. |
 | `AGENTCRAWL_TIMEOUT_MS` | `30000` | Per socket operation. A whole body must also arrive within 3 × this value. |
 
+Other engine and server variables (local mode and the server read the engine ones alike):
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `AGENTCRAWL_AIRGAP` | `false` | Refuse every host outside the target and `AGENTCRAWL_AIRGAP_ALLOWLIST`; also forces strict browser networking and refuses Camofox. |
+| `AGENTCRAWL_AIRGAP_ALLOWLIST` | empty | Comma-separated extra hosts allowed under airgap (empty = the target host only). |
+| `AGENTCRAWL_AUDIT` | `false` | Record every request made for a page in `metadata.audit_trail`; forces strict browser networking. |
+| `AGENTCRAWL_HTTP_RETRIES` / `AGENTCRAWL_HTTP_RETRY_DELAY` | `2` / `1.0` | Retries of a failed HTTP fetch and the first delay in seconds. |
+| `AGENTCRAWL_CRAWL_URL_RETRIES` | `2` | Retries of a failed page inside a crawl (API cap 5). |
+| `AGENTCRAWL_CRAWL_RETRY_DELAY` / `AGENTCRAWL_CRAWL_RETRY_MAX_DELAY` | `2.0` / `60.0` | First and largest delay, in seconds, between those retries. |
+| `AGENTCRAWL_CAMOFOX_USER_ID` | `agentcrawl` | User id AgentCrawl sends to the Camofox service. |
+| `AGENTCRAWL_LLM_PROVIDER` | unset | Prefix for `AGENTCRAWL_LLM_MODEL` when the model name has no `provider:` part. |
+| `AGENTCRAWL_MCP_TIMEOUT` | `120` | Seconds the MCP server waits for the remote API when `AGENTCRAWL_BASE_URL` is set. |
+| `AGENTCRAWL_INSTANCE_ID` | `pid-<pid>-<random>` | Name this server process uses as owner of job leases; set it only to tell processes apart in the database. |
+| `AGENTCRAWL_SCHEDULE_LEASE_SECONDS` | `300` | Length of a job's lease, for scheduling and for its run (a live run renews it). A process that dies holds its jobs until the lease expires; then the 60 s sweep requeues them. |
+
 `usage_events` rows (`GET /v1/usage`, `GET /v1/stats` → `usage_by_endpoint`) are the metering record:
 
 - `/v1/scrape`, `/v1/scrape.cache_hit`, `/v1/map`, `/v1/extract`, `/v1/extract_css`: 1 unit per call (per URL for `scrape_many`).
@@ -173,7 +189,7 @@ AGENTCRAWL_BASE_URL=https://agentcrawl.internal.example AGENTCRAWL_API_KEY=<clie
 - `/v1/extract.llm_calls`: model requests made by an extraction, reattempts included.
 - `/v1/jobs.failures.retry` and the re-run it triggers are billed to the **job owner**, whoever pressed retry.
 
-Known limitation: with `uvicorn --workers > 1`, a worker process that restarts runs restart recovery and can requeue jobs another live worker is still processing (see CHANGELOG → 0.2.0 → Known issues). Prefer one server process with `AGENTCRAWL_WORKERS` threads until that is fixed.
+With `uvicorn --workers > 1` (or several servers on one database), restart recovery only requeues jobs whose run lease expired, so a live worker keeps its job. Two limits stay per process: `AGENTCRAWL_RATE_LIMIT_PER_MINUTE` and the per-domain concurrency and delay are counted in each process, so N processes allow up to N times as much. One process with `AGENTCRAWL_WORKERS` threads keeps them exact. Restart every process sharing the database together when you upgrade.
 
 ## Verification
 

@@ -846,18 +846,32 @@ class _BodyLimit:
             await self._refuse(send, limit)
             return
         received = 0
+        over = False
 
         async def capped_receive() -> Any:
-            nonlocal received
+            nonlocal received, over
             message = await receive()
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
                 if received > limit:
+                    over = True
                     # The app sees a client disconnect and stops reading.
                     return {"type": "http.disconnect"}
             return message
 
-        await self.app(scope, capped_receive, send)
+        refused = False
+
+        async def capped_send(message: Any) -> None:
+            nonlocal refused
+            # A chunked body cut at the cap fails the app's body parsing (400):
+            # answer the same 413 as a body whose Content-Length is too big.
+            if over and message["type"] == "http.response.start":
+                refused = True
+                await self._refuse(send, limit)
+            if not refused:
+                await send(message)
+
+        await self.app(scope, capped_receive, capped_send)
 
     @staticmethod
     async def _refuse(send: Any, limit: int) -> None:
