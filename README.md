@@ -160,10 +160,10 @@ What costs money to operate belongs to AgentCrawl Enhanced, a hosted API (planne
 
 ## Extraction quality 🧹
 
-Measured in October 2026 against Crawl4AI, Scrapling and Firecrawl ([full results, method and limits](docs/BENCHMARKS.md)):
+Measured in October 2026 ([full results, method and limits](docs/BENCHMARKS.md)):
 
-- On 400 random real sites AgentCrawl gets readable content from about 64 % of pages, with no significant difference from Firecrawl and Scrapling, and ahead of Crawl4AI.
-- On 23 randomly drawn pages with checked expectations it keeps 99 % of the checked text, and 8–11 % of the checked chrome strings (navigation, cookie banners, footers) leak through. On that quality it is on par with Firecrawl and Crawl4AI, and ahead of Scrapling.
+- On a fresh sample of 400 random real sites, drawn after the engine was tuned and with the rules written first, AgentCrawl gets readable content from 60.8 % of pages, Scrapling from 63.6 % and Crawl4AI from 52.4 %: no significant difference from Scrapling (the sample cannot detect gaps under about 3 points), and AgentCrawl reads more pages than Crawl4AI.
+- On 23 randomly drawn pages with checked expectations (0.6.0 benchmark) it keeps 99 % of the checked text, and 8–11 % of the checked chrome strings (navigation, cookie banners, footers) leak through. On that quality it is on par with Firecrawl and Crawl4AI, and ahead of Scrapling.
 - On those pages its output is about a third smaller than Firecrawl's, and close to Crawl4AI's `fit_markdown` (2 % smaller live, 18 % larger offline).
 
 How the engine gets there:
@@ -520,7 +520,7 @@ export OPENAI_BASE_URL=https://openrouter.ai/api/v1
 export AGENTCRAWL_LLM_MAX_PAGES=20   # pages one call may send to the model (default 20)
 ```
 
-The model, its key and endpoint come only from your configuration, never from a request, so a caller cannot switch you to an expensive model or send your key elsewhere. A batch over `AGENTCRAWL_LLM_MAX_PAGES` is refused before any call, and crawls do not take `json` (each page would be a call). With no model configured, `metadata.json_error` says so and the agent reads the Markdown instead.
+The model, its key and endpoint come only from your configuration, never from a request, so a caller cannot switch you to an expensive model or send your key elsewhere. A batch over `AGENTCRAWL_LLM_MAX_PAGES` (it counts `json` and `summary` pages) is refused before any call, and crawls do not take `json` (each page would be a call). With no model configured, `metadata.json_error` says so and the agent reads the Markdown instead.
 
 ## Development
 

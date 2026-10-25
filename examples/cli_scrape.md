@@ -14,7 +14,7 @@ pip install agentcrawl-ai
 agentcrawl scrape https://docs.python.org/3/library/json.html
 ```
 
-Expected result: Markdown/text from the AgentCrawl PyPI project page.
+Expected result: Markdown/text from the Python `json` module docs page.
 
 `https://example.com` is documented separately as a Community boundary case because it commonly returns a Cloudflare client challenge.
 

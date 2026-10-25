@@ -7,6 +7,7 @@ page. A CSS schema is written once and then applied for free.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -110,6 +111,18 @@ def test_schema_extracts_every_field_type() -> None:
             "stock": 0,
         },
     ]
+
+
+def test_catastrophic_regex_field_times_out_instead_of_freezing() -> None:
+    # (a|aa)+$ on a long run of "a" plus "b" backtracks for minutes on re.
+    html = "<p class='x'>" + "a" * 40 + "b</p>"
+    schema = {"fields": [{"name": "v", "selector": ".x", "type": "regex", "pattern": r"(a|aa)+$"}]}
+
+    started = time.monotonic()
+    items = extract_with_schema(html, schema)
+
+    assert time.monotonic() - started < 2
+    assert items == {"v": None}
 
 
 def test_without_base_selector_one_object_is_returned() -> None:
